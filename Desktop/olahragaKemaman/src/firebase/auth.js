@@ -16,7 +16,6 @@
 
 import {
   signInWithEmailAndPassword,
-  signInAnonymously,
   signOut as firebaseSignOut,
   sendPasswordResetEmail,
 } from 'firebase/auth'
@@ -92,8 +91,6 @@ export async function loginPencatat(kodAkses, pin) {
   }
 
   sessionStorage.setItem(SESSION_USER_KEY, JSON.stringify(sessionData))
-  // Anonymous sign-in supaya Firestore rules isFirebaseAuth() = true untuk write
-  try { await signInAnonymously(auth) } catch { /* abaikan */ }
   return sessionData
 }
 
@@ -144,7 +141,6 @@ export async function loginPengurus(kodSekolah, pin) {
   }
 
   sessionStorage.setItem(SESSION_SEKOLAH_KEY, JSON.stringify(sessionData))
-  try { await signInAnonymously(auth) } catch { /* abaikan */ }
   return sessionData
 }
 

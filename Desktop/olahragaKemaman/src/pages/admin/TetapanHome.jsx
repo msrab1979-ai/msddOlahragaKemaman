@@ -39,6 +39,11 @@ export const TETAPAN_DEFAULTS = {
   medalHomeGroupJenis:  'pisah', // 'pisah' = SR/SM/PPKI berasingan | 'gabung' = satu jadual
   // Jadual Acara
   showJadual:           true,
+  // Pautan Kumpulan
+  linkWasap:            '',
+  linkTelegram:         '',
+  // Dokumen Muat Turun (selepas login)
+  dokumenMuatTurun:     [], // [{ nama, url }]
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -498,6 +503,63 @@ export default function TetapanHome() {
                   placeholder="cth: Pendaftaran atlet dibuka sehingga 15 April 2026." />
               </Field>
             </div>
+          </div>
+
+          {/* 7. Pautan Kumpulan */}
+          <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
+            <SectionTitle title="Pautan Kumpulan"
+              desc="Butang WhatsApp / Telegram dipapar di halaman utama sebelum login" />
+            <div className="space-y-3">
+              <Field label="Pautan WhatsApp" hint="Kosongkan jika tidak mahu papar butang WhatsApp">
+                <input className={inputCls} value={cfg.linkWasap || ''}
+                  onChange={e => set('linkWasap', e.target.value)}
+                  placeholder="https://chat.whatsapp.com/..." />
+              </Field>
+              <Field label="Pautan Telegram" hint="Kosongkan jika tidak mahu papar butang Telegram">
+                <input className={inputCls} value={cfg.linkTelegram || ''}
+                  onChange={e => set('linkTelegram', e.target.value)}
+                  placeholder="https://t.me/..." />
+              </Field>
+            </div>
+          </div>
+
+          {/* 8. Dokumen Muat Turun */}
+          <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
+            <SectionTitle title="Dokumen Muat Turun"
+              desc="Dipapar sebagai butang di Dashboard selepas login. Boleh tambah berapa banyak pautan." />
+            <div className="space-y-2 mb-3">
+              {(cfg.dokumenMuatTurun || []).map((dok, i) => (
+                <div key={i} className="flex gap-2 items-center">
+                  <input className={inputCls} value={dok.nama}
+                    onChange={e => {
+                      const arr = [...(cfg.dokumenMuatTurun || [])]
+                      arr[i] = { ...arr[i], nama: e.target.value }
+                      set('dokumenMuatTurun', arr)
+                    }}
+                    placeholder="Nama dokumen (cth: Peraturan Pertandingan)" />
+                  <input className={inputCls} value={dok.url}
+                    onChange={e => {
+                      const arr = [...(cfg.dokumenMuatTurun || [])]
+                      arr[i] = { ...arr[i], url: e.target.value }
+                      set('dokumenMuatTurun', arr)
+                    }}
+                    placeholder="URL pautan" />
+                  <button type="button"
+                    onClick={() => set('dokumenMuatTurun', (cfg.dokumenMuatTurun || []).filter((_, j) => j !== i))}
+                    className="shrink-0 text-red-400 hover:text-red-600 px-2 py-1 text-lg leading-none transition-colors">
+                    ×
+                  </button>
+                </div>
+              ))}
+              {(cfg.dokumenMuatTurun || []).length === 0 && (
+                <p className="text-[11px] text-gray-400 italic">Tiada dokumen lagi. Klik tambah di bawah.</p>
+              )}
+            </div>
+            <button type="button"
+              onClick={() => set('dokumenMuatTurun', [...(cfg.dokumenMuatTurun || []), { nama: '', url: '' }])}
+              className="text-xs font-semibold text-[#003399] hover:underline flex items-center gap-1">
+              + Tambah Dokumen
+            </button>
           </div>
 
           {/* Save */}

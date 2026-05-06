@@ -15,8 +15,7 @@
  * Contoh: ACR-100M-L-A, ACR-LOMPAT_JAUH-P-B
  */
 
-import { useState, useEffect, useCallback } from 'react'
-import { seedJadualAcara2026, deleteJadualSeed, deleteAllAcara, JADUAL_2026 } from '../../utils/seedJadual2026'
+import React, { useState, useEffect, useCallback } from 'react'
 import {
   collection, getDocs, doc, setDoc, updateDoc, deleteDoc,
   serverTimestamp, query, orderBy, where, writeBatch, getDoc,
@@ -94,118 +93,6 @@ const CARA_FINAL_OPTIONS = [
   { value: 'best_heat', label: 'Best Heat', desc: 'Top N dari setiap heat' },
 ]
 
-// Seed standard acara MSSM — format: {namaAcara, jenisAcara, kategoriKod, jantina, ...}
-const SEED_ACARA_STANDARD = [
-  // ── Kategori A (SR, Bawah 10) ──────────────────────────────────────────────
-  { namaAcara:'80m',          jenisAcara:'lorong',       kategoriKod:'A', jantina:'L', bilanganLorong:8, isWindReading:true,  hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'80m',          jenisAcara:'lorong',       kategoriKod:'A', jantina:'P', bilanganLorong:8, isWindReading:true,  hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'Lompat Jauh',  jenisAcara:'padang_lompat',kategoriKod:'A', jantina:'L', bilanganCubaan:3, topFinalis:8, isWindReading:true,  hadAtletPerSekolah:2 },
-  { namaAcara:'Lompat Jauh',  jenisAcara:'padang_lompat',kategoriKod:'A', jantina:'P', bilanganCubaan:3, topFinalis:8, isWindReading:true,  hadAtletPerSekolah:2 },
-  { namaAcara:'Lontar Peluru',jenisAcara:'padang_balin', kategoriKod:'A', jantina:'L', bilanganCubaan:3, topFinalis:8, isWindReading:false, hadAtletPerSekolah:2 },
-  { namaAcara:'Lontar Peluru',jenisAcara:'padang_balin', kategoriKod:'A', jantina:'P', bilanganCubaan:3, topFinalis:8, isWindReading:false, hadAtletPerSekolah:2 },
-  { namaAcara:'4x100m',       jenisAcara:'relay',        kategoriKod:'A', jantina:'L', bilanganLorong:8, isWindReading:false, hadAtletPerSekolah:1, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'4x100m',       jenisAcara:'relay',        kategoriKod:'A', jantina:'P', bilanganLorong:8, isWindReading:false, hadAtletPerSekolah:1, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-
-  // ── Kategori B (SR, Bawah 12) ──────────────────────────────────────────────
-  { namaAcara:'100m',         jenisAcara:'lorong',       kategoriKod:'B', jantina:'L', bilanganLorong:8, isWindReading:true,  hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'100m',         jenisAcara:'lorong',       kategoriKod:'B', jantina:'P', bilanganLorong:8, isWindReading:true,  hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'200m',         jenisAcara:'lorong',       kategoriKod:'B', jantina:'L', bilanganLorong:8, isWindReading:true,  hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'200m',         jenisAcara:'lorong',       kategoriKod:'B', jantina:'P', bilanganLorong:8, isWindReading:true,  hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'800m',         jenisAcara:'mass_start',   kategoriKod:'B', jantina:'L', isWindReading:false, hadAtletPerSekolah:2, bilanganFinalis:12, caraPilihFinal:'best_time', wildcardSlot:0 },
-  { namaAcara:'800m',         jenisAcara:'mass_start',   kategoriKod:'B', jantina:'P', isWindReading:false, hadAtletPerSekolah:2, bilanganFinalis:12, caraPilihFinal:'best_time', wildcardSlot:0 },
-  { namaAcara:'Lompat Jauh',  jenisAcara:'padang_lompat',kategoriKod:'B', jantina:'L', bilanganCubaan:3, topFinalis:8, isWindReading:true,  hadAtletPerSekolah:2 },
-  { namaAcara:'Lompat Jauh',  jenisAcara:'padang_lompat',kategoriKod:'B', jantina:'P', bilanganCubaan:3, topFinalis:8, isWindReading:true,  hadAtletPerSekolah:2 },
-  { namaAcara:'Lompat Tinggi',jenisAcara:'padang_lompat',kategoriKod:'B', jantina:'L', bilanganCubaan:3, topFinalis:8, isWindReading:false, hadAtletPerSekolah:2 },
-  { namaAcara:'Lompat Tinggi',jenisAcara:'padang_lompat',kategoriKod:'B', jantina:'P', bilanganCubaan:3, topFinalis:8, isWindReading:false, hadAtletPerSekolah:2 },
-  { namaAcara:'Lontar Peluru',jenisAcara:'padang_balin', kategoriKod:'B', jantina:'L', bilanganCubaan:3, topFinalis:8, isWindReading:false, hadAtletPerSekolah:2 },
-  { namaAcara:'Lontar Peluru',jenisAcara:'padang_balin', kategoriKod:'B', jantina:'P', bilanganCubaan:3, topFinalis:8, isWindReading:false, hadAtletPerSekolah:2 },
-  { namaAcara:'4x100m',       jenisAcara:'relay',        kategoriKod:'B', jantina:'L', bilanganLorong:8, isWindReading:false, hadAtletPerSekolah:1, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'4x100m',       jenisAcara:'relay',        kategoriKod:'B', jantina:'P', bilanganLorong:8, isWindReading:false, hadAtletPerSekolah:1, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-
-  // ── Kategori C (SM, Bawah 14) ─────────────────────────────────────────────
-  { namaAcara:'100m',         jenisAcara:'lorong',       kategoriKod:'C', jantina:'L', bilanganLorong:8, isWindReading:true,  hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'100m',         jenisAcara:'lorong',       kategoriKod:'C', jantina:'P', bilanganLorong:8, isWindReading:true,  hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'200m',         jenisAcara:'lorong',       kategoriKod:'C', jantina:'L', bilanganLorong:8, isWindReading:true,  hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'200m',         jenisAcara:'lorong',       kategoriKod:'C', jantina:'P', bilanganLorong:8, isWindReading:true,  hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'400m',         jenisAcara:'lorong',       kategoriKod:'C', jantina:'L', bilanganLorong:8, isWindReading:false, hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'400m',         jenisAcara:'lorong',       kategoriKod:'C', jantina:'P', bilanganLorong:8, isWindReading:false, hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'800m',         jenisAcara:'mass_start',   kategoriKod:'C', jantina:'L', isWindReading:false, hadAtletPerSekolah:2, bilanganFinalis:12, caraPilihFinal:'best_time', wildcardSlot:0 },
-  { namaAcara:'800m',         jenisAcara:'mass_start',   kategoriKod:'C', jantina:'P', isWindReading:false, hadAtletPerSekolah:2, bilanganFinalis:12, caraPilihFinal:'best_time', wildcardSlot:0 },
-  { namaAcara:'1500m',        jenisAcara:'mass_start',   kategoriKod:'C', jantina:'L', isWindReading:false, hadAtletPerSekolah:2, bilanganFinalis:12, caraPilihFinal:'best_time', wildcardSlot:0 },
-  { namaAcara:'1500m',        jenisAcara:'mass_start',   kategoriKod:'C', jantina:'P', isWindReading:false, hadAtletPerSekolah:2, bilanganFinalis:12, caraPilihFinal:'best_time', wildcardSlot:0 },
-  { namaAcara:'Lompat Jauh',  jenisAcara:'padang_lompat',kategoriKod:'C', jantina:'L', bilanganCubaan:3, topFinalis:8, isWindReading:true,  hadAtletPerSekolah:2 },
-  { namaAcara:'Lompat Jauh',  jenisAcara:'padang_lompat',kategoriKod:'C', jantina:'P', bilanganCubaan:3, topFinalis:8, isWindReading:true,  hadAtletPerSekolah:2 },
-  { namaAcara:'Lompat Tinggi',jenisAcara:'padang_lompat',kategoriKod:'C', jantina:'L', bilanganCubaan:3, topFinalis:8, isWindReading:false, hadAtletPerSekolah:2 },
-  { namaAcara:'Lompat Tinggi',jenisAcara:'padang_lompat',kategoriKod:'C', jantina:'P', bilanganCubaan:3, topFinalis:8, isWindReading:false, hadAtletPerSekolah:2 },
-  { namaAcara:'Lontar Peluru',jenisAcara:'padang_balin', kategoriKod:'C', jantina:'L', bilanganCubaan:3, topFinalis:8, isWindReading:false, hadAtletPerSekolah:2 },
-  { namaAcara:'Lontar Peluru',jenisAcara:'padang_balin', kategoriKod:'C', jantina:'P', bilanganCubaan:3, topFinalis:8, isWindReading:false, hadAtletPerSekolah:2 },
-  { namaAcara:'Lembing',      jenisAcara:'padang_balin', kategoriKod:'C', jantina:'L', bilanganCubaan:3, topFinalis:8, isWindReading:false, hadAtletPerSekolah:2 },
-  { namaAcara:'Lembing',      jenisAcara:'padang_balin', kategoriKod:'C', jantina:'P', bilanganCubaan:3, topFinalis:8, isWindReading:false, hadAtletPerSekolah:2 },
-  { namaAcara:'4x100m',       jenisAcara:'relay',        kategoriKod:'C', jantina:'L', bilanganLorong:8, isWindReading:false, hadAtletPerSekolah:1, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'4x100m',       jenisAcara:'relay',        kategoriKod:'C', jantina:'P', bilanganLorong:8, isWindReading:false, hadAtletPerSekolah:1, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-
-  // ── Kategori D (SM, Bawah 16) ─────────────────────────────────────────────
-  { namaAcara:'100m',         jenisAcara:'lorong',       kategoriKod:'D', jantina:'L', bilanganLorong:8, isWindReading:true,  hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'100m',         jenisAcara:'lorong',       kategoriKod:'D', jantina:'P', bilanganLorong:8, isWindReading:true,  hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'200m',         jenisAcara:'lorong',       kategoriKod:'D', jantina:'L', bilanganLorong:8, isWindReading:true,  hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'200m',         jenisAcara:'lorong',       kategoriKod:'D', jantina:'P', bilanganLorong:8, isWindReading:true,  hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'400m',         jenisAcara:'lorong',       kategoriKod:'D', jantina:'L', bilanganLorong:8, isWindReading:false, hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'400m',         jenisAcara:'lorong',       kategoriKod:'D', jantina:'P', bilanganLorong:8, isWindReading:false, hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'110m Berpagar',jenisAcara:'lorong',       kategoriKod:'D', jantina:'L', bilanganLorong:8, isWindReading:true,  hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'100m Berpagar',jenisAcara:'lorong',       kategoriKod:'D', jantina:'P', bilanganLorong:8, isWindReading:true,  hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'800m',         jenisAcara:'mass_start',   kategoriKod:'D', jantina:'L', isWindReading:false, hadAtletPerSekolah:2, bilanganFinalis:12, caraPilihFinal:'best_time', wildcardSlot:0 },
-  { namaAcara:'800m',         jenisAcara:'mass_start',   kategoriKod:'D', jantina:'P', isWindReading:false, hadAtletPerSekolah:2, bilanganFinalis:12, caraPilihFinal:'best_time', wildcardSlot:0 },
-  { namaAcara:'1500m',        jenisAcara:'mass_start',   kategoriKod:'D', jantina:'L', isWindReading:false, hadAtletPerSekolah:2, bilanganFinalis:12, caraPilihFinal:'best_time', wildcardSlot:0 },
-  { namaAcara:'1500m',        jenisAcara:'mass_start',   kategoriKod:'D', jantina:'P', isWindReading:false, hadAtletPerSekolah:2, bilanganFinalis:12, caraPilihFinal:'best_time', wildcardSlot:0 },
-  { namaAcara:'3000m',        jenisAcara:'mass_start',   kategoriKod:'D', jantina:'L', isWindReading:false, hadAtletPerSekolah:2, bilanganFinalis:12, caraPilihFinal:'best_time', wildcardSlot:0 },
-  { namaAcara:'3000m',        jenisAcara:'mass_start',   kategoriKod:'D', jantina:'P', isWindReading:false, hadAtletPerSekolah:2, bilanganFinalis:12, caraPilihFinal:'best_time', wildcardSlot:0 },
-  { namaAcara:'Lompat Jauh',  jenisAcara:'padang_lompat',kategoriKod:'D', jantina:'L', bilanganCubaan:3, topFinalis:8, isWindReading:true,  hadAtletPerSekolah:2 },
-  { namaAcara:'Lompat Jauh',  jenisAcara:'padang_lompat',kategoriKod:'D', jantina:'P', bilanganCubaan:3, topFinalis:8, isWindReading:true,  hadAtletPerSekolah:2 },
-  { namaAcara:'Lompat Tinggi',jenisAcara:'padang_lompat',kategoriKod:'D', jantina:'L', bilanganCubaan:3, topFinalis:8, isWindReading:false, hadAtletPerSekolah:2 },
-  { namaAcara:'Lompat Tinggi',jenisAcara:'padang_lompat',kategoriKod:'D', jantina:'P', bilanganCubaan:3, topFinalis:8, isWindReading:false, hadAtletPerSekolah:2 },
-  { namaAcara:'Lompat Kijang',jenisAcara:'padang_lompat',kategoriKod:'D', jantina:'L', bilanganCubaan:3, topFinalis:8, isWindReading:true,  hadAtletPerSekolah:2 },
-  { namaAcara:'Lontar Peluru',jenisAcara:'padang_balin', kategoriKod:'D', jantina:'L', bilanganCubaan:3, topFinalis:8, isWindReading:false, hadAtletPerSekolah:2 },
-  { namaAcara:'Lontar Peluru',jenisAcara:'padang_balin', kategoriKod:'D', jantina:'P', bilanganCubaan:3, topFinalis:8, isWindReading:false, hadAtletPerSekolah:2 },
-  { namaAcara:'Lembing',      jenisAcara:'padang_balin', kategoriKod:'D', jantina:'L', bilanganCubaan:3, topFinalis:8, isWindReading:false, hadAtletPerSekolah:2 },
-  { namaAcara:'Lembing',      jenisAcara:'padang_balin', kategoriKod:'D', jantina:'P', bilanganCubaan:3, topFinalis:8, isWindReading:false, hadAtletPerSekolah:2 },
-  { namaAcara:'Cakera',       jenisAcara:'padang_balin', kategoriKod:'D', jantina:'L', bilanganCubaan:3, topFinalis:8, isWindReading:false, hadAtletPerSekolah:2 },
-  { namaAcara:'4x100m',       jenisAcara:'relay',        kategoriKod:'D', jantina:'L', bilanganLorong:8, isWindReading:false, hadAtletPerSekolah:1, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'4x100m',       jenisAcara:'relay',        kategoriKod:'D', jantina:'P', bilanganLorong:8, isWindReading:false, hadAtletPerSekolah:1, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'4x400m',       jenisAcara:'relay',        kategoriKod:'D', jantina:'L', bilanganLorong:8, isWindReading:false, hadAtletPerSekolah:1, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'4x400m',       jenisAcara:'relay',        kategoriKod:'D', jantina:'P', bilanganLorong:8, isWindReading:false, hadAtletPerSekolah:1, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-
-  // ── Kategori E (SM, Bawah 18) — sama D + 5000m ────────────────────────────
-  { namaAcara:'100m',         jenisAcara:'lorong',       kategoriKod:'E', jantina:'L', bilanganLorong:8, isWindReading:true,  hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'100m',         jenisAcara:'lorong',       kategoriKod:'E', jantina:'P', bilanganLorong:8, isWindReading:true,  hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'200m',         jenisAcara:'lorong',       kategoriKod:'E', jantina:'L', bilanganLorong:8, isWindReading:true,  hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'200m',         jenisAcara:'lorong',       kategoriKod:'E', jantina:'P', bilanganLorong:8, isWindReading:true,  hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'400m',         jenisAcara:'lorong',       kategoriKod:'E', jantina:'L', bilanganLorong:8, isWindReading:false, hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'400m',         jenisAcara:'lorong',       kategoriKod:'E', jantina:'P', bilanganLorong:8, isWindReading:false, hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'110m Berpagar',jenisAcara:'lorong',       kategoriKod:'E', jantina:'L', bilanganLorong:8, isWindReading:true,  hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'100m Berpagar',jenisAcara:'lorong',       kategoriKod:'E', jantina:'P', bilanganLorong:8, isWindReading:true,  hadAtletPerSekolah:2, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'800m',         jenisAcara:'mass_start',   kategoriKod:'E', jantina:'L', isWindReading:false, hadAtletPerSekolah:2, bilanganFinalis:12, caraPilihFinal:'best_time', wildcardSlot:0 },
-  { namaAcara:'800m',         jenisAcara:'mass_start',   kategoriKod:'E', jantina:'P', isWindReading:false, hadAtletPerSekolah:2, bilanganFinalis:12, caraPilihFinal:'best_time', wildcardSlot:0 },
-  { namaAcara:'1500m',        jenisAcara:'mass_start',   kategoriKod:'E', jantina:'L', isWindReading:false, hadAtletPerSekolah:2, bilanganFinalis:12, caraPilihFinal:'best_time', wildcardSlot:0 },
-  { namaAcara:'1500m',        jenisAcara:'mass_start',   kategoriKod:'E', jantina:'P', isWindReading:false, hadAtletPerSekolah:2, bilanganFinalis:12, caraPilihFinal:'best_time', wildcardSlot:0 },
-  { namaAcara:'3000m',        jenisAcara:'mass_start',   kategoriKod:'E', jantina:'L', isWindReading:false, hadAtletPerSekolah:2, bilanganFinalis:12, caraPilihFinal:'best_time', wildcardSlot:0 },
-  { namaAcara:'3000m',        jenisAcara:'mass_start',   kategoriKod:'E', jantina:'P', isWindReading:false, hadAtletPerSekolah:2, bilanganFinalis:12, caraPilihFinal:'best_time', wildcardSlot:0 },
-  { namaAcara:'5000m',        jenisAcara:'mass_start',   kategoriKod:'E', jantina:'L', isWindReading:false, hadAtletPerSekolah:2, bilanganFinalis:12, caraPilihFinal:'best_time', wildcardSlot:0 },
-  { namaAcara:'Lompat Jauh',  jenisAcara:'padang_lompat',kategoriKod:'E', jantina:'L', bilanganCubaan:3, topFinalis:8, isWindReading:true,  hadAtletPerSekolah:2 },
-  { namaAcara:'Lompat Jauh',  jenisAcara:'padang_lompat',kategoriKod:'E', jantina:'P', bilanganCubaan:3, topFinalis:8, isWindReading:true,  hadAtletPerSekolah:2 },
-  { namaAcara:'Lompat Tinggi',jenisAcara:'padang_lompat',kategoriKod:'E', jantina:'L', bilanganCubaan:3, topFinalis:8, isWindReading:false, hadAtletPerSekolah:2 },
-  { namaAcara:'Lompat Tinggi',jenisAcara:'padang_lompat',kategoriKod:'E', jantina:'P', bilanganCubaan:3, topFinalis:8, isWindReading:false, hadAtletPerSekolah:2 },
-  { namaAcara:'Lompat Kijang',jenisAcara:'padang_lompat',kategoriKod:'E', jantina:'L', bilanganCubaan:3, topFinalis:8, isWindReading:true,  hadAtletPerSekolah:2 },
-  { namaAcara:'Lontar Peluru',jenisAcara:'padang_balin', kategoriKod:'E', jantina:'L', bilanganCubaan:3, topFinalis:8, isWindReading:false, hadAtletPerSekolah:2 },
-  { namaAcara:'Lontar Peluru',jenisAcara:'padang_balin', kategoriKod:'E', jantina:'P', bilanganCubaan:3, topFinalis:8, isWindReading:false, hadAtletPerSekolah:2 },
-  { namaAcara:'Lembing',      jenisAcara:'padang_balin', kategoriKod:'E', jantina:'L', bilanganCubaan:3, topFinalis:8, isWindReading:false, hadAtletPerSekolah:2 },
-  { namaAcara:'Lembing',      jenisAcara:'padang_balin', kategoriKod:'E', jantina:'P', bilanganCubaan:3, topFinalis:8, isWindReading:false, hadAtletPerSekolah:2 },
-  { namaAcara:'Cakera',       jenisAcara:'padang_balin', kategoriKod:'E', jantina:'L', bilanganCubaan:3, topFinalis:8, isWindReading:false, hadAtletPerSekolah:2 },
-  { namaAcara:'4x100m',       jenisAcara:'relay',        kategoriKod:'E', jantina:'L', bilanganLorong:8, isWindReading:false, hadAtletPerSekolah:1, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'4x100m',       jenisAcara:'relay',        kategoriKod:'E', jantina:'P', bilanganLorong:8, isWindReading:false, hadAtletPerSekolah:1, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'4x400m',       jenisAcara:'relay',        kategoriKod:'E', jantina:'L', bilanganLorong:8, isWindReading:false, hadAtletPerSekolah:1, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-  { namaAcara:'4x400m',       jenisAcara:'relay',        kategoriKod:'E', jantina:'P', bilanganLorong:8, isWindReading:false, hadAtletPerSekolah:1, bilanganFinalis:8, caraPilihFinal:'hybrid', wildcardSlot:2 },
-]
-
 const WA_CONFIG_DEFAULT = {
   windLimit: 2.0,
   falseStartRule: 'one',
@@ -236,7 +123,847 @@ function detectWindFromNama(nama) {
   return /100\s*m|200\s*m|lompat jauh|lompat kijang/.test(n)
 }
 
+// ─── HariHeader — header hari dengan inline tukar tarikh ─────────────────────
+
+function HariHeader({ hIdx, tarikh, hariLabel, count, onTukar }) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal]         = useState(tarikh)
+  const [saving, setSaving]   = useState(false)
+  const inputRef              = React.useRef()
+
+  function startEdit() { setVal(tarikh); setEditing(true) }
+  function cancel()    { setEditing(false) }
+
+  async function save() {
+    if (!val || val === tarikh) return cancel()
+    setSaving(true)
+    await onTukar(val)
+    setSaving(false)
+    setEditing(false)
+  }
+
+  useEffect(() => { if (editing && inputRef.current) inputRef.current.focus() }, [editing])
+
+  return (
+    <div className="px-4 py-2.5 bg-[#003399] flex items-center gap-3">
+      <span className="text-[10px] font-black text-blue-200 uppercase tracking-widest shrink-0">
+        Hari {hIdx + 1}
+      </span>
+
+      {editing ? (
+        <div className="flex items-center gap-2">
+          <input
+            ref={inputRef}
+            type="date"
+            value={val}
+            onChange={e => setVal(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') cancel() }}
+            className="text-xs font-bold bg-white text-gray-800 rounded-lg px-2 py-1 border-0 focus:outline-none focus:ring-2 focus:ring-white/50"
+          />
+          <button onClick={save} disabled={saving}
+            className="text-[10px] font-bold bg-white text-[#003399] px-2.5 py-1 rounded-lg hover:bg-blue-50 disabled:opacity-50 shrink-0">
+            {saving ? '…' : 'Simpan'}
+          </button>
+          <button onClick={cancel}
+            className="text-[10px] font-semibold text-blue-200 hover:text-white">
+            Batal
+          </button>
+        </div>
+      ) : (
+        <button onClick={startEdit}
+          className="flex items-center gap-1.5 group hover:opacity-80 transition-opacity">
+          <span className="text-xs font-bold text-white">{hariLabel}</span>
+          <svg className="w-3 h-3 text-blue-300 group-hover:text-white transition-colors" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+          </svg>
+        </button>
+      )}
+
+      <span className="ml-auto text-[10px] text-blue-200 shrink-0">{count} acara</span>
+    </div>
+  )
+}
+
+// ─── EditAcaraRow — inline edit untuk baris sedia ada ────────────────────────
+
+function EditAcaraRow({ acara, kejohananId, kategoriList, acaraList, onSaved, onCancel }) {
+  const peringkatMode0 = acara.peringkat === 'saringan' ? 'saringan'
+    : acara.parentAcaraId ? 'final_p' : 'akhir'
+
+  const [form, setForm] = useState({
+    masa:              acara.masa              || '',
+    namaAcaraPendek:   acara.namaAcaraPendek   || '',
+    kategoriKod:       acara.kategoriKod       || '',
+    jantina:           acara.jantina           || 'L',
+    jenisAcara:        acara.jenisAcara        || 'lorong',
+    lokasi:            acara.lokasi            || 'Trek Utama',
+    hadAtletPerSekolah: acara.hadAtletPerSekolah || 2,
+    peringkatMode:     peringkatMode0,
+    parentAcaraId:     acara.parentAcaraId     || '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [err, setErr]       = useState('')
+
+  // ── Tambah Final Serentak (untuk saringan yg dah ada) ────────────────────────
+  const [withFinal,   setWithFinal]   = useState(false)
+  const [finalNo,     setFinalNo]     = useState('')
+  const [finalMasa,   setFinalMasa]   = useState('')
+  const [finalTarikh, setFinalTarikh] = useState(acara.tarikhAcara || '')
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const selectedKat = kategoriList.find(k => k.kod === form.kategoriKod)
+  const kelas       = form.kategoriKod
+    ? (selectedKat?.label || (selectedKat?.umurHad ? `${form.jantina} Bwh ${selectedKat.umurHad}` : `${form.jantina} ${form.kategoriKod}`))
+    : form.jantina
+  const namaFull    = `${form.namaAcaraPendek} ${kelas}`.trim()
+  const isPadang    = ['padang_lompat', 'padang_balin'].includes(form.jenisAcara)
+  const peringkat   = form.peringkatMode === 'saringan' ? 'saringan' : 'akhir'
+  const parentId    = form.peringkatMode === 'final_p' ? form.parentAcaraId.trim() : ''
+  const saringanList = acaraList.filter(a => a.peringkat === 'saringan' && String(a.noAcara) !== String(acara.noAcara))
+
+  // Semak sama ada final sudah wujud untuk saringan ini
+  const thisNo = String(acara.noAcara || acara.aceraId || acara.id)
+  const existingFinal = acaraList.find(a => String(a.parentAcaraId) === thisNo)
+
+  function suggestFinalNo() {
+    const allNos = acaraList.map(a => Number(a.noAcara)).filter(n => !isNaN(n) && n > 0)
+    return allNos.length ? String(Math.max(...allNos) + 1) : ''
+  }
+
+  async function createFinalAcara(saringanId) {
+    if (!withFinal || !finalNo.trim() || peringkat !== 'saringan') return
+    const fId       = finalNo.trim()
+    const fNamaFull = `${form.namaAcaraPendek.trim()} ${kelas}`.trim()
+    const fTarikh   = finalTarikh || acara.tarikhAcara  // fallback ke tarikh saringan
+    await setDoc(doc(db, 'kejohanan', kejohananId, 'acara', fId), {
+      noAcara: fId, aceraId: fId,
+      namaAcara: fNamaFull, namaAcaraPendek: form.namaAcaraPendek.trim(),
+      kelas, jantina: form.jantina, kategoriKod: form.kategoriKod,
+      jenisAcara: form.jenisAcara,
+      tarikhAcara: fTarikh, masa: finalMasa || '', lokasi: form.lokasi, sesi: 'Petang',
+      peringkat: 'akhir', parentAcaraId: saringanId,
+      adaHeat: false,
+      isWindReading: detectWindFromNama(form.namaAcaraPendek),
+      unitUkuran: isPadang ? 'm' : 's',
+      bilanganLorong: isPadang ? null : 8,
+      bilanganFinalis: 8, bilanganCubaan: isPadang ? 4 : 0,
+      hadAtletPerSekolah: Number(form.hadAtletPerSekolah),
+      statusAcara: 'akan_datang', isAktif: true,
+      createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    })
+    await setDoc(doc(db, 'jadual_acara', `${kejohananId}-${fId}`), {
+      aceraId: fId, acaraId: fId, kejohananId,
+      tarikhAcara: fTarikh, masaMula: finalMasa || '', lokasi: form.lokasi,
+      sesi: 'Petang', statusJadual: 'aktif', namaAcara: fNamaFull,
+      updatedAt: serverTimestamp(),
+    })
+  }
+
+  async function handleSave() {
+    setErr('')
+    if (!form.namaAcaraPendek.trim()) return setErr('Nama wajib')
+    if (!form.kategoriKod) return setErr('Kategori wajib')
+    setSaving(true)
+    try {
+      const docId = String(acara.noAcara || acara.aceraId || acara.id)
+      const updates = {
+        namaAcara:         namaFull,
+        namaAcaraPendek:   form.namaAcaraPendek.trim(),
+        kelas,
+        jantina:           form.jantina,
+        kategoriKod:       form.kategoriKod,
+        jenisAcara:        form.jenisAcara,
+        masa:              form.masa,
+        lokasi:            form.lokasi,
+        peringkat,
+        parentAcaraId:     parentId || null,
+        adaHeat:           peringkat === 'saringan',
+        isWindReading:     detectWindFromNama(form.namaAcaraPendek),
+        unitUkuran:        isPadang ? 'm' : 's',
+        hadAtletPerSekolah: Number(form.hadAtletPerSekolah),
+        updatedAt:         serverTimestamp(),
+      }
+      await updateDoc(doc(db, 'kejohanan', kejohananId, 'acara', docId), updates)
+      await updateDoc(doc(db, 'jadual_acara', `${kejohananId}-${docId}`), {
+        namaAcara: namaFull, masaMula: form.masa, lokasi: form.lokasi,
+        updatedAt: serverTimestamp(),
+      })
+      await createFinalAcara(docId)
+      onSaved({ ...acara, ...updates })
+    } catch (e) { setErr(e.message) } finally { setSaving(false) }
+  }
+
+  const ic = 'w-full bg-white border border-[#003399]/25 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#003399]/40 focus:border-[#003399]'
+
+  return (
+    <>
+      <tr className="bg-amber-50/60 border-b border-amber-200/40">
+        {/* No — read-only (tukar no = guna modal penuh) */}
+        <td className="px-3 py-1.5">
+          <span className="font-black text-[#003399] text-xs">{acara.noAcara}</span>
+          <p className="text-[8px] text-gray-400 leading-none mt-0.5">tetap</p>
+        </td>
+        {/* Masa */}
+        <td className="px-1.5 py-1.5">
+          <input type="time" value={form.masa} onChange={e => set('masa', e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') onCancel() }}
+            className={ic + ' w-[90px]'} />
+        </td>
+        {/* Nama */}
+        <td className="px-1.5 py-1.5">
+          <input type="text" value={form.namaAcaraPendek}
+            onChange={e => set('namaAcaraPendek', e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') onCancel() }}
+            className={ic} />
+          {namaFull && namaFull !== form.namaAcaraPendek && (
+            <p className="text-[9px] text-[#003399]/70 mt-0.5 truncate font-mono">{namaFull}</p>
+          )}
+        </td>
+        {/* Kategori */}
+        <td className="px-1.5 py-1.5">
+          <select value={form.kategoriKod} onChange={e => set('kategoriKod', e.target.value)} className={ic}>
+            <option value="">— Kat —</option>
+            {kategoriList.map(k => <option key={k.kod} value={k.kod}>{k.label || k.kod}</option>)}
+          </select>
+        </td>
+        {/* Jantina */}
+        <td className="px-1.5 py-1.5">
+          <select value={form.jantina} onChange={e => set('jantina', e.target.value)} className={ic + ' w-14'}>
+            <option value="L">L</option>
+            <option value="P">P</option>
+            <option value="Campuran">C</option>
+          </select>
+        </td>
+        {/* Jenis */}
+        <td className="px-1.5 py-1.5">
+          <select value={form.jenisAcara} onChange={e => set('jenisAcara', e.target.value)} className={ic}>
+            {JENIS_ACARA.map(j => <option key={j.value} value={j.value}>{j.short}</option>)}
+          </select>
+        </td>
+        {/* Lokasi */}
+        <td className="px-1.5 py-1.5">
+          <select value={form.lokasi} onChange={e => set('lokasi', e.target.value)} className={ic}>
+            {LOKASI_LIST.map(l => <option key={l} value={l}>{l}</option>)}
+          </select>
+        </td>
+        {/* Max/Skl */}
+        <td className="px-1.5 py-1.5">
+          <input type="number" min={1} max={20} value={form.hadAtletPerSekolah}
+            onChange={e => set('hadAtletPerSekolah', e.target.value)}
+            className={ic + ' w-14 text-center'} />
+        </td>
+        {/* Peringkat */}
+        <td className="px-1.5 py-1.5">
+          <select value={form.peringkatMode} onChange={e => set('peringkatMode', e.target.value)} className={ic}>
+            <option value="akhir">Terus Final</option>
+            <option value="saringan">Saringan</option>
+            <option value="final_p">Final ←</option>
+          </select>
+          {form.peringkatMode === 'final_p' && (
+            <select value={form.parentAcaraId} onChange={e => set('parentAcaraId', e.target.value)}
+              className={ic + ' mt-1 text-[10px]'}>
+              <option value="">— No Saringan —</option>
+              {saringanList.map(a => (
+                <option key={a.noAcara} value={String(a.noAcara)}>#{a.noAcara} {a.namaAcara}</option>
+              ))}
+            </select>
+          )}
+        </td>
+        {/* Tindakan */}
+        <td className="px-1.5 py-1.5">
+          <div className="flex gap-1">
+            <button onClick={handleSave} disabled={saving} title="Simpan (Enter)"
+              className="p-1.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 disabled:opacity-40 shrink-0">
+              {saving
+                ? <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                : <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>
+              }
+            </button>
+            <button onClick={onCancel} title="Batal (Esc)"
+              className="p-1.5 text-gray-400 hover:text-red-500 border border-gray-200 rounded-lg hover:border-red-300 shrink-0">
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+        </td>
+      </tr>
+      {/* Panel Tambah Final — muncul apabila peringkat = saringan */}
+      {form.peringkatMode === 'saringan' && (
+        <tr className="bg-purple-50/60 border-b border-purple-100">
+          <td colSpan={10} className="px-3 py-2">
+            {existingFinal ? (
+              <p className="text-[10px] text-purple-600 font-semibold">
+                ✓ Final sudah ada: #{existingFinal.noAcara} — {existingFinal.namaAcara}
+              </p>
+            ) : (
+              <div className="flex items-center gap-3 flex-wrap">
+                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <button type="button" onClick={() => {
+                    const next = !withFinal
+                    setWithFinal(next)
+                    if (next && !finalNo) setFinalNo(suggestFinalNo())
+                    if (next && !finalTarikh) setFinalTarikh(acara.tarikhAcara || '')
+                  }} className={`relative inline-flex h-4 w-8 shrink-0 rounded-full transition-colors ${withFinal ? 'bg-purple-600' : 'bg-gray-300'}`}>
+                    <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform mt-[1px] ${withFinal ? 'translate-x-[18px]' : 'translate-x-[1px]'}`} />
+                  </button>
+                  <span className="text-[10px] font-bold text-purple-700">Tambah Final Serentak</span>
+                </label>
+                {withFinal && (
+                  <>
+                    <label className="flex items-center gap-1 text-[10px] text-gray-500">
+                      No Final:
+                      <input value={finalNo}
+                        onChange={e => setFinalNo(e.target.value.replace(/\D/g, ''))}
+                        className="ml-1 w-14 bg-white border border-purple-200 rounded px-1.5 py-0.5 text-[10px] text-center font-black text-purple-700 focus:outline-none focus:ring-1 focus:ring-purple-400" />
+                    </label>
+                    <label className="flex items-center gap-1 text-[10px] text-gray-500">
+                      Masa Final:
+                      <input type="time" value={finalMasa}
+                        onChange={e => setFinalMasa(e.target.value)}
+                        className="ml-1 bg-white border border-purple-200 rounded px-1.5 py-0.5 text-[10px] focus:outline-none focus:ring-1 focus:ring-purple-400" />
+                    </label>
+                    <label className="flex items-center gap-1 text-[10px] text-gray-500">
+                      Tarikh Final:
+                      <input type="date" value={finalTarikh}
+                        onChange={e => setFinalTarikh(e.target.value)}
+                        className="ml-1 bg-white border border-purple-200 rounded px-1.5 py-0.5 text-[10px] focus:outline-none focus:ring-1 focus:ring-purple-400" />
+                    </label>
+                  </>
+                )}
+              </div>
+            )}
+          </td>
+        </tr>
+      )}
+      {err && (
+        <tr className="bg-red-50">
+          <td colSpan={10} className="px-3 py-1 text-[10px] text-red-600 font-semibold">{err}</td>
+        </tr>
+      )}
+    </>
+  )
+}
+
+// ─── AddAcaraRow — inline table row untuk tambah acara baru ──────────────────
+
+const LOKASI_LIST = ['Trek Utama','Padang A','Padang B','Padang C','Padang D','Gelanggang']
+
+function AddAcaraRow({ tarikhAcara, kejohananId, kategoriList, acaraList, onSaved, onCancel }) {
+  // Smart defaults dari acara terakhir dalam hari yang sama
+  const inHari = acaraList
+    .filter(a => a.tarikhAcara === tarikhAcara)
+    .sort((a, b) => Number(a.noAcara) - Number(b.noAcara))
+  const lastA = inHari[inHari.length - 1]
+
+  function suggestNo() {
+    const allNos = acaraList.map(a => Number(a.noAcara)).filter(n => !isNaN(n) && n > 0)
+    return allNos.length ? String(Math.max(...allNos) + 1) : '101'
+  }
+  function suggestMasa() {
+    if (!lastA?.masa) return '08:00'
+    const [h, m] = lastA.masa.split(':').map(Number)
+    const tot = h * 60 + m + 30
+    return `${String(Math.floor(tot / 60)).padStart(2, '0')}:${String(tot % 60).padStart(2, '0')}`
+  }
+
+  const [form, setForm] = useState({
+    noAcara:           suggestNo(),
+    masa:              suggestMasa(),
+    namaAcaraPendek:   '',
+    kategoriKod:       lastA?.kategoriKod || '',
+    jantina:           lastA?.jantina     || 'L',
+    jenisAcara:        lastA?.jenisAcara  || 'lorong',
+    lokasi:            lastA?.lokasi      || 'Trek Utama',
+    hadAtletPerSekolah: lastA?.hadAtletPerSekolah || 2,
+    peringkatMode:     'akhir',   // 'akhir' | 'saringan' | 'final_p'
+    parentAcaraId:     '',
+  })
+  const [saving, setSaving]       = useState(false)
+  const [err, setErr]             = useState('')
+  const [sisipMode, setSisipMode] = useState(false)   // tunjuk panel sisip
+  const [sisipLog, setSisipLog]   = useState('')       // progress semasa sisip
+  const nameRef                   = React.useRef()
+
+  useEffect(() => { nameRef.current?.focus() }, [])
+
+  // Auto-detect jenis dari nama
+  useEffect(() => {
+    if (form.namaAcaraPendek)
+      setForm(f => ({ ...f, jenisAcara: detectJenisFromNama(f.namaAcaraPendek) }))
+  }, [form.namaAcaraPendek])
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const selectedKat  = kategoriList.find(k => k.kod === form.kategoriKod)
+  const kelas        = form.kategoriKod
+    ? (selectedKat?.label || (selectedKat?.umurHad ? `${form.jantina} Bwh ${selectedKat.umurHad}` : `${form.jantina} ${form.kategoriKod}`))
+    : form.jantina
+  const namaFull     = `${form.namaAcaraPendek} ${kelas}`.trim()
+  const isPadang     = ['padang_lompat', 'padang_balin'].includes(form.jenisAcara)
+  const peringkat    = form.peringkatMode === 'saringan' ? 'saringan' : 'akhir'
+  const parentId     = form.peringkatMode === 'final_p' ? form.parentAcaraId.trim() : ''
+
+  // Cadangan no acara saringan yang ada dalam sistem
+  const saringanList = acaraList.filter(a => a.peringkat === 'saringan')
+
+  // ── Tambah Final Serentak ─────────────────────────────────────────────────
+  const [withFinal,   setWithFinal]   = useState(false)
+  const [finalNo,     setFinalNo]     = useState('')
+  const [finalMasa,   setFinalMasa]   = useState('')
+  const [finalTarikh, setFinalTarikh] = useState(tarikhAcara)
+
+  function suggestFinalNo() {
+    const allNos = acaraList.map(a => Number(a.noAcara)).filter(n => !isNaN(n) && n > 0)
+    return allNos.length ? String(Math.max(...allNos) + 1) : ''
+  }
+
+  // Cipta acara final & jadual_acara — dipanggil oleh handleSave & handleSisip
+  async function createFinalAcara(saringanId) {
+    if (!withFinal || !finalNo.trim() || peringkat !== 'saringan') return
+    const fId       = finalNo.trim()
+    const fNamaFull = `${form.namaAcaraPendek.trim()} ${kelas}`.trim()
+    const fTarikh   = finalTarikh || tarikhAcara  // fallback ke tarikh saringan
+    await setDoc(doc(db, 'kejohanan', kejohananId, 'acara', fId), {
+      noAcara: fId, aceraId: fId,
+      namaAcara: fNamaFull, namaAcaraPendek: form.namaAcaraPendek.trim(),
+      kelas, jantina: form.jantina, kategoriKod: form.kategoriKod,
+      jenisAcara: form.jenisAcara,
+      tarikhAcara: fTarikh, masa: finalMasa || '', lokasi: form.lokasi, sesi: 'Petang',
+      peringkat: 'akhir', parentAcaraId: saringanId,
+      adaHeat: false,
+      isWindReading: detectWindFromNama(form.namaAcaraPendek),
+      unitUkuran: isPadang ? 'm' : 's',
+      bilanganLorong: isPadang ? null : 8,
+      bilanganFinalis: 8, bilanganCubaan: isPadang ? 4 : 0,
+      hadAtletPerSekolah: Number(form.hadAtletPerSekolah),
+      statusAcara: 'akan_datang', isAktif: true,
+      createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    })
+    await setDoc(doc(db, 'jadual_acara', `${kejohananId}-${fId}`), {
+      aceraId: fId, acaraId: fId, kejohananId,
+      tarikhAcara: fTarikh, masaMula: finalMasa || '', lokasi: form.lokasi,
+      sesi: 'Petang', statusJadual: 'aktif', namaAcara: fNamaFull,
+      updatedAt: serverTimestamp(),
+    })
+  }
+
+  // Acara yang akan dinomborkan semula jika sisip di form.noAcara
+  const sisipTarget   = Number(form.noAcara)
+  const toRenameList  = acaraList
+    .filter(a => !isNaN(Number(a.noAcara)) && Number(a.noAcara) >= sisipTarget)
+    .sort((a, b) => Number(b.noAcara) - Number(a.noAcara)) // DESCENDING — tertinggi dulu
+
+  function buildPayload(docId) {
+    return {
+      noAcara: docId, aceraId: docId,
+      namaAcara: namaFull, namaAcaraPendek: form.namaAcaraPendek.trim(),
+      kelas, jantina: form.jantina, kategoriKod: form.kategoriKod,
+      jenisAcara: form.jenisAcara,
+      tarikhAcara, masa: form.masa, lokasi: form.lokasi, sesi: 'Pagi',
+      peringkat, parentAcaraId: parentId || null,
+      adaHeat: peringkat === 'saringan',
+      isWindReading: detectWindFromNama(form.namaAcaraPendek),
+      unitUkuran: isPadang ? 'm' : 's',
+      bilanganLorong: isPadang ? null : 8,
+      bilanganFinalis: 8, bilanganCubaan: isPadang ? 4 : 0,
+      hadAtletPerSekolah: Number(form.hadAtletPerSekolah),
+      statusAcara: 'akan_datang', isAktif: true,
+    }
+  }
+
+  async function handleSave() {
+    setErr('')
+    setSisipMode(false)
+    const docId = String(form.noAcara).trim()
+    if (!docId)                       return setErr('No Acara wajib')
+    if (!form.namaAcaraPendek.trim()) return setErr('Nama acara wajib')
+    if (!form.kategoriKod)            return setErr('Kategori wajib')
+    setSaving(true)
+    try {
+      const newRef = doc(db, 'kejohanan', kejohananId, 'acara', docId)
+      if ((await getDoc(newRef)).exists()) {
+        // No sudah ada — tanya sama ada mahu sisip
+        setSaving(false)
+        setSisipMode(true)
+        return
+      }
+      const payload = { ...buildPayload(docId), createdAt: serverTimestamp(), updatedAt: serverTimestamp() }
+      await setDoc(newRef, payload)
+      await setDoc(doc(db, 'jadual_acara', `${kejohananId}-${docId}`), {
+        aceraId: docId, acaraId: docId, kejohananId,
+        tarikhAcara, masaMula: form.masa, lokasi: form.lokasi,
+        sesi: 'Pagi', statusJadual: 'aktif', namaAcara: namaFull,
+        updatedAt: serverTimestamp(),
+      })
+      await createFinalAcara(docId)
+      onSaved(tarikhAcara)
+    } catch (e) { setErr(e.message) } finally { setSaving(false) }
+  }
+
+  // ── Sisip Acara: rename semua acara ≥ target (+1), kemudian cipta baru ───────
+  async function handleSisip() {
+    setErr('')
+    if (!form.namaAcaraPendek.trim()) return setErr('Isi nama acara dahulu')
+    if (!form.kategoriKod)            return setErr('Pilih kategori dahulu')
+
+    const target = sisipTarget
+    const toRename = toRenameList // already sorted descending
+
+    // ── Gate: semak tiada keputusan / pendaftaran pada acara yang akan diubah ──
+    const adaKeputusan = toRename.some(a => a.statusAcara && a.statusAcara !== 'akan_datang')
+    if (adaKeputusan) {
+      return setErr('Tidak boleh sisip — ada acara dalam senarai ini sudah ada keputusan. Padam keputusan dahulu.')
+    }
+    // Semak pendaftaran: cari rekod pendaftaran yang ada aceraId dalam toRename
+    const toRenameIds = new Set(toRename.map(a => String(a.noAcara)))
+    const pendSnap = await getDocs(collection(db, 'kejohanan', kejohananId, 'pendaftaran')).catch(() => null)
+    if (pendSnap) {
+      const adaPend = pendSnap.docs.some(d => {
+        const ids = d.data().acaraIds || []
+        return ids.some(id => toRenameIds.has(String(id)))
+      })
+      if (adaPend) {
+        return setErr('Tidak boleh sisip — ada atlet sudah didaftarkan dalam acara yang akan diubah. Reset pendaftaran dahulu.')
+      }
+    }
+
+    setSaving(true)
+    setSisipLog(`Menyusun semula ${toRename.length} acara…`)
+
+    try {
+      // ── Fasa 1: Rename acara tertinggi dulu (turun ke bawah) ─────────────────
+      for (let i = 0; i < toRename.length; i++) {
+        const acara   = toRename[i]
+        const oldNo   = String(acara.noAcara)
+        const newNo   = String(Number(acara.noAcara) + 1)
+        setSisipLog(`Ubah No ${oldNo} → ${newNo}… (${i + 1}/${toRename.length})`)
+
+        // Baca data acara asal dari Firestore (bukan dari cache — pastikan terkini)
+        const oldAcaraRef = doc(db, 'kejohanan', kejohananId, 'acara', oldNo)
+        const oldSnap     = await getDoc(oldAcaraRef)
+        if (!oldSnap.exists()) continue
+        const oldData = oldSnap.data()
+
+        // Kalau parentAcaraId juga dalam senarai yang diubah → increment juga
+        let newParentId = oldData.parentAcaraId || null
+        if (newParentId && toRenameIds.has(String(newParentId))) {
+          newParentId = String(Number(newParentId) + 1)
+        }
+
+        // Tulis ke noAcara baru
+        const newAcaraRef = doc(db, 'kejohanan', kejohananId, 'acara', newNo)
+        await setDoc(newAcaraRef, {
+          ...oldData,
+          noAcara:      newNo,
+          aceraId:      newNo,
+          parentAcaraId: newParentId,
+          updatedAt:    serverTimestamp(),
+        })
+
+        // Jadual_acara: tulis baru, padam lama
+        const oldJadualRef = doc(db, 'jadual_acara', `${kejohananId}-${oldNo}`)
+        const jadualSnap   = await getDoc(oldJadualRef)
+        if (jadualSnap.exists()) {
+          await setDoc(doc(db, 'jadual_acara', `${kejohananId}-${newNo}`), {
+            ...jadualSnap.data(),
+            aceraId:   newNo,
+            acaraId:   newNo,
+            updatedAt: serverTimestamp(),
+          })
+          await deleteDoc(oldJadualRef)
+        }
+
+        // Padam acara lama
+        await deleteDoc(oldAcaraRef)
+      }
+
+      // ── Fasa 2: Cipta acara baru di tempat sasaran ───────────────────────────
+      const docId   = String(target)
+      setSisipLog(`Mencipta acara baru No ${docId}…`)
+      const newRef  = doc(db, 'kejohanan', kejohananId, 'acara', docId)
+      const payload = { ...buildPayload(docId), createdAt: serverTimestamp(), updatedAt: serverTimestamp() }
+      await setDoc(newRef, payload)
+      await setDoc(doc(db, 'jadual_acara', `${kejohananId}-${docId}`), {
+        aceraId: docId, acaraId: docId, kejohananId,
+        tarikhAcara, masaMula: form.masa, lokasi: form.lokasi,
+        sesi: 'Pagi', statusJadual: 'aktif', namaAcara: namaFull,
+        updatedAt: serverTimestamp(),
+      })
+
+      setSisipLog('Selesai!')
+      await createFinalAcara(docId)
+      onSaved(tarikhAcara)
+    } catch (e) {
+      setErr('Ralat semasa sisip: ' + e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const ic = 'w-full bg-white border border-[#003399]/25 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#003399]/40 focus:border-[#003399]'
+
+  return (
+    <>
+      <tr className="bg-[#eef2ff] border-b border-[#003399]/10">
+        {/* No Acara */}
+        <td className="px-1.5 py-1.5 w-14">
+          <input type="text" inputMode="numeric" value={form.noAcara}
+            onChange={e => set('noAcara', e.target.value.replace(/\D/g, ''))}
+            className={ic + ' w-14 text-center font-black text-[#003399]'} />
+        </td>
+        {/* Masa */}
+        <td className="px-1.5 py-1.5">
+          <input type="time" value={form.masa}
+            onChange={e => set('masa', e.target.value)}
+            className={ic + ' w-[90px]'} />
+        </td>
+        {/* Nama Acara */}
+        <td className="px-1.5 py-1.5">
+          <input ref={nameRef} type="text" value={form.namaAcaraPendek}
+            onChange={e => set('namaAcaraPendek', e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleSave()}
+            placeholder="100 Meter…"
+            className={ic} />
+          {namaFull && namaFull !== form.namaAcaraPendek && (
+            <p className="text-[9px] text-[#003399]/70 mt-0.5 truncate font-mono">{namaFull}</p>
+          )}
+        </td>
+        {/* Kategori */}
+        <td className="px-1.5 py-1.5">
+          <select value={form.kategoriKod} onChange={e => set('kategoriKod', e.target.value)} className={ic}>
+            <option value="">— Kat —</option>
+            {kategoriList.map(k => <option key={k.kod} value={k.kod}>{k.label || k.kod}</option>)}
+          </select>
+        </td>
+        {/* Jantina */}
+        <td className="px-1.5 py-1.5">
+          <select value={form.jantina} onChange={e => set('jantina', e.target.value)} className={ic + ' w-14'}>
+            <option value="L">L</option>
+            <option value="P">P</option>
+            <option value="Campuran">C</option>
+          </select>
+        </td>
+        {/* Jenis */}
+        <td className="px-1.5 py-1.5">
+          <select value={form.jenisAcara} onChange={e => set('jenisAcara', e.target.value)} className={ic}>
+            {JENIS_ACARA.map(j => <option key={j.value} value={j.value}>{j.short}</option>)}
+          </select>
+        </td>
+        {/* Lokasi */}
+        <td className="px-1.5 py-1.5">
+          <select value={form.lokasi} onChange={e => set('lokasi', e.target.value)} className={ic}>
+            {LOKASI_LIST.map(l => <option key={l} value={l}>{l}</option>)}
+          </select>
+        </td>
+        {/* Max/Skl */}
+        <td className="px-1.5 py-1.5">
+          <input type="number" min={1} max={20} value={form.hadAtletPerSekolah}
+            onChange={e => set('hadAtletPerSekolah', e.target.value)}
+            className={ic + ' w-14 text-center'} />
+        </td>
+        {/* Peringkat */}
+        <td className="px-1.5 py-1.5">
+          <select value={form.peringkatMode} onChange={e => set('peringkatMode', e.target.value)} className={ic}>
+            <option value="akhir">Terus Final</option>
+            <option value="saringan">Saringan</option>
+            <option value="final_p">Final ←</option>
+          </select>
+          {form.peringkatMode === 'final_p' && (
+            <select value={form.parentAcaraId}
+              onChange={e => set('parentAcaraId', e.target.value)}
+              className={ic + ' mt-1 text-[10px]'}>
+              <option value="">— No Saringan —</option>
+              {saringanList.map(a => (
+                <option key={a.noAcara} value={String(a.noAcara)}>
+                  #{a.noAcara} {a.namaAcara}
+                </option>
+              ))}
+            </select>
+          )}
+        </td>
+        {/* Tindakan */}
+        <td className="px-1.5 py-1.5">
+          <div className="flex gap-1">
+            <button onClick={handleSave} disabled={saving} title="Simpan (Enter)"
+              className="p-1.5 bg-[#003399] text-white rounded-lg hover:bg-[#002288] disabled:opacity-40 shrink-0">
+              {saving
+                ? <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                : <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>
+              }
+            </button>
+            <button onClick={onCancel} title="Batal (Esc)"
+              className="p-1.5 text-gray-400 hover:text-red-500 border border-gray-200 rounded-lg hover:border-red-300 shrink-0">
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+        </td>
+      </tr>
+      {/* Panel Tambah Final Serentak — muncul apabila peringkat = saringan */}
+      {form.peringkatMode === 'saringan' && (
+        <tr className="bg-purple-50/60 border-b border-purple-100">
+          <td colSpan={10} className="px-3 py-2">
+            <div className="flex items-center gap-3 flex-wrap">
+              <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                <button type="button" onClick={() => {
+                  const next = !withFinal
+                  setWithFinal(next)
+                  if (next && !finalNo) setFinalNo(suggestFinalNo())
+                  if (next && !finalTarikh) setFinalTarikh(tarikhAcara)
+                }} className={`relative inline-flex h-4 w-8 shrink-0 rounded-full transition-colors ${withFinal ? 'bg-purple-600' : 'bg-gray-300'}`}>
+                  <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform mt-[1px] ${withFinal ? 'translate-x-[18px]' : 'translate-x-[1px]'}`} />
+                </button>
+                <span className="text-[10px] font-bold text-purple-700">Tambah Final Serentak</span>
+              </label>
+              {withFinal && (
+                <>
+                  <label className="flex items-center gap-1 text-[10px] text-gray-500">
+                    No Final:
+                    <input value={finalNo}
+                      onChange={e => setFinalNo(e.target.value.replace(/\D/g, ''))}
+                      className="ml-1 w-14 bg-white border border-purple-200 rounded px-1.5 py-0.5 text-[10px] text-center font-black text-purple-700 focus:outline-none focus:ring-1 focus:ring-purple-400" />
+                  </label>
+                  <label className="flex items-center gap-1 text-[10px] text-gray-500">
+                    Masa Final:
+                    <input type="time" value={finalMasa}
+                      onChange={e => setFinalMasa(e.target.value)}
+                      className="ml-1 bg-white border border-purple-200 rounded px-1.5 py-0.5 text-[10px] focus:outline-none focus:ring-1 focus:ring-purple-400" />
+                  </label>
+                  <label className="flex items-center gap-1 text-[10px] text-gray-500">
+                    Tarikh Final:
+                    <input type="date" value={finalTarikh}
+                      onChange={e => setFinalTarikh(e.target.value)}
+                      className="ml-1 bg-white border border-purple-200 rounded px-1.5 py-0.5 text-[10px] focus:outline-none focus:ring-1 focus:ring-purple-400" />
+                  </label>
+                </>
+              )}
+            </div>
+          </td>
+        </tr>
+      )}
+      {/* Panel Sisip — muncul apabila no acara sudah wujud */}
+      {sisipMode && !saving && (
+        <tr className="bg-amber-50 border-b border-amber-200">
+          <td colSpan={10} className="px-3 py-2.5">
+            <div className="flex flex-col gap-2">
+              <div className="flex items-start gap-2">
+                <svg className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                </svg>
+                <div>
+                  <p className="text-xs font-bold text-amber-800">
+                    No. {form.noAcara} sudah wujud — Sisipkan acara baru di sini?
+                  </p>
+                  <p className="text-[10px] text-amber-600 mt-0.5">
+                    {toRenameList.length} acara akan dinomborkan semula:
+                    {' '}No {toRenameList[toRenameList.length - 1]?.noAcara}–{toRenameList[0]?.noAcara}
+                    {' '}→ {Number(toRenameList[toRenameList.length - 1]?.noAcara) + 1}–{Number(toRenameList[0]?.noAcara) + 1}
+                  </p>
+                  <p className="text-[10px] text-amber-500 mt-0.5">
+                    ⚠ Hanya selamat jika tiada pendaftaran atau keputusan pada acara tersebut.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={handleSisip}
+                  className="px-3 py-1.5 text-[10px] font-bold bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors">
+                  Ya, Sisip Acara Baru
+                </button>
+                <button onClick={() => setSisipMode(false)}
+                  className="px-3 py-1.5 text-[10px] font-semibold text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                  Batal
+                </button>
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+      {/* Progress log semasa sisip berjalan */}
+      {saving && sisipLog && (
+        <tr className="bg-blue-50 border-b border-blue-100">
+          <td colSpan={10} className="px-3 py-2">
+            <div className="flex items-center gap-2">
+              <svg className="w-3.5 h-3.5 text-[#003399] animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+              </svg>
+              <p className="text-[10px] text-[#003399] font-semibold">{sisipLog}</p>
+            </div>
+          </td>
+        </tr>
+      )}
+      {err && (
+        <tr className="bg-red-50">
+          <td colSpan={10} className="px-3 py-1 text-[10px] text-red-600 font-semibold">{err}</td>
+        </tr>
+      )}
+    </>
+  )
+}
+
+// ─── HadCell — inline edit untuk hadAtletPerSekolah ──────────────────────────
+
+function HadCell({ acara, kejohananId, onUpdated }) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal]         = useState(acara.hadAtletPerSekolah ?? '')
+  const [saving, setSaving]   = useState(false)
+  const inputRef              = React.useRef()
+
+  function startEdit() { setVal(acara.hadAtletPerSekolah ?? ''); setEditing(true) }
+  function cancel()    { setEditing(false) }
+
+  async function save() {
+    const num = parseInt(val)
+    if (isNaN(num) || num < 1) return cancel()
+    if (num === acara.hadAtletPerSekolah) return cancel()
+    setSaving(true)
+    try {
+      const aceraKey = acara.noAcara || acara.aceraId || acara.id
+      await updateDoc(doc(db, 'kejohanan', kejohananId, 'acara', String(aceraKey)),
+        { hadAtletPerSekolah: num, updatedAt: serverTimestamp() })
+      onUpdated(aceraKey, num)
+    } catch { /* kekal nilai lama */ } finally { setSaving(false); setEditing(false) }
+  }
+
+  useEffect(() => { if (editing && inputRef.current) inputRef.current.focus() }, [editing])
+
+  if (saving) return <span className="text-[10px] text-gray-400">…</span>
+
+  if (editing) return (
+    <input
+      ref={inputRef}
+      type="number" min={1} max={20}
+      value={val}
+      onChange={e => setVal(e.target.value)}
+      onBlur={save}
+      onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') cancel() }}
+      className="w-12 text-center text-xs font-bold border border-[#003399] rounded-lg px-1 py-0.5 focus:outline-none focus:ring-2 focus:ring-[#003399]/30"
+    />
+  )
+
+  return (
+    <button onClick={startEdit} title="Klik untuk ubah"
+      className="inline-flex items-center gap-0.5 text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all
+        hover:border-[#003399] hover:bg-blue-50 group
+        bg-emerald-50 text-emerald-700 border-emerald-200">
+      <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+      </svg>
+      {acara.hadAtletPerSekolah ?? '?'}
+      <svg className="w-2 h-2 text-emerald-400 group-hover:text-[#003399] ml-0.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+      </svg>
+    </button>
+  )
+}
+
 // ─── Badge helpers ────────────────────────────────────────────────────────────
+
+// Pulang label paparan kategori — guna label jika ada, fallback ke kod
+function katLabel(kod, kategoriList = []) {
+  if (!kod) return '—'
+  const kat = kategoriList.find(k => k.kod === kod)
+  return (kat?.label) || kod
+}
 
 function JenisBadge({ jenis }) {
   const j = JENIS_ACARA.find(x => x.value === jenis)
@@ -260,13 +987,14 @@ function JantinaBadge({ jantina }) {
 
 const FormField = ({ label, hint, required, children }) => (
   <div>
-    <label className="block text-[10px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide">
+    <div className="block text-[10px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide">
       {label}{required && <span className="text-red-400 ml-0.5">*</span>}
-    </label>
+    </div>
     {children}
     {hint && <p className="text-[10px] text-gray-400 mt-1">{hint}</p>}
   </div>
 )
+
 
 // ─── WA Config Panel ──────────────────────────────────────────────────────────
 
@@ -315,36 +1043,37 @@ function WaConfigPanel({ kejohananId }) {
 
       {open && kejohananId && (
         <div className="px-4 pb-4 space-y-4 border-t border-gray-100">
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 pt-3">
 
-            <FormField label="Had Angin (m/s)" hint="Rekod sah jika ≤ had ini">
+          {/* Nota redirect tetapan finalis */}
+          <div className="mt-3 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2.5 flex items-start gap-2">
+            <svg className="w-3.5 h-3.5 text-blue-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p className="text-[10px] text-blue-700 leading-relaxed">
+              <strong>Tetapan Bilangan Finalis & Cubaan Padang</strong> telah dipindahkan ke
+              {' '}<strong>Kategori → Tab Tetapan Final</strong> — ditetapkan per kategori (L12, L15, dll) untuk lebih tepat.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+
+            <FormField label="Had Angin (m/s)" hint="Rekod sah jika angin ≤ had ini">
               <input type="number" step="0.1" value={cfg.windLimit}
                 onChange={e => set('windLimit', parseFloat(e.target.value))} className={inputCls} />
             </FormField>
 
-            <FormField label="False Start" hint="one=terus DQ, two=amaran dulu">
+            <FormField label="False Start" hint="Bila atlet diisytihar DQ">
               <select value={cfg.falseStartRule} onChange={e => set('falseStartRule', e.target.value)} className={inputCls}>
                 <option value="one">1 FS = terus DQ (WA standard)</option>
                 <option value="two">2 FS = DQ (sekolah)</option>
               </select>
             </FormField>
 
-            <FormField label="Sistem Masa">
+            <FormField label="Sistem Masa" hint="Pengaruhi cara keputusan dicatat">
               <select value={cfg.timeSystem} onChange={e => set('timeSystem', e.target.value)} className={inputCls}>
                 <option value="electronic">Elektronik (FAT)</option>
                 <option value="manual">Manual (jam tangan)</option>
               </select>
-            </FormField>
-
-            <FormField label="Cara Pilih Finalis" hint="Standard KOAM = hybrid">
-              <select value={cfg.caraPilihFinal} onChange={e => set('caraPilihFinal', e.target.value)} className={inputCls}>
-                {CARA_FINAL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </FormField>
-
-            <FormField label="Wildcard Slots" hint="Untuk cara hybrid">
-              <input type="number" min={0} value={cfg.wildcardSlot}
-                onChange={e => set('wildcardSlot', parseInt(e.target.value))} className={inputCls} />
             </FormField>
 
             <FormField label="Standard Lorong" hint="Bilangan lorong trek">
@@ -352,20 +1081,19 @@ function WaConfigPanel({ kejohananId }) {
                 onChange={e => set('lorongStandard', parseInt(e.target.value))} className={inputCls} />
             </FormField>
 
-            <FormField label="Cubaan Peringkat Awal" hint="Padang — semua peserta">
-              <input type="number" min={1} value={cfg.cubaan?.peringkatAwal ?? 3}
-                onChange={e => set('cubaan', { ...cfg.cubaan, peringkatAwal: parseInt(e.target.value) })} className={inputCls} />
-            </FormField>
+            {cfg.timeSystem === 'manual' && (
+              <>
+                <FormField label="Pelarasan Masa — Sprint (s)" hint="Tambah ke masa tangan: 100m, 200m, 400m, relay (WA: +0.24s)">
+                  <input type="number" step="0.01" value={cfg.handTimeAdjustSprint ?? 0.24}
+                    onChange={e => set('handTimeAdjustSprint', parseFloat(e.target.value))} className={inputCls} />
+                </FormField>
 
-            <FormField label="Cubaan Peringkat Akhir" hint="Padang — top finalis">
-              <input type="number" min={1} value={cfg.cubaan?.peringkatAkhir ?? 3}
-                onChange={e => set('cubaan', { ...cfg.cubaan, peringkatAkhir: parseInt(e.target.value) })} className={inputCls} />
-            </FormField>
-
-            <FormField label="Top Finalis Padang" hint="Berapa masuk peringkat akhir">
-              <input type="number" min={1} value={cfg.cubaan?.topFinalis ?? 8}
-                onChange={e => set('cubaan', { ...cfg.cubaan, topFinalis: parseInt(e.target.value) })} className={inputCls} />
-            </FormField>
+                <FormField label="Pelarasan Masa — Lain (s)" hint="Tambah ke masa tangan: 800m ke atas, padang (WA: +0.14s)">
+                  <input type="number" step="0.01" value={cfg.handTimeAdjustOther ?? 0.14}
+                    onChange={e => set('handTimeAdjustOther', parseFloat(e.target.value))} className={inputCls} />
+                </FormField>
+              </>
+            )}
           </div>
 
           <div className="flex items-center gap-2 pt-1">
@@ -383,7 +1111,7 @@ function WaConfigPanel({ kejohananId }) {
 
 // ─── AcaraModal ───────────────────────────────────────────────────────────────
 
-function AcaraModal({ mode, initial, kejohananId, onClose, onSaved, kategoriList = [] }) {
+function AcaraModal({ mode, initial, kejohananId, onClose, onSaved, kategoriList = [], defaultTarikh = '' }) {
   const isEdit = mode === 'edit'
 
   const [form, setForm] = useState({
@@ -391,11 +1119,11 @@ function AcaraModal({ mode, initial, kejohananId, onClose, onSaved, kategoriList
     namaAcaraPendek:initial?.namaAcaraPendek || '',
     jantina:        initial?.jantina        || 'L',
     kategoriKod:    initial?.kategoriKod    || '',
-    tarikhAcara:    initial?.tarikhAcara    || '',
+    tarikhAcara:    initial?.tarikhAcara    || defaultTarikh,
     masa:           initial?.masa           || '',
     lokasi:         initial?.lokasi         || 'Trek Utama',
     peringkat:      initial?.peringkat      || 'akhir',
-    bilanganHeat:   initial?.bilanganHeat   || 1,
+    parentAcaraId:  initial?.parentAcaraId  || '',
     sesi:           initial?.sesi           || 'Pagi',
     jenisAcara:     initial?.jenisAcara     || 'lorong',
     bilanganLorong: initial?.bilanganLorong || 8,
@@ -428,10 +1156,11 @@ function AcaraModal({ mode, initial, kejohananId, onClose, onSaved, kategoriList
   }, [form.namaAcaraPendek, form.jenisManual])
 
   const selectedKat   = kategoriList.find(k => k.kod === form.kategoriKod)
-  const umurLabel     = selectedKat ? `Bwh ${selectedKat.umurHad}` : form.kategoriKod
-  const kelas         = form.kategoriKod ? `${form.jantina} ${umurLabel}` : form.jantina
+  const kelas         = form.kategoriKod
+    ? (selectedKat?.label || (selectedKat?.umurHad ? `${form.jantina} Bwh ${selectedKat.umurHad}` : `${form.jantina} ${form.kategoriKod}`))
+    : form.jantina
   const namaAcaraFull = `${form.namaAcaraPendek} ${kelas}`.trim()
-  const adaHeat       = form.peringkat === 'saringan_akhir'
+  const adaHeat       = form.peringkat === 'saringan'
   const isPadang      = ['padang_lompat', 'padang_balin'].includes(form.jenisAcara)
   const isLorong      = ['lorong', 'relay'].includes(form.jenisAcara)
   const jInfo         = JENIS_ACARA.find(j => j.value === form.jenisAcara)
@@ -478,8 +1207,8 @@ function AcaraModal({ mode, initial, kejohananId, onClose, onSaved, kategoriList
         lokasi:            form.lokasi,
         sesi:              form.sesi,
         peringkat:         form.peringkat,
-        adaHeat,
-        bilanganHeat:      adaHeat ? Number(form.bilanganHeat) : 0,
+        parentAcaraId:     form.parentAcaraId.trim() || null,
+        adaHeat:           form.peringkat === 'saringan',
         isWindReading:     !!form.isWindReading,
         unitUkuran:        isPadang ? 'm' : 's',
         bilanganLorong:    isLorong ? Number(form.bilanganLorong) : null,
@@ -531,7 +1260,7 @@ function AcaraModal({ mode, initial, kejohananId, onClose, onSaved, kategoriList
         await setDoc(doc(db, 'jadual_acara', `${kejohananId}-${newDocId}`), jadualPayload)
       }
 
-      onSaved()
+      onSaved(form.tarikhAcara)
       onClose()
     } catch (e) {
       setErr(e.message)
@@ -612,7 +1341,7 @@ function AcaraModal({ mode, initial, kejohananId, onClose, onSaved, kategoriList
                   <option value="">— Pilih Kategori —</option>
                   {kategoriList.map(k => (
                     <option key={k.kod} value={k.kod}>
-                      Kat {k.kod} — {k.nama || k.jenisSekolah} (Bwh {k.umurHad} thn)
+                      {k.label || k.kod} — {k.nama || k.jenisSekolah} (Bwh {k.umurHad} thn)
                     </option>
                   ))}
                 </select>
@@ -626,14 +1355,25 @@ function AcaraModal({ mode, initial, kejohananId, onClose, onSaved, kategoriList
           {/* 4 — Peringkat */}
           <div>
             <p className="text-[10px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide">Peringkat <span className="text-red-400">*</span></p>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               {[
-                { v:'akhir',          l:'Akhir',           d:'Terus final, tiada saringan' },
-                { v:'saringan_akhir', l:'Saringan + Akhir', d:'Ada heat saringan sebelum final' },
+                { v:'akhir',    l:'Terus Final', d:'Final sahaja, tiada heat saringan' },
+                { v:'saringan', l:'Saringan',    d:'Heat saringan — final dibuat berasingan' },
+                { v:'akhir_p',  l:'Final',       d:'Final selepas saringan (ada No Acara Saringan)' },
               ].map(o => (
-                <button key={o.v} type="button" onClick={() => set('peringkat', o.v)}
+                <button key={o.v} type="button"
+                  onClick={() => {
+                    const val = o.v === 'akhir_p' ? 'akhir' : o.v
+                    const isParent = o.v === 'akhir_p'
+                    set('peringkat', val)
+                    if (!isParent) set('parentAcaraId', '')
+                  }}
                   className={`p-2.5 rounded-xl border text-left transition-all ${
-                    form.peringkat === o.v ? 'border-[#003399] bg-blue-50' : 'border-gray-200 hover:border-gray-300'
+                    (o.v === 'akhir_p'
+                      ? form.peringkat === 'akhir' && form.parentAcaraId
+                      : form.peringkat === o.v && !form.parentAcaraId)
+                      ? 'border-[#003399] bg-blue-50'
+                      : 'border-gray-200 hover:border-gray-300'
                   }`}>
                   <p className="text-xs font-bold text-gray-700">{o.l}</p>
                   <p className="text-[9px] text-gray-400">{o.d}</p>
@@ -641,18 +1381,45 @@ function AcaraModal({ mode, initial, kejohananId, onClose, onSaved, kategoriList
               ))}
             </div>
             {adaHeat && (
+              <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-2">
+                <svg className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="text-[10px] text-amber-700 leading-relaxed">
+                  <strong>Bilangan heat dikira automatik</strong> semasa Jana Start List — berdasarkan jumlah peserta sebenar ÷ bilangan lorong. Tiada perlu tetapkan di sini.
+                </p>
+              </div>
+            )}
+            {form.peringkat === 'akhir' && (
               <div className="mt-2">
-                <FormField label="Bilangan Heat Saringan">
-                  <input type="number" min={1} max={20} value={form.bilanganHeat}
-                    onChange={e => set('bilanganHeat', e.target.value)} className={inputCls} />
+                <FormField label="No Acara Saringan (opsional)" hint="Isi jika acara ini ialah final kepada saringan lain. Cth: 101">
+                  <input type="text" inputMode="numeric"
+                    value={form.parentAcaraId}
+                    onChange={e => set('parentAcaraId', e.target.value.replace(/\D/g, ''))}
+                    placeholder="— tiada (terus final) —"
+                    className={inputCls + (form.parentAcaraId ? ' border-[#003399] bg-blue-50/40' : '')} />
                 </FormField>
+                {form.parentAcaraId && (
+                  <p className="text-[10px] text-[#003399] font-semibold mt-1">
+                    Final ini akan ambil finalis dari Acara #{form.parentAcaraId}
+                  </p>
+                )}
               </div>
             )}
           </div>
 
           {/* 5 — Tarikh + Lokasi */}
           <div className="grid grid-cols-2 gap-3">
-            <FormField label="Tarikh" required>
+            <FormField label={
+              <span className="flex items-center gap-1.5">
+                Tarikh
+                {!isEdit && defaultTarikh && form.tarikhAcara === defaultTarikh && (
+                  <span className="text-[9px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded normal-case tracking-normal">
+                    sama seperti sebelum
+                  </span>
+                )}
+              </span>
+            } required>
               <input type="date" value={form.tarikhAcara}
                 onChange={e => set('tarikhAcara', e.target.value)} className={inputCls} />
             </FormField>
@@ -785,651 +1552,166 @@ function DeleteModal({ acara, kejohananId, onClose, onDeleted }) {
   )
 }
 
-// ─── SeedPanel ────────────────────────────────────────────────────────────────
 
-function SeedPanel({ kejohananId, kategoriList, onSeeded }) {
-  const [open, setOpen] = useState(false)
-  const [filterKat, setFilterKat] = useState('semua')
-  const [seeding, setSeeding] = useState(false)
-  const [done, setDone] = useState(false)
+// ─── HadPesertaPanel ─────────────────────────────────────────────────────────
 
-  const katList = [...new Set(SEED_ACARA_STANDARD.map(a => a.kategoriKod))]
-  const filtered = filterKat === 'semua' ? SEED_ACARA_STANDARD
-    : SEED_ACARA_STANDARD.filter(a => a.kategoriKod === filterKat)
-
-  // Only seed acara for kategori that exist in Firestore
-  const availableKat = new Set(kategoriList.map(k => k.kod))
-
-  async function handleSeed() {
-    if (!kejohananId) return alert('Pilih kejohanan dahulu.')
-    setSeeding(true)
-    try {
-      const toSeed = (filterKat === 'semua' ? SEED_ACARA_STANDARD : filtered)
-        .filter(a => availableKat.has(a.kategoriKod))
-
-      // Batch write (max 500 per batch)
-      const chunks = []
-      for (let i = 0; i < toSeed.length; i += 400) chunks.push(toSeed.slice(i, i + 400))
-
-      for (const chunk of chunks) {
-        const batch = writeBatch(db)
-        for (const a of chunk) {
-          const aceraId = buatAceraId(a.namaAcara, a.jantina, a.kategoriKod)
-          if (!aceraId) continue
-          const ref = doc(db, 'kejohanan', kejohananId, 'acara', aceraId)
-          batch.set(ref, {
-            aceraId,
-            namaAcara: a.namaAcara,
-            jenisAcara: a.jenisAcara,
-            kategoriKod: a.kategoriKod,
-            jantina: a.jantina,
-            unitUkuran: a.jenisAcara === 'padang_lompat' || a.jenisAcara === 'padang_balin' ? 'm' : 's',
-            isRelay: a.jenisAcara === 'relay',
-            isWindReading: !!a.isWindReading,
-            isAktif: true,
-            statusAcara: 'belum_mula',
-            hadAtletPerSekolah: a.hadAtletPerSekolah ?? 2,
-            minPeserta: 3,
-            bilanganLorong: a.bilanganLorong ?? null,
-            caraPilihFinal: a.caraPilihFinal ?? 'hybrid',
-            bilanganFinalis: a.bilanganFinalis ?? 8,
-            wildcardSlot: a.wildcardSlot ?? 2,
-            bilanganCubaan: a.bilanganCubaan ?? null,
-            topFinalis: a.topFinalis ?? null,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          }, { merge: true })
-        }
-        await batch.commit()
-      }
-      setDone(true)
-      onSeeded()
-    } catch (e) { alert('Ralat: ' + e.message) } finally { setSeeding(false) }
-  }
-
-  return (
-    <div className="border border-dashed border-gray-300 rounded-xl bg-gray-50 overflow-hidden">
-      <button onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-4 py-3 text-xs font-semibold text-gray-500 hover:bg-gray-100 transition-colors">
-        <span>Muat Masuk Acara Standard MSSM Malaysia ({SEED_ACARA_STANDARD.length} acara)</span>
-        <svg className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-      {open && (
-        <div className="px-4 pb-4 space-y-3">
-          {!kejohananId && (
-            <p className="text-xs text-orange-600 font-semibold">Pilih kejohanan dahulu sebelum muat masuk.</p>
-          )}
-
-          {/* Warning: standard kods missing */}
-          {(() => {
-            const standardKods = ['A','B','C','D','E','PPKI']
-            const missing = standardKods.filter(k => !availableKat.has(k))
-            if (missing.length === 0) return null
-            return (
-              <div className="flex items-start gap-2 px-3 py-2.5 bg-red-50 border border-red-200 rounded-lg">
-                <svg className="w-4 h-4 text-red-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-                <div>
-                  <p className="text-xs font-bold text-red-700">Kategori tidak dijumpai: {missing.map(k => `Kat ${k}`).join(', ')}</p>
-                  <p className="text-[10px] text-red-500 mt-0.5">
-                    Acara untuk kategori ini tidak akan disemai. Pergi ke <strong>Setup Kategori</strong> dan pastikan kod kategori adalah tepat (<strong>A, B, C, D, E, PPKI</strong>). Kod tidak boleh ditukar selepas dicipta.
-                  </p>
-                </div>
-              </div>
-            )
-          })()}
-
-          {/* Filter by kat */}
-          <div className="flex flex-wrap gap-1.5">
-            {['semua', ...katList].map(k => (
-              <button key={k} onClick={() => setFilterKat(k)}
-                className={`px-2.5 py-1 text-[10px] font-bold rounded-lg border transition-colors ${
-                  filterKat === k ? 'bg-[#003399] text-white border-[#003399]' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
-                }`}>
-                {k === 'semua' ? 'Semua' : `Kat ${k}`}
-              </button>
-            ))}
-          </div>
-
-          {/* Mini table */}
-          <div className="max-h-48 overflow-y-auto">
-            <table className="w-full text-[10px]">
-              <thead className="sticky top-0 bg-gray-100">
-                <tr>
-                  <th className="px-2 py-1 text-left font-bold text-gray-500">Acara</th>
-                  <th className="px-2 py-1 text-center font-bold text-gray-500">Kat</th>
-                  <th className="px-2 py-1 text-center font-bold text-gray-500">J</th>
-                  <th className="px-2 py-1 text-left font-bold text-gray-500">Jenis</th>
-                  <th className="px-2 py-1 text-center font-bold text-gray-500">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((a, i) => {
-                  const katWujud = availableKat.has(a.kategoriKod)
-                  return (
-                    <tr key={i} className={`border-b border-gray-100 ${!katWujud ? 'opacity-40' : ''}`}>
-                      <td className="px-2 py-1 font-semibold text-gray-700">{a.namaAcara}</td>
-                      <td className="px-2 py-1 text-center font-bold text-[#003399]">{a.kategoriKod}</td>
-                      <td className="px-2 py-1 text-center">
-                        <span className={`font-black ${a.jantina === 'L' ? 'text-blue-600' : 'text-pink-600'}`}>{a.jantina}</span>
-                      </td>
-                      <td className="px-2 py-1">
-                        <JenisBadge jenis={a.jenisAcara} />
-                      </td>
-                      <td className="px-2 py-1 text-center">
-                        {katWujud
-                          ? <span className="text-[9px] text-green-600 font-bold">✓</span>
-                          : <span className="text-[9px] text-red-500 font-bold">✗ Tiada Kat</span>
-                        }
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          <p className="text-[10px] text-gray-400">
-            Baris ✗ = kategori tiada dalam sistem — tidak akan disemai. Tambah kategori dengan kod yang betul dahulu.
-          </p>
-
-          {done && <p className="text-xs text-green-600 font-semibold">Berjaya dimuat masuk!</p>}
-          <button onClick={handleSeed} disabled={seeding || !kejohananId}
-            className="px-4 py-1.5 text-xs font-bold bg-[#003399] text-white rounded-lg hover:bg-[#002288] disabled:opacity-50 transition-colors">
-            {seeding ? 'Memuat masuk…' : `Muat Masuk ${filterKat === 'semua' ? 'Semua' : `Kat ${filterKat}`} (${filtered.filter(a => availableKat.has(a.kategoriKod)).length} acara)`}
-          </button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── MigratePanel ────────────────────────────────────────────────────────────
-
-const VALID_KAT = new Set(['A','B','C','D','E','PPKI'])
-
-function guessKategoriKod(kategoriUmur, kategoriList) {
-  if (!kategoriUmur) return null
-  if (kategoriUmur === 'Terbuka') {
-    return kategoriList.find(k => k.kod === 'E')?.kod || null
-  }
-  const umur = parseInt(kategoriUmur)
-  if (isNaN(umur)) return null
-  // Exact match on umurHad
-  const exact = kategoriList.find(k => k.umurHad === umur)
-  if (exact) return exact.kod
-  // Range match
-  const range = kategoriList.find(k => umur >= (k.umurMin || 0) && umur <= k.umurHad)
-  return range?.kod || null
-}
-
-function MigratePanel({ kejohananId, kategoriList, onMigrated }) {
+function HadPesertaPanel({ acaraList, kejohananId, onRefresh, kategoriList = [] }) {
   const [open,     setOpen]     = useState(false)
-  const [scanning, setScanning] = useState(false)
-  const [rows,     setRows]     = useState(null)   // null = belum scan
-  const [migrating,setMigrating]= useState(false)
-  const [done,     setDone]     = useState(false)
+  const [fNama,    setFNama]    = useState('semua')
+  const [fJantina, setFJantina] = useState('semua')
+  const [fKat,     setFKat]     = useState('semua')
+  const [had,      setHad]      = useState(2)
+  const [saving,   setSaving]   = useState(false)
+  const [saved,    setSaved]    = useState(false)
 
-  async function handleScan() {
-    if (!kejohananId) return alert('Pilih kejohanan dahulu.')
-    setScanning(true)
-    setDone(false)
-    try {
-      const snap = await getDocs(collection(db, 'kejohanan', kejohananId, 'acara'))
-      const rosak = snap.docs
-        .map(d => ({ id: d.id, ...d.data() }))
-        .filter(a => !VALID_KAT.has(a.kategoriKod))
-        .map(a => ({
-          ...a,
-          cadanganKod: guessKategoriKod(a.kategoriUmur, kategoriList),
-        }))
-      setRows(rosak)
-    } catch (e) { alert('Ralat scan: ' + e.message) } finally { setScanning(false) }
-  }
-
-  async function handleMigrate() {
-    if (!rows?.length) return
-    const boleh = rows.filter(r => r.cadanganKod)
-    if (!boleh.length) return alert('Tiada acara yang boleh di-migrate secara automatik.')
-    if (!window.confirm(`Migrate ${boleh.length} acara? Tindakan ini akan tukar kategoriKod dalam Firestore.`)) return
-    setMigrating(true)
-    try {
-      const chunks = []
-      for (let i = 0; i < boleh.length; i += 400) chunks.push(boleh.slice(i, i + 400))
-      for (const chunk of chunks) {
-        const batch = writeBatch(db)
-        for (const a of chunk) {
-          const ref = doc(db, 'kejohanan', kejohananId, 'acara', a.id)
-          batch.update(ref, { kategoriKod: a.cadanganKod })
-        }
-        await batch.commit()
-      }
-      setDone(true)
-      setRows(null)
-      onMigrated()
-    } catch (e) { alert('Ralat migrate: ' + e.message) } finally { setMigrating(false) }
-  }
-
-  const tiadaCadangan = rows?.filter(r => !r.cadanganKod) || []
-  const bolehMigrate  = rows?.filter(r =>  r.cadanganKod) || []
-
-  return (
-    <div className="border border-dashed border-orange-300 rounded-xl bg-orange-50/40 overflow-hidden">
-      <button onClick={() => { setOpen(o => !o); if (!open && !rows) handleScan() }}
-        className="w-full flex items-center justify-between px-4 py-3 text-xs font-semibold text-orange-700 hover:bg-orange-50 transition-colors">
-        <span>Migrate Acara Lama (kategoriKod: SR/SM → A/B/C/D/E)</span>
-        <svg className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-
-      {open && (
-        <div className="px-4 pb-4 space-y-3">
-          <p className="text-[10px] text-orange-600">
-            Acara lama yang disimpan dengan <code className="bg-orange-100 px-1 rounded">kategoriKod:'SR'</code> atau <code className="bg-orange-100 px-1 rounded">'SM'</code>
-            akan dikesan dan dicadangkan kategori MSSM yang betul berdasarkan umur.
-          </p>
-
-          {scanning && <p className="text-xs text-gray-500 animate-pulse">Mengimbas acara…</p>}
-
-          {done && (
-            <div className="px-3 py-2 bg-green-50 border border-green-200 rounded-lg text-xs text-green-700 font-semibold">
-              Migration selesai! Acara telah dikemaskini.
-            </div>
-          )}
-
-          {rows !== null && !scanning && (
-            rows.length === 0 ? (
-              <p className="text-xs text-green-600 font-semibold">Semua acara sudah ada kategoriKod yang betul.</p>
-            ) : (
-              <>
-                <div className="max-h-56 overflow-y-auto rounded-lg border border-orange-200">
-                  <table className="w-full text-[10px]">
-                    <thead className="sticky top-0 bg-orange-100">
-                      <tr>
-                        <th className="px-2 py-1.5 text-left font-bold text-orange-700">No</th>
-                        <th className="px-2 py-1.5 text-left font-bold text-orange-700">Acara</th>
-                        <th className="px-2 py-1.5 text-center font-bold text-orange-700">Umur</th>
-                        <th className="px-2 py-1.5 text-center font-bold text-orange-700">Lama</th>
-                        <th className="px-2 py-1.5 text-center font-bold text-orange-700">→ Baru</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map(r => (
-                        <tr key={r.id} className={`border-b border-orange-100 ${!r.cadanganKod ? 'bg-red-50' : ''}`}>
-                          <td className="px-2 py-1 font-mono text-gray-500">{r.noAcara || r.id}</td>
-                          <td className="px-2 py-1 text-gray-700">{r.namaAcara || r.namaAcaraPendek}</td>
-                          <td className="px-2 py-1 text-center text-gray-500">{r.kategoriUmur || '—'}</td>
-                          <td className="px-2 py-1 text-center">
-                            <span className="font-bold text-red-600">{r.kategoriKod || '—'}</span>
-                          </td>
-                          <td className="px-2 py-1 text-center">
-                            {r.cadanganKod
-                              ? <span className="font-bold text-green-700">Kat {r.cadanganKod}</span>
-                              : <span className="text-[9px] text-red-500 font-bold">⚠ Manual</span>
-                            }
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {tiadaCadangan.length > 0 && (
-                  <p className="text-[10px] text-red-600">
-                    ⚠ {tiadaCadangan.length} acara bertanda "Manual" — edit secara manual selepas migrate.
-                  </p>
-                )}
-
-                <div className="flex gap-2">
-                  <button onClick={handleScan} disabled={scanning}
-                    className="px-3 py-1.5 text-[10px] font-bold border border-orange-300 text-orange-700 rounded-lg hover:bg-orange-100 transition-colors disabled:opacity-50">
-                    Imbas Semula
-                  </button>
-                  {bolehMigrate.length > 0 && (
-                    <button onClick={handleMigrate} disabled={migrating}
-                      className="px-4 py-1.5 text-xs font-bold bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 transition-colors">
-                      {migrating ? 'Migrating…' : `Migrate ${bolehMigrate.length} Acara`}
-                    </button>
-                  )}
-                </div>
-              </>
-            )
-          )}
-
-          {!scanning && rows === null && (
-            <button onClick={handleScan} disabled={!kejohananId}
-              className="px-4 py-1.5 text-xs font-bold bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 transition-colors">
-              Imbas Acara
-            </button>
-          )}
-        </div>
-      )}
-    </div>
+  // Senarai nama unik dari acara yang dimuatkan
+  const namaUnik = ['semua', ...new Set(acaraList.map(a => a.namaAcara).filter(Boolean))].sort((a, b) =>
+    a === 'semua' ? -1 : b === 'semua' ? 1 : a.localeCompare(b)
   )
-}
+  // Derive dari kategoriList (semua kategori dikonfigur) bukan dari acara
+  const katUnik = ['semua', ...kategoriList.map(k => k.kod).filter(Boolean)]
 
-// ─── VerifikasiPanel ──────────────────────────────────────────────────────────
-
-const HARI_TARIKH = { 1:'2026-06-28', 2:'2026-06-29', 3:'2026-06-30', 4:'2026-07-01', 5:'2026-07-02' }
-
-function VerifikasiPanel({ acaraList, kejohananId, onRefresh }) {
-  const [open,    setOpen]    = useState(false)
-  const [filter,  setFilter]  = useState('masalah') // 'masalah' | 'ok' | 'beza' | 'tiada' | 'extra' | 'semua'
-  const [seeding, setSeeding] = useState(null)
-
-  // Build lookup maps
-  const jadualMap    = new Map(JADUAL_2026.map(e => [String(e[0]), { noAcara:String(e[0]), masa:e[1], namaAcara:e[2], kelas:e[3], peringkat:e[4], hari:e[5], sesi:e[6], lokasi:e[7] }]))
-  const firestoreMap = new Map(acaraList.map(a => [String(a.noAcara || a.id), a]))
-
-  const allNos = new Set([...jadualMap.keys(), ...firestoreMap.keys()])
-  const rows = [...allNos].sort((a, b) => Number(a) - Number(b)).map(no => {
-    const j = jadualMap.get(no)
-    const f = firestoreMap.get(no)
-    let status = 'ok', masalah = []
-    if (j && f) {
-      const fNama = (f.namaAcara || '').trim()
-      const fKelas = (f.kelas || '').trim()
-      const fMasa = (f.masa || '').trim()
-      if (j.namaAcara !== fNama)   masalah.push(`Nama: "${fNama}" ≠ "${j.namaAcara}"`)
-      if (j.kelas !== fKelas)      masalah.push(`Kelas: "${fKelas}" ≠ "${j.kelas}"`)
-      if (j.masa && j.masa !== fMasa) masalah.push(`Masa: "${fMasa}" ≠ "${j.masa}"`)
-      status = masalah.length > 0 ? 'beza' : 'ok'
-    } else if (j && !f) {
-      status = 'tiada'
-    } else {
-      status = 'extra'
-    }
-    return { no, j, f, status, masalah }
+  // Acara yang padan dengan filter
+  const matching = acaraList.filter(a => {
+    if (fNama    !== 'semua' && a.namaAcara   !== fNama)    return false
+    if (fJantina !== 'semua' && a.jantina     !== fJantina) return false
+    if (fKat     !== 'semua' && a.kategoriKod !== fKat)     return false
+    return true
   })
 
-  const counts = {
-    ok:    rows.filter(r => r.status === 'ok').length,
-    beza:  rows.filter(r => r.status === 'beza').length,
-    tiada: rows.filter(r => r.status === 'tiada').length,
-    extra: rows.filter(r => r.status === 'extra').length,
-  }
-  const adaMasalah = counts.beza + counts.tiada + counts.extra
+  async function handleKemaskini() {
+    if (!kejohananId) return alert('Pilih kejohanan dahulu.')
+    if (matching.length === 0) return alert('Tiada acara yang sepadan dengan filter.')
+    const hadNum = Number(had)
+    if (isNaN(hadNum) || hadNum < 1) return alert('Had mestilah nombor ≥ 1.')
+    if (!window.confirm(`Kemaskini had peserta → ${hadNum} bagi ${matching.length} acara?`)) return
 
-  const shown = filter === 'semua'   ? rows
-    : filter === 'masalah' ? rows.filter(r => r.status !== 'ok')
-    : rows.filter(r => r.status === filter)
-
-  async function seedOne(row) {
-    if (!kejohananId || !row.j) return
-    setSeeding(row.no)
+    setSaving(true)
     try {
-      const j = row.j
-      const tarikhAcara = HARI_TARIKH[j.hari] || ''
-      const acaraPayload = {
-        noAcara: j.noAcara, aceraId: j.noAcara,
-        namaAcara: j.namaAcara, kelas: j.kelas,
-        peringkat: j.peringkat, masa: j.masa,
-        lokasi: j.lokasi, sesi: j.sesi, hari: j.hari,
-        tarikhAcara,
-        jenisAcara:    detectJenisFromNama(j.namaAcara),
-        isWindReading: detectWindFromNama(j.namaAcara),
-        statusAcara:   'akan_datang',
-        isSeedData:    true,
-        createdAt:     serverTimestamp(),
-        updatedAt:     serverTimestamp(),
+      const chunks = []
+      for (let i = 0; i < matching.length; i += 400) chunks.push(matching.slice(i, i + 400))
+      for (const chunk of chunks) {
+        const batch = writeBatch(db)
+        for (const a of chunk) {
+          const ref = doc(db, 'kejohanan', kejohananId, 'acara', a.aceraId || a.id)
+          batch.update(ref, { hadAtletPerSekolah: hadNum, updatedAt: serverTimestamp() })
+        }
+        await batch.commit()
       }
-      await setDoc(doc(db, 'kejohanan', kejohananId, 'acara', j.noAcara), acaraPayload)
-      await setDoc(doc(db, 'jadual_acara', `${kejohananId}-${j.noAcara}`), {
-        aceraId: j.noAcara, acaraId: j.noAcara, kejohananId,
-        tarikhAcara, masaMula: j.masa, lokasi: j.lokasi,
-        sesi: j.sesi, namaAcara: j.namaAcara,
-        statusJadual: 'aktif', isSeedData: true,
-        updatedAt: serverTimestamp(),
-      })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 3000)
       onRefresh()
-    } catch (e) { alert('Ralat: ' + e.message) }
-    finally { setSeeding(null) }
-  }
-
-  const SCFG = {
-    ok:    { label:'OK',           cls:'bg-green-100 text-green-700' },
-    beza:  { label:'Content Beza', cls:'bg-amber-100 text-amber-700' },
-    tiada: { label:'Tiada',        cls:'bg-red-100 text-red-700' },
-    extra: { label:'Extra',        cls:'bg-purple-100 text-purple-700' },
+    } catch (e) { alert('Ralat: ' + e.message) } finally { setSaving(false) }
   }
 
   return (
-    <div className="border border-dashed border-blue-200 rounded-xl bg-blue-50/20 overflow-hidden mt-3">
+    <div className="border border-gray-200 rounded-xl bg-white overflow-hidden shadow-sm">
       <button onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-4 py-3 text-xs font-semibold text-blue-700 hover:bg-blue-50 transition-colors">
-        <span className="flex items-center gap-2 flex-wrap">
-          🔍 Semakan Jadual 2026
-          <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-[9px] font-bold">{JADUAL_2026.length} dijangka</span>
-          <span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded text-[9px] font-bold">{counts.ok} OK</span>
-          {counts.tiada > 0 && <span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-[9px] font-bold">{counts.tiada} tiada</span>}
-          {counts.beza  > 0 && <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded text-[9px] font-bold">{counts.beza} beza</span>}
-          {counts.extra > 0 && <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded text-[9px] font-bold">{counts.extra} extra</span>}
-        </span>
-        <svg className={`w-4 h-4 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded-md bg-emerald-600 flex items-center justify-center shrink-0">
+            <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </div>
+          <span className="text-xs font-bold text-gray-700">Kemaskini Had Peserta (Bundle)</span>
+          {!kejohananId && <span className="text-[10px] text-orange-500 font-semibold">Pilih kejohanan dahulu</span>}
+        </div>
+        <svg className={`w-4 h-4 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
       </button>
 
-      {open && (
-        <div className="px-4 pb-4 space-y-3">
+      {open && kejohananId && (
+        <div className="px-4 pb-5 space-y-4 border-t border-gray-100 pt-4">
 
-          {/* Summary cards — klik untuk tapis */}
-          <div className="grid grid-cols-5 gap-2">
-            {[
-              { k:'masalah', label:'Masalah',      cnt:adaMasalah,   cls:'bg-red-50 text-red-700' },
-              { k:'ok',      label:'OK',            cnt:counts.ok,    cls:'bg-green-50 text-green-700' },
-              { k:'beza',    label:'Content Beza',  cnt:counts.beza,  cls:'bg-amber-50 text-amber-700' },
-              { k:'tiada',   label:'Tiada',         cnt:counts.tiada, cls:'bg-red-50 text-red-700' },
-              { k:'extra',   label:'Extra',         cnt:counts.extra, cls:'bg-purple-50 text-purple-700' },
-            ].map(s => (
-              <button key={s.k} onClick={() => setFilter(s.k === filter ? 'masalah' : s.k)}
-                className={`${s.cls} ${filter === s.k ? 'ring-2 ring-current' : 'opacity-70'} rounded-xl px-2 py-2 text-center transition-all hover:opacity-100`}>
-                <p className="text-base font-black">{s.cnt}</p>
-                <p className="text-[8px] uppercase tracking-wide leading-tight">{s.label}</p>
-              </button>
-            ))}
+          {/* Filter row */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {/* Nama Acara */}
+            <div>
+              <label className="block text-[10px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide">Nama Acara</label>
+              <select value={fNama} onChange={e => setFNama(e.target.value)} className={inputCls}>
+                {namaUnik.map(n => (
+                  <option key={n} value={n}>{n === 'semua' ? '— Semua Acara —' : n}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Kategori */}
+            <div>
+              <label className="block text-[10px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide">Kategori</label>
+              <select value={fKat} onChange={e => setFKat(e.target.value)} className={inputCls}>
+                {katUnik.map(k => (
+                  <option key={k} value={k}>{k === 'semua' ? '— Semua Kategori —' : katLabel(k, kategoriList)}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Jantina */}
+            <div>
+              <label className="block text-[10px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide">Jantina</label>
+              <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs bg-white h-[38px]">
+                {[['semua', 'L + P'], ['L', 'Lelaki'], ['P', 'Perempuan']].map(([val, lbl]) => (
+                  <button key={val} type="button" onClick={() => setFJantina(val)}
+                    className={`flex-1 font-semibold transition-colors ${fJantina === val ? 'bg-[#003399] text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
-          {/* Table */}
-          {!kejohananId ? (
-            <p className="text-xs text-red-600 font-semibold">Pilih kejohanan dahulu.</p>
-          ) : shown.length === 0 ? (
-            <div className="bg-white rounded-xl border border-green-200 py-6 text-center">
-              <p className="text-2xl mb-1">✅</p>
-              <p className="text-xs font-bold text-green-700">
-                {filter === 'ok' ? `${counts.ok} acara tepat dan lengkap.` : 'Tiada masalah dijumpai!'}
-              </p>
+          {/* Had input */}
+          <div className="flex items-end gap-3">
+            <div className="w-40">
+              <label className="block text-[10px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide">Had Atlet / Sekolah</label>
+              <input type="number" min={1} max={20} value={had} onChange={e => setHad(e.target.value)}
+                className={inputCls} />
             </div>
-          ) : (
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <div className="overflow-x-auto max-h-72">
-                <table className="w-full text-[10px] min-w-[520px]">
-                  <thead className="sticky top-0 bg-gray-50 border-b border-gray-200">
+            <button onClick={handleKemaskini} disabled={saving || matching.length === 0}
+              className="px-5 py-2 text-xs font-bold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-40 transition-colors">
+              {saving ? 'Menyimpan…' : `Kemaskini ${matching.length} Acara`}
+            </button>
+            {saved && <span className="text-xs text-green-600 font-semibold">✓ Tersimpan!</span>}
+          </div>
+
+          {/* Preview */}
+          {matching.length > 0 ? (
+            <div>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-2">
+                Preview — {matching.length} acara akan dikemaskini
+              </p>
+              <div className="max-h-48 overflow-y-auto rounded-xl border border-gray-100">
+                <table className="w-full text-[11px]">
+                  <thead className="bg-gray-50 sticky top-0">
                     <tr>
-                      <th className="px-2 py-2 text-center text-gray-500 font-bold w-10">No</th>
-                      <th className="px-2 py-2 text-left text-gray-500 font-bold">Dijangka (JADUAL_2026)</th>
-                      <th className="px-2 py-2 text-left text-gray-500 font-bold">Firestore</th>
-                      <th className="px-2 py-2 text-center text-gray-500 font-bold w-20">Status</th>
-                      <th className="px-2 py-2 text-center text-gray-500 font-bold w-20">Tindakan</th>
+                      <th className="px-3 py-2 text-left text-[9px] font-bold text-gray-400 uppercase">Nama Acara</th>
+                      <th className="px-3 py-2 text-center text-[9px] font-bold text-gray-400 uppercase">Kat</th>
+                      <th className="px-3 py-2 text-center text-[9px] font-bold text-gray-400 uppercase">J</th>
+                      <th className="px-3 py-2 text-center text-[9px] font-bold text-gray-400 uppercase">Had Lama</th>
+                      <th className="px-3 py-2 text-center text-[9px] font-bold text-gray-400 uppercase">Had Baru</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {shown.map(row => {
-                      const sc = SCFG[row.status]
-                      return (
-                        <tr key={row.no} className="border-b border-gray-50 hover:bg-gray-50/60">
-                          <td className="px-2 py-2 text-center font-mono font-black text-[#003399]">{row.no}</td>
-                          <td className="px-2 py-2 max-w-[160px]">
-                            {row.j ? (
-                              <div>
-                                <p className="font-semibold text-gray-700 truncate">{row.j.namaAcara}</p>
-                                <p className="text-gray-400 text-[9px]">{row.j.kelas} · {row.j.peringkat} · {row.j.masa}</p>
-                              </div>
-                            ) : <span className="text-gray-300 italic">—</span>}
-                          </td>
-                          <td className="px-2 py-2 max-w-[180px]">
-                            {row.f ? (
-                              <div>
-                                <p className={`font-semibold truncate ${row.status === 'beza' ? 'text-amber-700' : 'text-gray-700'}`}>
-                                  {row.f.namaAcara || '—'}
-                                </p>
-                                <p className="text-gray-400 text-[9px]">{row.f.kelas} · {row.f.peringkat} · {row.f.masa}</p>
-                                {row.masalah.length > 0 && (
-                                  <p className="text-amber-600 text-[9px] mt-0.5 leading-tight">{row.masalah.join(' | ')}</p>
-                                )}
-                              </div>
-                            ) : <span className="text-gray-300 italic">—</span>}
-                          </td>
-                          <td className="px-2 py-2 text-center">
-                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${sc.cls}`}>{sc.label}</span>
-                          </td>
-                          <td className="px-2 py-2 text-center">
-                            {row.status === 'tiada' && (
-                              <button onClick={() => seedOne(row)} disabled={seeding === row.no || !kejohananId}
-                                className="px-2 py-1 text-[9px] font-bold bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
-                                {seeding === row.no ? '…' : '+ Cipta'}
-                              </button>
-                            )}
-                            {row.status === 'beza' && (
-                              <span className="text-[9px] text-gray-400">Edit manual</span>
-                            )}
-                            {row.status === 'extra' && (
-                              <span className="text-[9px] text-gray-400">Semak</span>
-                            )}
-                            {row.status === 'ok' && (
-                              <span className="text-[9px] text-green-500">✓</span>
-                            )}
-                          </td>
-                        </tr>
-                      )
-                    })}
+                    {matching.map(a => (
+                      <tr key={a.aceraId || a.id} className="border-t border-gray-50">
+                        <td className="px-3 py-2 font-semibold text-gray-700">{a.namaAcara}</td>
+                        <td className="px-3 py-2 text-center font-black text-[#003399]">{katLabel(a.kategoriKod, kategoriList)}</td>
+                        <td className="px-3 py-2 text-center">
+                          <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full ${
+                            a.jantina === 'L' ? 'bg-blue-100 text-blue-700' : 'bg-pink-100 text-pink-700'
+                          }`}>{a.jantina}</span>
+                        </td>
+                        <td className="px-3 py-2 text-center text-gray-400">{a.hadAtletPerSekolah ?? '—'}</td>
+                        <td className="px-3 py-2 text-center font-black text-emerald-600">{had}</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
-              <p className="text-[10px] text-gray-400 px-3 py-1.5 border-t border-gray-100">
-                {shown.length} acara dipapar · Klik kad di atas untuk tapis
-              </p>
             </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── SeedJadual2026Panel ──────────────────────────────────────────────────────
-
-function SeedJadual2026Panel({ kejohananId, namaKej, onSeeded }) {
-  const [open,    setOpen]    = useState(false)
-  const [log,     setLog]     = useState([])
-  const [running, setRunning] = useState(false)
-  const [done,    setDone]    = useState(false)
-
-  function addLog(msg) { setLog(prev => [...prev, msg]) }
-
-  async function handleSeed() {
-    if (!kejohananId) return alert('Pilih kejohanan dahulu.')
-    setRunning(true); setDone(false); setLog([])
-    try {
-      await seedJadualAcara2026(kejohananId, addLog)
-      setDone(true)
-      onSeeded()
-    } catch (e) {
-      addLog(`❌ Ralat: ${e.message}`)
-    } finally {
-      setRunning(false)
-    }
-  }
-
-  async function handleDelete() {
-    if (!kejohananId) return
-    if (!confirm(`Padam semua seed data (${JADUAL_2026.length} acara + jadual)?`)) return
-    setRunning(true); setLog([])
-    try {
-      await deleteJadualSeed(kejohananId, addLog)
-      onSeeded()
-    } catch (e) {
-      addLog(`❌ ${e.message}`)
-    } finally {
-      setRunning(false)
-    }
-  }
-
-  async function handleDeleteAll() {
-    if (!kejohananId) return
-    const label = namaKej ? `"${namaKej}"` : kejohananId
-    if (!confirm(`⚠️ PADAM SEMUA ACARA dalam kejohanan ${label}?\n\nTermasuk acara manual, seed, dan semua jadual_acara.\n\nTindakan ini tidak boleh dibatalkan.`)) return
-    setRunning(true); setLog([])
-    try {
-      await deleteAllAcara(kejohananId, addLog)
-      onSeeded()
-    } catch (e) {
-      addLog(`❌ ${e.message}`)
-    } finally {
-      setRunning(false)
-    }
-  }
-
-  return (
-    <div className="border border-dashed border-orange-300 rounded-xl bg-orange-50/30 overflow-hidden mt-3">
-      <button onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-4 py-3 text-xs font-semibold text-orange-700 hover:bg-orange-50 transition-colors">
-        <span>📅 Seed Jadual MSSM Kemaman 2026 ({JADUAL_2026.length} acara + jadual_acara)</span>
-        <svg className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-
-      {open && (
-        <div className="px-4 pb-4 space-y-3">
-          <div className="bg-orange-50 border border-orange-200 rounded-lg px-3 py-2.5 text-[11px] text-orange-700 space-y-0.5">
-            <p className="font-bold">Jadual MSSM Kemaman 2026 — 5 Hari | 9 Sesi</p>
-            <p>📅 28 Jun – 2 Julai 2026 | SMK Sultan Ismail, Kemaman</p>
-            <p>Akan mencipta <strong>acara</strong> dalam kejohanan + rekod <strong>jadual_acara</strong></p>
-            {namaKej && (
-              <p className="mt-1 font-bold text-orange-800 border-t border-orange-200 pt-1">
-                Kejohanan: {namaKej}
-              </p>
-            )}
-          </div>
-
-          {!kejohananId && (
-            <p className="text-xs text-red-600 font-semibold">Pilih kejohanan dahulu.</p>
-          )}
-
-          <div className="flex gap-2 flex-wrap">
-            <button onClick={handleSeed} disabled={running || !kejohananId}
-              className="px-4 py-1.5 text-xs font-bold bg-orange-500 text-white rounded-lg hover:bg-orange-600 disabled:opacity-50 transition-colors">
-              {running ? 'Memuat masuk…' : `Seed ${JADUAL_2026.length} Acara`}
-            </button>
-            <button onClick={handleDelete} disabled={running || !kejohananId}
-              className="px-4 py-1.5 text-xs font-bold bg-white border border-red-300 text-red-600 rounded-lg hover:bg-red-50 disabled:opacity-50 transition-colors">
-              Padam Seed
-            </button>
-            <button onClick={handleDeleteAll} disabled={running || !kejohananId}
-              className="px-4 py-1.5 text-xs font-bold bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors">
-              ⚠️ Padam SEMUA Acara
-            </button>
-          </div>
-
-          {done && <p className="text-xs text-green-600 font-semibold">✅ Seed selesai!</p>}
-
-          {log.length > 0 && (
-            <div className="bg-gray-900 rounded-lg p-3 max-h-48 overflow-y-auto">
-              {log.map((l, i) => (
-                <p key={i} className={`text-[10px] font-mono ${
-                  l.startsWith('❌') ? 'text-red-400' :
-                  l.startsWith('✅') ? 'text-green-400' :
-                  l.startsWith('⏭') ? 'text-gray-500' :
-                  l.startsWith('📊') ? 'text-cyan-300 font-bold' :
-                  'text-gray-300'
-                }`}>{l}</p>
-              ))}
-            </div>
+          ) : (
+            <p className="text-xs text-gray-400 text-center py-3">Tiada acara sepadan dengan filter.</p>
           )}
         </div>
       )}
@@ -1453,26 +1735,59 @@ export default function AcaraSetup() {
   const [filterKat, setFilterKat]         = useState('semua')
   const [filterJantina, setFilterJantina] = useState('semua')
   const [search, setSearch]               = useState('')
+  const [viewMode, setViewMode]           = useState('hari') // 'hari' | 'senarai'
 
-  // Fetch kejohanan aktif + kategori (sekali)
-  useEffect(() => {
-    Promise.all([
-      getDocs(query(collection(db, 'kejohanan'), where('statusKejohanan', 'in', ['aktif', 'persediaan']))),
-      getDocs(query(collection(db, 'kategori'), orderBy('urutan'))),
-    ]).then(([kej, kat]) => {
-      if (!kej.empty) {
-        const d = kej.docs[0]
-        setSelectedKej(d.id)
-        setNamaKej(d.data().namaKejohanan || '')
-      }
-      setKategoriList(kat.docs.map(d => ({ id: d.id, ...d.data() })))
-    }).catch(() => {})
+  // Sticky date — ingat tarikh terakhir admin guna
+  const [lastDate, setLastDate]           = useState('')
+
+  // Inline edit row
+  const [editingRow, setEditingRow]       = useState(null) // noAcara string
+  const [renamingRow, setRenamingRow]     = useState(null) // noAcara string — ubah no
+  const [renameVal, setRenameVal]         = useState('')
+  const [renaming, setRenaming]           = useState(false)
+  const [renameErr, setRenameErr]         = useState('')
+
+  // Inline add row per hari
+  const [addingHari, setAddingHari]       = useState(null) // tarikhAcara string
+  const [extraHari, setExtraHari]         = useState([])   // tarikh[] — hari baru kosong
+  const [newHariInput, setNewHariInput]   = useState('')
+  const [showNewHari, setShowNewHari]     = useState(false)
+
+  // ── Load kategori — tanpa orderBy (elak exclude doc tiada urutan) + sort client-side
+  const fetchKategori = useCallback(async () => {
+    try {
+      const snap = await getDocs(collection(db, 'kategori'))
+      const list = snap.docs.map(d => {
+        const data = d.data()
+        return {
+          id:  d.id,
+          ...data,
+          kod: data.kod || d.id, // fallback ke doc ID jika field kod tiada
+        }
+      })
+      list.sort((a, b) => (Number(a.urutan) || 99) - (Number(b.urutan) || 99))
+      setKategoriList(list)
+    } catch { /* kekal list lama jika gagal */ }
   }, [])
 
-  // Fetch acara bila kejohanan berubah
+  // Fetch kejohanan aktif (sekali)
+  useEffect(() => {
+    getDocs(query(collection(db, 'kejohanan'), where('statusKejohanan', 'in', ['aktif', 'persediaan'])))
+      .then(kej => {
+        if (!kej.empty) {
+          const d = kej.docs[0]
+          setSelectedKej(d.id)
+          setNamaKej(d.data().namaKejohanan || '')
+        }
+      }).catch(() => {})
+    fetchKategori()
+  }, [fetchKategori])
+
+  // Fetch acara bila kejohanan berubah — juga refresh kategori
   const fetchAcara = useCallback(async () => {
     if (!selectedKej) { setAcaraList([]); return }
     setLoading(true)
+    fetchKategori() // refresh kategori setiap kali acara di-refresh
     try {
       const snap = await getDocs(collection(db, 'kejohanan', selectedKej, 'acara'))
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
@@ -1483,9 +1798,42 @@ export default function AcaraSetup() {
       })
       setAcaraList(list)
     } catch { setAcaraList([]) } finally { setLoading(false) }
-  }, [selectedKej])
+  }, [selectedKej, fetchKategori])
 
   useEffect(() => { fetchAcara() }, [fetchAcara])
+
+  // Kemaskini hadAtletPerSekolah inline — tanpa reload penuh
+  function handleHadUpdated(aceraKey, newVal) {
+    setAcaraList(l => l.map(a =>
+      (a.noAcara || a.aceraId || a.id) === String(aceraKey)
+        ? { ...a, hadAtletPerSekolah: newVal }
+        : a
+    ))
+  }
+
+  // Tukar tarikh semua acara dalam satu hari (batch)
+  async function handleHariTukar(tarikhLama, tarikhBaru, acaraInHari) {
+    if (!tarikhBaru || tarikhBaru === tarikhLama) return
+    try {
+      const chunks = []
+      for (let i = 0; i < acaraInHari.length; i += 400) chunks.push(acaraInHari.slice(i, i + 400))
+      for (const chunk of chunks) {
+        const batch = writeBatch(db)
+        for (const a of chunk) {
+          const key = String(a.noAcara || a.aceraId || a.id)
+          batch.update(doc(db, 'kejohanan', selectedKej, 'acara', key),
+            { tarikhAcara: tarikhBaru, updatedAt: serverTimestamp() })
+          batch.update(doc(db, 'jadual_acara', `${selectedKej}-${key}`),
+            { tarikhAcara: tarikhBaru, updatedAt: serverTimestamp() })
+        }
+        await batch.commit()
+      }
+      // Kemas kini state lokal
+      setAcaraList(l => l.map(a =>
+        a.tarikhAcara === tarikhLama ? { ...a, tarikhAcara: tarikhBaru } : a
+      ))
+    } catch (e) { alert('Ralat tukar tarikh: ' + e.message) }
+  }
 
   // Toggle aktif
   async function toggleAktif(a) {
@@ -1494,6 +1842,56 @@ export default function AcaraSetup() {
         { isAktif: !a.isAktif, updatedAt: serverTimestamp() })
       setAcaraList(l => l.map(x => x.aceraId === a.aceraId ? { ...x, isAktif: !x.isAktif } : x))
     } catch (e) { alert(e.message) }
+  }
+
+  // ── Ubah No Acara — copy ke doc baru, delete lama ───────────────────────────
+  async function handleRenameNo(oldNo) {
+    const newNo = renameVal.trim()
+    setRenameErr('')
+    if (!newNo || newNo === String(oldNo)) return setRenamingRow(null)
+    if (!/^\d+$/.test(newNo)) return setRenameErr('Nombor sahaja')
+
+    // Semak konflik
+    const newRef = doc(db, 'kejohanan', selectedKej, 'acara', newNo)
+    const snap   = await getDoc(newRef)
+    if (snap.exists()) return setRenameErr(`No. ${newNo} sudah wujud`)
+
+    setRenaming(true)
+    try {
+      // Baca data acara lama
+      const oldRef  = doc(db, 'kejohanan', selectedKej, 'acara', String(oldNo))
+      const oldSnap = await getDoc(oldRef)
+      if (!oldSnap.exists()) throw new Error('Acara asal tidak dijumpai')
+      const oldData = oldSnap.data()
+
+      // Tulis ke no baru
+      await setDoc(newRef, { ...oldData, noAcara: newNo, aceraId: newNo, updatedAt: serverTimestamp() })
+
+      // Jadual acara: tulis baru, padam lama
+      const oldJadRef = doc(db, 'jadual_acara', `${selectedKej}-${oldNo}`)
+      const jadSnap   = await getDoc(oldJadRef)
+      if (jadSnap.exists()) {
+        await setDoc(doc(db, 'jadual_acara', `${selectedKej}-${newNo}`), {
+          ...jadSnap.data(), aceraId: newNo, acaraId: newNo, updatedAt: serverTimestamp(),
+        })
+        await deleteDoc(oldJadRef)
+      }
+
+      // Padam acara lama
+      await deleteDoc(oldRef)
+
+      // Kemaskini state lokal
+      setAcaraList(l => l.map(a =>
+        String(a.noAcara) === String(oldNo)
+          ? { ...a, noAcara: newNo, aceraId: newNo, id: newNo }
+          : a
+      ))
+      setRenamingRow(null)
+    } catch (e) {
+      setRenameErr(e.message)
+    } finally {
+      setRenaming(false)
+    }
   }
 
   // Filter
@@ -1508,7 +1906,8 @@ export default function AcaraSetup() {
     return true
   })
 
-  const katOptions = [...new Set(acaraList.map(a => a.kategoriKod))].sort()
+  // Derive dari kategoriList (semua kategori dikonfigur) bukan dari acara
+  const katOptions = kategoriList.map(k => k.kod).filter(Boolean)
 
   // Stats
   const stats = {
@@ -1525,7 +1924,7 @@ export default function AcaraSetup() {
       {/* Header */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-lg font-bold text-gray-900">Setup Acara</h1>
+          <h1 className="text-lg font-bold text-gray-900">Acara & Jadual</h1>
           <p className="text-xs text-gray-400 mt-0.5">Urus acara kejohanan — lorong, mass start, padang, relay</p>
           {namaKej && <p className="text-xs font-semibold text-[#003399] mt-0.5">{namaKej}</p>}
         </div>
@@ -1557,11 +1956,21 @@ export default function AcaraSetup() {
             ))}
           </div>
 
-          {/* Filter */}
+          {/* Filter + View Toggle */}
           <div className="flex flex-wrap gap-2 items-center">
             <input value={search} onChange={e => setSearch(e.target.value)}
               placeholder="Cari acara…"
               className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#003399]/25" />
+
+            {/* View mode toggle */}
+            <div className="flex rounded-lg border border-gray-200 overflow-hidden text-[10px] bg-white ml-auto">
+              {[['hari', 'Ikut Hari'], ['senarai', 'Senarai']].map(([val, lbl]) => (
+                <button key={val} onClick={() => setViewMode(val)}
+                  className={`px-2.5 py-1.5 font-semibold transition-colors ${viewMode === val ? 'bg-[#003399] text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
+                  {lbl}
+                </button>
+              ))}
+            </div>
 
             {/* Jenis filter */}
             <div className="flex rounded-lg border border-gray-200 overflow-hidden text-[10px] bg-white">
@@ -1589,14 +1998,258 @@ export default function AcaraSetup() {
                 {['semua', ...katOptions].map(f => (
                   <button key={f} onClick={() => setFilterKat(f)}
                     className={`px-2.5 py-1.5 font-bold transition-colors ${filterKat === f ? 'bg-[#003399] text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
-                    {f === 'semua' ? 'Kat' : f}
+                    {f === 'semua' ? 'Kat' : katLabel(f, kategoriList)}
                   </button>
                 ))}
               </div>
             )}
           </div>
 
-          {/* Table */}
+          {/* By Hari View */}
+          {viewMode === 'hari' && loading && (
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm py-12 text-center text-sm text-gray-400">Memuatkan…</div>
+          )}
+          {viewMode === 'hari' && !loading && (() => {
+            // Map parentAcaraId → noAcara (untuk badge → Final: #xxx pada baris saringan)
+            const finalMap = {}
+            acaraList.forEach(a => {
+              if (a.parentAcaraId) finalMap[String(a.parentAcaraId)] = String(a.noAcara)
+            })
+
+            // Group by tarikhAcara
+            const byHari = {}
+            filtered.forEach(a => {
+              const t = a.tarikhAcara || 'Tiada Tarikh'
+              if (!byHari[t]) byHari[t] = []
+              byHari[t].push(a)
+            })
+            // Gabung dengan extraHari (hari baru kosong) + addingHari jika tarikh baru
+            const allTarikh = [...new Set([
+              ...Object.keys(byHari).sort(),
+              ...extraHari,
+              ...(addingHari && !byHari[addingHari] && !extraHari.includes(addingHari) ? [addingHari] : []),
+            ])].sort()
+
+            const TABLE_HEAD = ['No','Masa','Acara','Kat','J','Jenis','Lokasi','Max/Skl','Peringkat','Tindakan']
+
+            if (allTarikh.length === 0 && !showNewHari) return (
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm py-16 text-center space-y-3">
+                <p className="text-sm text-gray-400">Tiada acara lagi.</p>
+                <button onClick={() => setShowNewHari(true)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#003399] text-white text-xs font-bold rounded-lg hover:bg-[#002288]">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"/></svg>
+                  Tambah Hari Pertama
+                </button>
+              </div>
+            )
+
+            return (
+              <div className="space-y-3">
+                {allTarikh.map((tarikh, hIdx) => {
+                  const hariLabel = tarikh === 'Tiada Tarikh' ? 'Tiada Tarikh' : (() => {
+                    const d = new Date(tarikh)
+                    return d.toLocaleDateString('ms-MY', { weekday:'long', day:'numeric', month:'long', year:'numeric' })
+                  })()
+                  const hariRows = (byHari[tarikh] || []).sort((a, b) => (a.masa || '').localeCompare(b.masa || ''))
+                  const isAdding = addingHari === tarikh
+
+                  return (
+                    <div key={tarikh} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                      <HariHeader
+                        hIdx={hIdx} tarikh={tarikh} hariLabel={hariLabel} count={hariRows.length}
+                        onTukar={(tarikhBaru) => handleHariTukar(tarikh, tarikhBaru, hariRows)}
+                      />
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="border-b border-gray-100 bg-gray-50">
+                              {TABLE_HEAD.map(h => (
+                                <th key={h} className="px-3 py-2 text-[9px] font-bold text-gray-400 uppercase text-left first:w-12">{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {hariRows.map(a => {
+                              const rowKey = String(a.noAcara || a.id)
+                              if (editingRow === rowKey) {
+                                return (
+                                  <EditAcaraRow
+                                    key={rowKey}
+                                    acara={a}
+                                    kejohananId={selectedKej}
+                                    kategoriList={kategoriList}
+                                    acaraList={acaraList}
+                                    onSaved={(updated) => {
+                                      setAcaraList(l => l.map(x =>
+                                        String(x.noAcara || x.id) === rowKey ? { ...x, ...updated } : x
+                                      ))
+                                      setEditingRow(null)
+                                      fetchAcara() // refresh supaya final baru muncul
+                                    }}
+                                    onCancel={() => setEditingRow(null)}
+                                  />
+                                )
+                              }
+                              return (
+                                <tr key={rowKey} className={`border-b border-gray-50 hover:bg-gray-50/50 transition-colors ${!a.isAktif ? 'opacity-50' : ''}`}>
+                                  <td className="px-2 py-1.5 w-14">
+                                    {renamingRow === rowKey ? (
+                                      <div className="flex flex-col gap-0.5">
+                                        <div className="flex items-center gap-0.5">
+                                          <input
+                                            autoFocus
+                                            type="text" inputMode="numeric"
+                                            value={renameVal}
+                                            onChange={e => { setRenameVal(e.target.value.replace(/\D/g,'')); setRenameErr('') }}
+                                            onKeyDown={e => {
+                                              if (e.key === 'Enter') handleRenameNo(rowKey)
+                                              if (e.key === 'Escape') { setRenamingRow(null); setRenameErr('') }
+                                            }}
+                                            className="w-12 text-center text-[10px] font-black text-[#003399] border border-[#003399]/40 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-[#003399]"
+                                          />
+                                          <button onClick={() => handleRenameNo(rowKey)} disabled={renaming}
+                                            className="p-0.5 bg-[#003399] text-white rounded hover:bg-[#002288] disabled:opacity-40">
+                                            {renaming
+                                              ? <svg className="w-2.5 h-2.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                                              : <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>
+                                            }
+                                          </button>
+                                          <button onClick={() => { setRenamingRow(null); setRenameErr('') }}
+                                            className="p-0.5 text-gray-400 hover:text-red-500 border border-gray-200 rounded hover:border-red-300">
+                                            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                                          </button>
+                                        </div>
+                                        {renameErr && <p className="text-[8px] text-red-500 font-semibold">{renameErr}</p>}
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center gap-0.5 group">
+                                        <span className="font-black text-[#003399] text-xs">{a.noAcara}</span>
+                                        <button
+                                          onClick={() => { setRenamingRow(rowKey); setRenameVal(String(a.noAcara)); setRenameErr(''); setEditingRow(null) }}
+                                          title="Ubah No. Acara"
+                                          className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-300 hover:text-[#003399] transition-all">
+                                          <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536M9 13l6.586-6.586a2 2 0 112.828 2.828L11.828 15.828a4 4 0 01-2.828 1.172H7v-2a4 4 0 011.172-2.828z"/></svg>
+                                        </button>
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2 font-mono text-gray-600">{a.masa || '—'}</td>
+                                  <td className="px-3 py-2">
+                                    <p className="font-bold text-gray-800">{a.namaAcara}</p>
+                                    {a.parentAcaraId && (
+                                      <p className="text-[9px] text-purple-600 font-semibold">Final ← #{a.parentAcaraId}</p>
+                                    )}
+                                    {a.peringkat === 'saringan' && finalMap[String(a.noAcara)] && (
+                                      <p className="text-[9px] text-purple-500 font-semibold">→ Final: #{finalMap[String(a.noAcara)]}</p>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2 text-center font-black text-[#003399]">{katLabel(a.kategoriKod, kategoriList)}</td>
+                                  <td className="px-3 py-2 text-center"><JantinaBadge jantina={a.jantina} /></td>
+                                  <td className="px-3 py-2"><JenisBadge jenis={a.jenisAcara} /></td>
+                                  <td className="px-3 py-2 text-gray-500 text-[10px]">{a.lokasi || '—'}</td>
+                                  <td className="px-3 py-2 text-center">
+                                    <HadCell acara={a} kejohananId={selectedKej} onUpdated={handleHadUpdated} />
+                                  </td>
+                                  <td className="px-3 py-2 text-center">
+                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                                      a.peringkat === 'saringan' ? 'bg-amber-100 text-amber-700'
+                                      : a.parentAcaraId ? 'bg-purple-100 text-purple-700'
+                                      : 'bg-green-100 text-green-700'
+                                    }`}>
+                                      {a.peringkat === 'saringan' ? 'Saringan' : a.parentAcaraId ? 'Final' : 'Terus Final'}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <div className="flex justify-center gap-1">
+                                      <button onClick={() => setEditingRow(rowKey)}
+                                        className="p-1 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors" title="Edit baris ini">
+                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                                      </button>
+                                      <button onClick={() => setDelTarget(a)}
+                                        className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors">
+                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )
+                            })}
+
+                            {/* Inline Add Row */}
+                            {isAdding && (
+                              <AddAcaraRow
+                                tarikhAcara={tarikh}
+                                kejohananId={selectedKej}
+                                kategoriList={kategoriList}
+                                acaraList={acaraList}
+                                onSaved={(t) => {
+                                  setAddingHari(null)
+                                  setExtraHari(h => h.filter(x => x !== tarikh))
+                                  setLastDate(t)
+                                  fetchAcara()
+                                }}
+                                onCancel={() => {
+                                  setAddingHari(null)
+                                  setExtraHari(h => h.filter(x => x !== tarikh))
+                                }}
+                              />
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* + Tambah Acara button */}
+                      {!isAdding && (
+                        <button
+                          onClick={() => setAddingHari(tarikh)}
+                          className="w-full flex items-center justify-center gap-1.5 py-2 text-[10px] font-bold text-[#003399] hover:bg-blue-50 border-t border-dashed border-[#003399]/20 transition-colors">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"/></svg>
+                          Tambah Acara Hari {hIdx + 1}
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+
+                {/* Tambah Hari Baru */}
+                <div className="flex items-center justify-center">
+                  {showNewHari ? (
+                    <div className="flex items-center gap-2 bg-white border border-[#003399]/20 rounded-xl px-4 py-3 shadow-sm">
+                      <svg className="w-4 h-4 text-[#003399]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                      <span className="text-xs font-bold text-gray-600">Tarikh hari baru:</span>
+                      <input type="date" value={newHariInput}
+                        onChange={e => setNewHariInput(e.target.value)}
+                        className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#003399]/25" />
+                      <button
+                        disabled={!newHariInput}
+                        onClick={() => {
+                          if (newHariInput) {
+                            setExtraHari(h => [...new Set([...h, newHariInput])])
+                            setAddingHari(newHariInput)
+                            setShowNewHari(false)
+                            setNewHariInput('')
+                          }
+                        }}
+                        className="px-3 py-1.5 text-xs font-bold bg-[#003399] text-white rounded-lg hover:bg-[#002288] disabled:opacity-40">
+                        Buat Hari Ini
+                      </button>
+                      <button onClick={() => { setShowNewHari(false); setNewHariInput('') }}
+                        className="text-xs text-gray-400 hover:text-gray-600">Batal</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setShowNewHari(true)}
+                      className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-[#003399] border border-dashed border-[#003399]/30 rounded-xl hover:bg-blue-50 transition-colors">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                      + Tambah Hari Baru
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
+
+          {/* Senarai View (Table) */}
+          {viewMode === 'senarai' && (
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
             {loading ? (
               <div className="py-12 text-center text-sm text-gray-400">Memuatkan…</div>
@@ -1614,7 +2267,7 @@ export default function AcaraSetup() {
                       <th className="px-3 py-2.5 text-center text-[9px] font-bold text-gray-400 uppercase tracking-wide">J</th>
                       <th className="px-3 py-2.5 text-left text-[9px] font-bold text-gray-400 uppercase tracking-wide">Jenis</th>
                       <th className="px-3 py-2.5 text-center text-[9px] font-bold text-gray-400 uppercase tracking-wide">Finalis</th>
-                      <th className="px-3 py-2.5 text-center text-[9px] font-bold text-gray-400 uppercase tracking-wide">Had/Skl</th>
+                      <th className="px-3 py-2.5 text-center text-[9px] font-bold text-gray-400 uppercase tracking-wide">Max/Skl</th>
                       <th className="px-3 py-2.5 text-center text-[9px] font-bold text-gray-400 uppercase tracking-wide">Angin</th>
                       <th className="px-3 py-2.5 text-center text-[9px] font-bold text-gray-400 uppercase tracking-wide">Status</th>
                       <th className="px-3 py-2.5 text-center text-[9px] font-bold text-gray-400 uppercase tracking-wide">Tindakan</th>
@@ -1628,7 +2281,7 @@ export default function AcaraSetup() {
                           <p className="text-[9px] font-mono text-gray-400 mt-0.5">{a.aceraId}</p>
                         </td>
                         <td className="px-3 py-2.5 text-center">
-                          <span className="font-black text-[#003399]">{a.kategoriKod}</span>
+                          <span className="font-black text-[#003399]">{katLabel(a.kategoriKod, kategoriList)}</span>
                         </td>
                         <td className="px-3 py-2.5 text-center">
                           <JantinaBadge jantina={a.jantina} />
@@ -1639,8 +2292,8 @@ export default function AcaraSetup() {
                         <td className="px-3 py-2.5 text-center text-gray-600">
                           {a.bilanganFinalis ?? '—'}
                         </td>
-                        <td className="px-3 py-2.5 text-center text-gray-600">
-                          {a.hadAtletPerSekolah ?? '—'}
+                        <td className="px-3 py-2.5 text-center">
+                          <HadCell acara={a} kejohananId={selectedKej} onUpdated={handleHadUpdated} />
                         </td>
                         <td className="px-3 py-2.5 text-center">
                           {a.isWindReading
@@ -1673,28 +2326,22 @@ export default function AcaraSetup() {
               </div>
             )}
           </div>
-
-          {/* Verifikasi */}
-          <VerifikasiPanel acaraList={acaraList} kejohananId={selectedKej} onRefresh={fetchAcara} />
+          )}
 
           {/* WA Config */}
           <WaConfigPanel kejohananId={selectedKej} />
 
-          {/* Migrate Acara Lama */}
-          <MigratePanel kejohananId={selectedKej} kategoriList={kategoriList} onMigrated={fetchAcara} />
-
-          {/* Seed Standard */}
-          <SeedPanel kejohananId={selectedKej} kategoriList={kategoriList} onSeeded={fetchAcara} />
-
-          {/* Seed Jadual 2026 */}
-          <SeedJadual2026Panel kejohananId={selectedKej} namaKej={namaKej} onSeeded={fetchAcara} />
+          {/* Had Peserta Bundle */}
+          <HadPesertaPanel acaraList={acaraList} kejohananId={selectedKej} onRefresh={fetchAcara} kategoriList={kategoriList} />
         </>
       )}
 
       {/* Modals */}
       {modal?.mode === 'add' && (
         <AcaraModal mode="add" kejohananId={selectedKej} kategoriList={kategoriList}
-          onClose={() => setModal(null)} onSaved={fetchAcara} />
+          defaultTarikh={lastDate}
+          onClose={() => setModal(null)}
+          onSaved={(tarikh) => { if (tarikh) setLastDate(tarikh); fetchAcara() }} />
       )}
       {modal?.mode === 'edit' && (
         <AcaraModal mode="edit" initial={modal.data} kejohananId={selectedKej} kategoriList={kategoriList}

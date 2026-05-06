@@ -375,17 +375,16 @@ async function gate7_konflikJadual(noKP, aceraId, kejohananId) {
     if (startSedia === null) continue
     const endSedia = startSedia + (j.masaJangka || 60)
 
-    // Semak pertindihan masa
+    // Semak pertindihan masa — WARN sahaja, tidak sekat
     if (startBaru < endSedia && endBaru > startSedia) {
       const namaAcaraSedia = j.namaAcara || semuaAceraIds[i]
       const masaKonflik = `${j.masaMula}–${tambahMinit(j.masaMula, j.masaJangka || 60)}`
       return {
-        valid: false,
+        valid: true,
+        warning: `Amaran: Konflik jadual dengan "${namaAcaraSedia}" ` +
+                 `pada ${jadualBaru.tarikhAcara}, jam ${masaKonflik}. ` +
+                 `Pendaftaran masih boleh diteruskan.`,
         gate: 'GATE7',
-        mesej: `Konflik jadual dengan "${namaAcaraSedia}" ` +
-               `pada ${jadualBaru.tarikhAcara}, jam ${masaKonflik}.`,
-        had: 0,
-        semasa: 0,
       }
     }
   }
@@ -464,15 +463,16 @@ export async function validasiPendaftaran({
   result = await gate6_duplikasi(noKP, aceraId, kejohananId)
   if (!result.valid) return result
 
-  // GATE 7 — Konflik jadual
+  // GATE 7 — Konflik jadual (warn sahaja — tidak sekat)
+  let gate7Warning = null
   result = await gate7_konflikJadual(noKP, aceraId, kejohananId)
-  if (!result.valid) return result
+  if (result.warning) gate7Warning = result.warning
 
   // GATE 8 — Heat sudah dijana (pendaftaran ditutup)
   result = await gate8_heatSudahDijana(aceraId, kejohananId)
   if (!result.valid) return result
 
-  return { valid: true, gate: '', mesej: '', had: 0, semasa: 0 }
+  return { valid: true, gate: '', mesej: '', had: 0, semasa: 0, warning: gate7Warning }
 }
 
 /**

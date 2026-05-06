@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import { onAuthStateChanged, signInAnonymously } from 'firebase/auth'
+import { onAuthStateChanged } from 'firebase/auth'
 import {
   doc, getDoc, setDoc, serverTimestamp,
   collection, query, where, getCountFromServer,
@@ -35,8 +35,6 @@ export function AuthProvider({ children }) {
         setUserRole(u.role)
         setNeedsSetup(false)
         setLoading(false)
-        // Pastikan Firebase anonymous auth aktif supaya Firestore rules isFirebaseAuth() = true
-        signInAnonymously(auth).catch(() => {})
         return // Tidak perlu Firebase listener
       } catch { sessionStorage.removeItem(SESSION_USER_KEY) }
     }
@@ -56,8 +54,6 @@ export function AuthProvider({ children }) {
         setUserRole('pengurus_pasukan')
         setNeedsSetup(false)
         setLoading(false)
-        // Pastikan Firebase anonymous auth aktif supaya Firestore rules isFirebaseAuth() = true
-        signInAnonymously(auth).catch(() => {})
         return // Tidak perlu Firebase listener
       } catch { sessionStorage.removeItem(SESSION_SEKOLAH_KEY) }
     }

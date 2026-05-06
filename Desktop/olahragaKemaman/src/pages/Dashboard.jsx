@@ -1,10 +1,7 @@
 import React, { useEffect, useState } from 'react'
-import { collection, getCountFromServer, query, where } from 'firebase/firestore'
+import { collection, getCountFromServer, query, where, doc, getDoc } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import { useAuth } from '../context/AuthContext'
-import { seedSekolah, SEKOLAH_LIST } from '../utils/seedSekolah'
-import { seedPendaftaran, deleteSeedData, checkSeedReady, seedKeputusan } from '../utils/seedAtlet'
-import { seedJadualAcara, getKejohananAktif, TOTAL_ACARA } from '../utils/seedJadualAcara'
 
 // ─── StatCard ─────────────────────────────────────────────────────────────────
 
@@ -35,698 +32,27 @@ const QuickLink = ({ label, path, desc }) => (
   </a>
 )
 
-// ─── SeedPanel — superadmin sahaja, sorok selepas guna ───────────────────────
-
-function SeedPanel({ onSeeded }) {
-  const [open,     setOpen]     = useState(false)
-  const [running,  setRunning]  = useState(false)
-  const [progress, setProgress] = useState(null) // { done, total, sekolah, status }
-  const [result,   setResult]   = useState(null) // { ok, skip, fail }
-  const [done,     setDone]     = useState(false)
-
-  async function handleSeed() {
-    setRunning(true)
-    setResult(null)
-    setProgress({ done: 0, total: SEKOLAH_LIST.length, sekolah: '…', status: 'running' })
-
-    try {
-      const res = await seedSekolah(p => setProgress(p))
-      setResult(res)
-      setDone(true)
-      onSeeded?.()
-    } catch (err) {
-      setResult({ ok: 0, skip: 0, fail: SEKOLAH_LIST.length, err: err.message })
-    } finally {
-      setRunning(false)
-    }
-  }
-
-  const pct = progress
-    ? Math.round((progress.done / progress.total) * 100)
-    : 0
-
-  return (
-    <div className="mt-6 border border-dashed border-orange-300 rounded bg-orange-50">
-      {/* Header toggle */}
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-4 py-3 text-left"
-      >
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] bg-orange-200 text-orange-800 font-bold px-2 py-0.5 rounded uppercase tracking-wider">
-            Dev Only
-          </span>
-          <span className="text-xs font-semibold text-orange-800">
-            Seed Data — 20 Sekolah Daerah Kemaman
-          </span>
-        </div>
-        <svg
-          className={`w-4 h-4 text-orange-500 transition-transform ${open ? 'rotate-180' : ''}`}
-          fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-
-      {open && (
-        <div className="px-4 pb-4 space-y-3">
-          <p className="text-[10px] text-orange-700 leading-relaxed">
-            Akan menulis <strong>20 dokumen sekolah</strong> ke Firestore dan mencipta
-            <strong> 20 akaun Firebase Auth</strong> untuk pengurus pasukan setiap sekolah.
-            Jalankan <strong>sekali sahaja</strong>. Sekiranya sudah wujud, rekod akan diskip secara automatik.
-          </p>
-
-          {/* Jadual sekolah */}
-          <div className="border border-orange-200 rounded overflow-hidden bg-white">
-            <table className="w-full text-[10px]">
-              <thead>
-                <tr className="bg-orange-100 text-orange-900">
-                  <th className="px-3 py-1.5 text-left font-semibold">Kod</th>
-                  <th className="px-3 py-1.5 text-left font-semibold">Nama Sekolah</th>
-                  <th className="px-3 py-1.5 text-left font-semibold">Kat</th>
-                  <th className="px-3 py-1.5 text-left font-semibold">Bib</th>
-                  <th className="px-3 py-1.5 text-left font-semibold">PIN Login</th>
-                </tr>
-              </thead>
-              <tbody>
-                {SEKOLAH_LIST.map((s, i) => (
-                  <tr key={s.kodSekolah} className={i % 2 === 0 ? 'bg-white' : 'bg-orange-50/40'}>
-                    <td className="px-3 py-1.5 font-mono text-gray-600">{s.kodSekolah}</td>
-                    <td className="px-3 py-1.5 text-gray-800">{s.namaSekolah}</td>
-                    <td className="px-3 py-1.5">
-                      <span className={`font-semibold ${
-                        s.kategori === 'SR' ? 'text-blue-600' :
-                        s.kategori === 'SM' ? 'text-green-600' : 'text-purple-600'
-                      }`}>{s.kategori}</span>
-                    </td>
-                    <td className="px-3 py-1.5 font-mono font-bold text-gray-700">{s.bibPrefix}</td>
-                    <td className="px-3 py-1.5 font-mono text-gray-500">{s.pin}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Progress bar */}
-          {running && progress && (
-            <div className="space-y-1.5">
-              <div className="flex justify-between text-[10px] text-orange-700">
-                <span>Memproses: <strong>{progress.sekolah}</strong></span>
-                <span>{progress.done}/{progress.total}</span>
-              </div>
-              <div className="h-2 bg-orange-200 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-orange-500 transition-all duration-300 rounded-full"
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Result */}
-          {result && (
-            <div className={`text-xs font-semibold px-3 py-2.5 rounded border ${
-              result.fail > 0
-                ? 'bg-red-50 border-red-200 text-red-700'
-                : 'bg-green-50 border-green-200 text-green-700'
-            }`}>
-              {done && result.fail === 0
-                ? `✓ Seed berjaya — ${result.ok} baru, ${result.skip} diskip (sudah wujud)`
-                : `Selesai — ${result.ok} berjaya, ${result.skip} diskip, ${result.fail} gagal`
-              }
-            </div>
-          )}
-
-          {/* Butang */}
-          {!done ? (
-            <button
-              onClick={handleSeed}
-              disabled={running}
-              className="px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white text-xs font-bold rounded transition-colors"
-            >
-              {running ? `Menjalankan… (${pct}%)` : '▶ Jalankan Seed Sekarang'}
-            </button>
-          ) : (
-            <p className="text-[10px] text-orange-600 italic">
-              Seed selesai. Boleh keluarkan blok ini dari Dashboard.jsx selepas ini.
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── SeedAtletPanel — superadmin sahaja ──────────────────────────────────────
-
-function SeedAtletPanel({ onSeeded }) {
-  const [open,     setOpen]     = useState(false)
-  const [running,  setRunning]  = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  const [checking, setChecking] = useState(false)
-
-  const [progress, setProgress] = useState(null)  // { done, total, sekolah, label }
-  const [logs,     setLogs]     = useState([])
-  const [result,   setResult]   = useState(null)
-  const [done,     setDone]     = useState(false)
-  const [prefly,   setPrefly]   = useState(null)  // hasil checkSeedReady
-
-  const logRef = React.useRef(null)
-
-  function addLog(msg) {
-    setLogs(l => [...l, msg])
-    // Auto-scroll log ke bawah
-    setTimeout(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight }, 30)
-  }
-
-  const pct = progress && progress.total > 0
-    ? Math.round((progress.done / progress.total) * 100)
-    : 0
-
-  // Pre-flight semasa buka panel
-  async function handleOpen() {
-    const nowOpen = !open
-    setOpen(nowOpen)
-    if (nowOpen && !prefly && !checking) {
-      setChecking(true)
-      try {
-        const r = await checkSeedReady()
-        setPrefly(r)
-      } catch (e) {
-        setPrefly({ ready: false, warnings: [`Ralat semasa semak: ${e.message}`] })
-      } finally {
-        setChecking(false)
-      }
-    }
-  }
-
-  async function handleSeed() {
-    setRunning(true)
-    setResult(null)
-    setDone(false)
-    setLogs([])
-    setProgress({ done: 0, total: prefly?.sekolah?.count || 20, sekolah: '—', label: 'Menyediakan…' })
-    try {
-      const res = await seedPendaftaran(
-        p   => setProgress(p),
-        msg => addLog(msg)
-      )
-      setResult(res)
-      setDone(true)
-      onSeeded?.()
-      // Refresh pre-flight
-      const r = await checkSeedReady()
-      setPrefly(r)
-    } catch (err) {
-      addLog(`✗ RALAT: ${err.message}`)
-      setResult({ err: err.message })
-    } finally {
-      setRunning(false)
-    }
-  }
-
-  async function handleDelete() {
-    if (!window.confirm('Padam SEMUA rekod isSeedData=true?\n\nTermasuk atlet + pendaftaran dalam semua kejohanan.\nTindakan tidak boleh diundur.')) return
-    setDeleting(true)
-    setLogs([])
-    setResult(null)
-    setDone(false)
-    try {
-      const res = await deleteSeedData(msg => addLog(msg))
-      addLog(`\n✅ ${res.deleted} rekod seed dipadam.`)
-      onSeeded?.()
-      setPrefly(null) // reset prefly supaya semak semula
-      const r = await checkSeedReady()
-      setPrefly(r)
-    } catch (err) {
-      addLog(`✗ RALAT: ${err.message}`)
-    } finally {
-      setDeleting(false)
-    }
-  }
-
-  const busy = running || deleting || checking
-
-  return (
-    <div className="mt-3 border border-dashed border-teal-300 rounded bg-teal-50">
-
-      {/* ── Header toggle ── */}
-      <button onClick={handleOpen}
-        className="w-full flex items-center justify-between px-4 py-3 text-left">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] bg-teal-200 text-teal-900 font-bold px-2 py-0.5 rounded uppercase tracking-wider">Dev Only</span>
-          <span className="text-xs font-semibold text-teal-800">Seed Pendaftaran — 10 Atlet × Setiap Sekolah</span>
-        </div>
-        <svg className={`w-4 h-4 text-teal-500 transition-transform ${open ? 'rotate-180' : ''}`}
-          fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-
-      {open && (
-        <div className="px-4 pb-4 space-y-3">
-
-          {/* ── Pre-flight status ── */}
-          {checking ? (
-            <div className="text-[10px] text-teal-600 animate-pulse">⏳ Semak kesediaan sistem…</div>
-          ) : prefly && (
-            <div className="space-y-1.5">
-              {/* 3 syarat */}
-              {[
-                { label: `Sekolah dalam sistem`, ok: prefly.sekolah.ok, val: prefly.sekolah.count > 0 ? `${prefly.sekolah.count} sekolah` : 'Tiada' },
-                { label: `Kejohanan`, ok: prefly.kejohanan.ok, val: prefly.kejohanan.nama || 'Tiada' },
-                { label: `Acara dalam kejohanan`, ok: prefly.acara.ok, val: prefly.acara.count > 0 ? `${prefly.acara.count} acara` : 'Tiada' },
-              ].map(row => (
-                <div key={row.label} className={`flex items-center gap-2 text-[10px] px-3 py-1.5 rounded border ${
-                  row.ok ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-700'
-                }`}>
-                  <span className="shrink-0">{row.ok ? '✓' : '✗'}</span>
-                  <span className="font-semibold">{row.label}</span>
-                  <span className="ml-auto font-mono">{row.val}</span>
-                </div>
-              ))}
-              {/* Extra warnings */}
-              {prefly.warnings.map((w, i) => (
-                <div key={i} className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded">
-                  ⚠ {w}
-                </div>
-              ))}
-              {/* Nota format seed */}
-              {prefly.ready && !done && (
-                <div className="text-[10px] text-teal-700 bg-white border border-teal-200 px-3 py-2 rounded space-y-0.5">
-                  <p className="font-semibold">Format seed yang akan dijana:</p>
-                  <p>• SR → 5L + 5P, lahir {prefly.kejohanan.tahun - 12}–{prefly.kejohanan.tahun - 9} (Kat A + B)</p>
-                  <p>• SM → 5L + 5P, lahir {prefly.kejohanan.tahun - 18}–{prefly.kejohanan.tahun - 13} (Kat C + D + E)</p>
-                  <p>• PPKI → 5L + 5P, Kat PPKI</p>
-                  <p>• Setiap atlet → 2 acara bersesuaian · noBib = bibPrefix + counter</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ── Progress bar ── */}
-          {running && progress && (
-            <div className="space-y-1">
-              <div className="flex justify-between text-[10px] text-teal-700 font-medium">
-                <span>📚 {progress.sekolah}</span>
-                <span>{progress.done}/{progress.total} sekolah ({pct}%)</span>
-              </div>
-              <div className="h-2.5 bg-teal-200 rounded-full overflow-hidden">
-                <div className="h-full bg-teal-500 transition-all duration-300 rounded-full"
-                  style={{ width: `${pct}%` }} />
-              </div>
-            </div>
-          )}
-
-          {/* ── Log output (konsol) ── */}
-          {logs.length > 0 && (
-            <div ref={logRef}
-              className="bg-gray-900 text-green-400 rounded text-[10px] font-mono p-3 h-56 overflow-y-auto leading-relaxed">
-              {logs.map((l, i) => (
-                <div key={i} className={
-                  l.startsWith('✗') ? 'text-red-400' :
-                  l.startsWith('⚠') ? 'text-yellow-400' :
-                  l.startsWith('✅') ? 'text-green-300 font-bold' :
-                  l.startsWith('📚') ? 'text-teal-300 mt-1' :
-                  l.startsWith('═') ? 'text-gray-500' :
-                  l.startsWith('─') ? 'text-gray-600' :
-                  'text-green-400'
-                }>{l}</div>
-              ))}
-            </div>
-          )}
-
-          {/* ── Result summary ── */}
-          {result && !result.err && (
-            <div className="grid grid-cols-4 gap-2">
-              {[
-                { l: 'Sekolah', v: result.sekolahCount, c: 'text-teal-700 bg-teal-50 border-teal-200' },
-                { l: 'Atlet',   v: result.atletOk,      c: 'text-blue-700 bg-blue-50 border-blue-200' },
-                { l: 'Pendaftaran', v: result.pendOk,   c: 'text-green-700 bg-green-50 border-green-200' },
-                { l: 'Skip/Gagal', v: (result.atletSkip||0) + (result.fail||0), c: 'text-gray-600 bg-gray-50 border-gray-200' },
-              ].map(s => (
-                <div key={s.l} className={`text-center px-2 py-2 rounded border ${s.c}`}>
-                  <p className="text-lg font-black">{s.v}</p>
-                  <p className="text-[9px] font-semibold uppercase tracking-wide">{s.l}</p>
-                </div>
-              ))}
-            </div>
-          )}
-          {result?.err && (
-            <div className="text-xs font-semibold px-3 py-2 rounded border bg-red-50 border-red-200 text-red-700">
-              ✗ {result.err}
-            </div>
-          )}
-
-          {/* ── Butang ── */}
-          <div className="flex gap-2 flex-wrap items-center">
-            <button onClick={handleSeed} disabled={busy || !prefly?.ready}
-              className="px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white text-xs font-bold rounded transition-colors">
-              {running ? `Menjana… ${progress?.done || 0}/${progress?.total || '?'} sekolah` : '▶ Seed Pendaftaran'}
-            </button>
-            <button onClick={handleDelete} disabled={busy}
-              className="px-4 py-2 bg-red-500 hover:bg-red-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white text-xs font-bold rounded transition-colors">
-              {deleting ? 'Membuang…' : '🗑 Padam Semua Seed Data'}
-            </button>
-            {!running && (
-              <button onClick={async () => { setChecking(true); setPrefly(null); const r = await checkSeedReady(); setPrefly(r); setChecking(false) }}
-                disabled={busy}
-                className="px-3 py-2 text-teal-700 border border-teal-300 bg-white text-xs font-semibold rounded hover:bg-teal-50 disabled:opacity-40">
-                ↺ Semak Semula
-              </button>
-            )}
-          </div>
-
-          {done && (
-            <p className="text-[10px] text-teal-600 italic">
-              Seed selesai. Panel ini boleh dikeluarkan dari Dashboard.jsx selepas testing selesai.
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── SeedKeputusanPanel ───────────────────────────────────────────────────────
-
-function SeedKeputusanPanel({ onSeeded }) {
-  const [open,    setOpen]    = useState(false)
-  const [running, setRunning] = useState(false)
-  const [logs,    setLogs]    = useState([])
-  const [result,  setResult]  = useState(null)
-  const [pct,     setPct]     = useState(0)
-  const [label,   setLabel]   = useState('')
-  const logRef                = React.useRef(null)
-
-  function addLog(msg) {
-    setLogs(l => [...l, msg])
-    setTimeout(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight }, 30)
-  }
-
-  async function handleSeed() {
-    setRunning(true); setResult(null); setLogs([]); setPct(0)
-    try {
-      const res = await seedKeputusan(
-        (p, lbl) => { setPct(p); setLabel(lbl || '') },
-        msg => addLog(msg)
-      )
-      setResult(res)
-      onSeeded?.()
-    } catch (e) {
-      addLog(`✗ RALAT: ${e.message}`)
-    } finally { setRunning(false) }
-  }
-
-  return (
-    <div className="mt-3 border border-dashed border-purple-300 rounded bg-purple-50">
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-4 py-3 text-left"
-      >
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] bg-purple-200 text-purple-800 font-bold px-2 py-0.5 rounded uppercase tracking-wider">Dev Only</span>
-          <span className="text-xs font-semibold text-purple-800">Seed Keputusan — Jana Keputusan Rawak untuk Semua Heat</span>
-        </div>
-        <svg className={`w-4 h-4 text-purple-500 transition-transform ${open ? 'rotate-180' : ''}`}
-          fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-
-      {open && (
-        <div className="px-4 pb-4 space-y-3">
-          <p className="text-[10px] text-purple-700 leading-relaxed">
-            Jana keputusan rawak (masa/jarak) untuk semua heat yang belum ada keputusan.
-            Heat yang sudah ada keputusan akan dilangkau. Semua heat ditanda <code>isSeedData: true</code>.
-            Jalankan <strong>selepas</strong> Seed Sekolah + Seed Pendaftaran + Jana Start List.
-          </p>
-
-          {/* Progress */}
-          {running && (
-            <div>
-              <div className="flex justify-between text-[10px] text-purple-600 mb-1">
-                <span>{label}</span><span>{pct}%</span>
-              </div>
-              <div className="h-1.5 bg-purple-200 rounded-full overflow-hidden">
-                <div className="h-full bg-purple-500 transition-all duration-300" style={{ width: `${pct}%` }} />
-              </div>
-            </div>
-          )}
-
-          {/* Log terminal */}
-          {logs.length > 0 && (
-            <div ref={logRef} className="bg-gray-900 rounded p-3 text-[10px] font-mono text-gray-300 h-40 overflow-y-auto space-y-0.5">
-              {logs.map((l, i) => (
-                <div key={i} className={l.startsWith('✗') ? 'text-red-400' : l.startsWith('✓') ? 'text-green-400' : 'text-gray-300'}>
-                  {l}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Keputusan */}
-          {result && (
-            <div className={`text-xs px-3 py-2 rounded border font-medium ${result.heatFail === 0 ? 'bg-green-50 border-green-200 text-green-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
-              ✓ {result.heatOk} heat dikemaskini | {result.heatSkip} dilangkau | {result.heatFail} gagal
-            </div>
-          )}
-
-          <button
-            onClick={handleSeed}
-            disabled={running}
-            className="px-4 py-2 bg-purple-500 hover:bg-purple-600 disabled:bg-purple-300 text-white text-xs font-bold rounded transition-colors"
-          >
-            {running ? `Menjalankan… (${pct}%)` : '▶ Jana Keputusan Rawak'}
-          </button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── SeedJadualAcaraPanel ─────────────────────────────────────────────────────
-
-function SeedJadualAcaraPanel({ onSeeded }) {
-  const [open,      setOpen]      = useState(false)
-  const [running,   setRunning]   = useState(false)
-  const [logs,      setLogs]      = useState([])
-  const [result,    setResult]    = useState(null)
-  const [kejohanan, setKejohanan] = useState(null)  // { id, nama }
-  const [loading,   setLoading]   = useState(false)
-  const logRef                    = React.useRef(null)
-
-  function addLog(msg) {
-    setLogs(l => [...l, msg])
-    setTimeout(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight }, 30)
-  }
-
-  async function handleOpen() {
-    const nowOpen = !open
-    setOpen(nowOpen)
-    if (nowOpen && !kejohanan && !loading) {
-      setLoading(true)
-      try {
-        const k = await getKejohananAktif()
-        setKejohanan(k)
-      } catch (e) {
-        setKejohanan({ id: null, nama: `Ralat: ${e.message}` })
-      } finally {
-        setLoading(false)
-      }
-    }
-  }
-
-  async function handleSeed() {
-    if (!kejohanan?.id) return
-    setRunning(true)
-    setResult(null)
-    setLogs([])
-    try {
-      const res = await seedJadualAcara(kejohanan.id, msg => addLog(msg))
-      setResult(res)
-      onSeeded?.()
-    } catch (e) {
-      addLog(`✗ RALAT: ${e.message}`)
-    } finally {
-      setRunning(false)
-    }
-  }
-
-  const ready = !!kejohanan?.id && !running
-
-  return (
-    <div className="mt-3 border border-dashed border-indigo-300 rounded bg-indigo-50">
-      <button
-        onClick={handleOpen}
-        className="w-full flex items-center justify-between px-4 py-3 text-left"
-      >
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] bg-indigo-200 text-indigo-800 font-bold px-2 py-0.5 rounded uppercase tracking-wider">Dev Only</span>
-          <span className="text-xs font-semibold text-indigo-800">Seed Jadual Acara — {TOTAL_ACARA} Acara Standard KOAM</span>
-        </div>
-        <svg className={`w-4 h-4 text-indigo-500 transition-transform ${open ? 'rotate-180' : ''}`}
-          fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-
-      {open && (
-        <div className="px-4 pb-4 space-y-3">
-          <p className="text-[10px] text-indigo-700 leading-relaxed">
-            Akan menulis <strong>{TOTAL_ACARA} acara standard</strong> ke
-            <code className="mx-1 bg-indigo-100 px-1 rounded">kejohanan/{'{id}'}/acara</code>.
-            Acara yang sudah wujud akan diskip. Jalankan <strong>selepas</strong> kejohanan dibuat.
-          </p>
-
-          {/* Kejohanan aktif */}
-          <div className={`flex items-center gap-2 text-[10px] px-3 py-1.5 rounded border ${
-            loading ? 'bg-gray-50 border-gray-200 text-gray-500' :
-            kejohanan?.id ? 'bg-green-50 border-green-200 text-green-800' :
-            'bg-red-50 border-red-200 text-red-700'
-          }`}>
-            <span className="shrink-0">{loading ? '⏳' : kejohanan?.id ? '✓' : '✗'}</span>
-            <span className="font-semibold">Kejohanan Aktif</span>
-            <span className="ml-auto font-mono">
-              {loading ? 'Menyemak…' : kejohanan?.nama || 'Tiada'}
-            </span>
-          </div>
-
-          {/* Log terminal */}
-          {logs.length > 0 && (
-            <div ref={logRef} className="bg-gray-900 rounded p-3 text-[10px] font-mono text-gray-300 h-40 overflow-y-auto space-y-0.5">
-              {logs.map((l, i) => (
-                <div key={i} className={
-                  l.startsWith('✗') ? 'text-red-400' :
-                  l.startsWith('✓') || l.startsWith('✅') ? 'text-green-400' :
-                  l.startsWith('⟳') ? 'text-yellow-400' :
-                  l.startsWith('─') || l.startsWith('═') ? 'text-gray-600' :
-                  'text-gray-300'
-                }>{l}</div>
-              ))}
-            </div>
-          )}
-
-          {/* Result summary */}
-          {result && (
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { l: 'Berjaya', v: result.berjaya, c: 'text-green-700 bg-green-50 border-green-200' },
-                { l: 'Diskip',  v: result.skip,    c: 'text-gray-600 bg-gray-50 border-gray-200' },
-                { l: 'Gagal',   v: result.gagal,   c: result.gagal > 0 ? 'text-red-700 bg-red-50 border-red-200' : 'text-gray-400 bg-gray-50 border-gray-200' },
-              ].map(s => (
-                <div key={s.l} className={`text-center px-2 py-2 rounded border ${s.c}`}>
-                  <p className="text-lg font-black">{s.v}</p>
-                  <p className="text-[9px] font-semibold uppercase tracking-wide">{s.l}</p>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="flex gap-2 flex-wrap items-center">
-            <button
-              onClick={handleSeed}
-              disabled={!ready}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white text-xs font-bold rounded transition-colors"
-            >
-              {running ? 'Menjalankan…' : `▶ Seed ${TOTAL_ACARA} Acara`}
-            </button>
-            {!running && (
-              <button
-                onClick={async () => { setLoading(true); setKejohanan(null); const k = await getKejohananAktif().catch(e => ({ id: null, nama: `Ralat: ${e.message}` })); setKejohanan(k); setLoading(false) }}
-                disabled={loading}
-                className="px-3 py-2 text-indigo-700 border border-indigo-300 bg-white text-xs font-semibold rounded hover:bg-indigo-50 disabled:opacity-40"
-              >
-                ↺ Semak Semula
-              </button>
-            )}
-          </div>
-
-          {result && result.gagal === 0 && (
-            <p className="text-[10px] text-indigo-600 italic">
-              Seed selesai. Panel ini boleh dikeluarkan dari Dashboard.jsx selepas acara disahkan.
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── FirstRunSetup ────────────────────────────────────────────────────────────
-
-function FirstRunSetup() {
-  const { user, claimSuperadmin } = useAuth()
-  const [nama,  setNama]  = useState('')
-  const [busy,  setBusy]  = useState(false)
-  const [err,   setErr]   = useState('')
-
-  async function handleClaim(e) {
-    e.preventDefault()
-    if (!nama.trim()) return setErr('Nama diperlukan.')
-    setBusy(true)
-    setErr('')
-    try {
-      await claimSuperadmin(nama.trim())
-    } catch (e) {
-      setErr(e.message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="min-h-[60vh] flex items-center justify-center p-6">
-      <div className="bg-white border border-orange-200 rounded-xl shadow-lg max-w-md w-full p-6 space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center shrink-0">
-            <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-            </svg>
-          </div>
-          <div>
-            <p className="text-sm font-bold text-gray-800">Setup Pertama — Akaun Superadmin</p>
-            <p className="text-[11px] text-gray-500 mt-0.5">Profil Firestore belum ditetapkan untuk akaun ini.</p>
-          </div>
-        </div>
-
-        <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-          <p className="text-[10px] text-gray-400 font-mono">UID: {user?.uid}</p>
-          <p className="text-[10px] text-gray-400 mt-0.5">{user?.email}</p>
-        </div>
-
-        {err && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{err}</p>}
-
-        <form onSubmit={handleClaim} className="space-y-3">
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Nama Penuh</label>
-            <input
-              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#003399]/25 focus:border-[#003399] bg-gray-50"
-              value={nama}
-              onChange={e => setNama(e.target.value)}
-              placeholder="cth: Ahmad bin Hashim"
-              autoFocus
-            />
-          </div>
-          <button type="submit" disabled={busy}
-            className="w-full bg-[#003399] hover:bg-[#002277] disabled:bg-gray-300 text-white font-bold py-2.5 rounded-lg text-xs tracking-widest transition-colors">
-            {busy ? 'Menetapkan…' : 'TUNTUT SEBAGAI SUPERADMIN'}
-          </button>
-        </form>
-
-        <p className="text-[10px] text-gray-400 leading-relaxed">
-          Butang ini hanya berfungsi jika tiada superadmin lain dalam sistem. Selepas ditetapkan, halaman akan segar semula secara automatik.
-        </p>
-      </div>
-    </div>
-  )
-}
-
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const { userData, userRole, needsSetup } = useAuth()
-  const [stats, setStats] = useState({ atlet: null, sekolah: null, kejohanan: null, aktif: null })
+  const { userData, userRole } = useAuth()
+  const [stats,   setStats]   = useState({ atlet: null, sekolah: null, kejohanan: null, aktif: null })
+  const [dokumen,      setDokumen]      = useState([])
+  const [linkWasap,    setLinkWasap]    = useState('')
+  const [linkTelegram, setLinkTelegram] = useState('')
+
+  useEffect(() => {
+    getDoc(doc(db, 'tetapan', 'home'))
+      .then(s => {
+        if (s.exists()) {
+          const d = s.data()
+          setDokumen((d.dokumenMuatTurun || []).filter(x => x.nama && x.url))
+          setLinkWasap(d.linkWasap || '')
+          setLinkTelegram(d.linkTelegram || '')
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   async function fetchStats() {
     try {
@@ -749,11 +75,9 @@ export default function Dashboard() {
     }
   }
 
-  useEffect(() => { if (!needsSetup) fetchStats() }, [needsSetup])
+  useEffect(() => { fetchStats() }, [])
 
-  if (needsSetup) return <FirstRunSetup />
-
-  const isSuperAdmin = userRole === 'superadmin'
+const isSuperAdmin = userRole === 'superadmin'
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
@@ -766,6 +90,58 @@ export default function Dashboard() {
           Sistem Statistik Pengurusan Kejohanan Olahraga Antara Murid (KOAM)
         </p>
       </div>
+
+      {/* Dokumen Muat Turun + Pautan Kumpulan — Pengurus Pasukan */}
+      {(dokumen.length > 0 || (userRole === 'pengurus_pasukan' && (linkWasap || linkTelegram))) && (
+        <div className="mb-6 space-y-3">
+
+          {/* Dokumen */}
+          {dokumen.length > 0 && (
+            <div>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Dokumen Muat Turun</p>
+              <div className="flex flex-wrap gap-2">
+                {dokumen.map((d, i) => (
+                  <a key={i} href={d.url} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-xs font-semibold text-[#003399] hover:border-[#003399] hover:shadow-sm transition-all">
+                    <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    {d.nama}
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Pautan Kumpulan — Pengurus Pasukan sahaja */}
+          {userRole === 'pengurus_pasukan' && (linkWasap || linkTelegram) && (
+            <div>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Pautan Kumpulan</p>
+              <div className="flex flex-wrap gap-2">
+                {linkWasap && (
+                  <a href={linkWasap} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg text-xs font-semibold transition-colors">
+                    <svg className="w-3.5 h-3.5 shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                    </svg>
+                    Kumpulan WhatsApp
+                  </a>
+                )}
+                {linkTelegram && (
+                  <a href={linkTelegram} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white rounded-lg text-xs font-semibold transition-colors">
+                    <svg className="w-3.5 h-3.5 shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+                    </svg>
+                    Kumpulan Telegram
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
+
+        </div>
+      )}
 
       {/* Stats grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -833,26 +209,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* System info banner */}
-      <div className="bg-[#003399]/5 border border-[#003399]/20 rounded p-4">
-        <p className="text-xs font-semibold text-[#003399] mb-1">Status Sistem</p>
-        <div className="flex flex-wrap gap-2">
-          {['Firebase Auth ✓', 'Firestore ✓', 'Rules Aktif ✓', 'Hosting Live ✓'].map(item => (
-            <span key={item} className="text-[10px] bg-green-100 text-green-700 font-medium px-2 py-0.5 rounded-full">
-              {item}
-            </span>
-          ))}
-          <span className="text-[10px] bg-yellow-100 text-yellow-700 font-medium px-2 py-0.5 rounded-full">
-            Modul dalam pembangunan ⏳
-          </span>
-        </div>
-      </div>
-
-      {/* ── SEED PANELS — superadmin sahaja, padam selepas guna ──────────── */}
-      {isSuperAdmin && <SeedPanel              onSeeded={fetchStats} />}
-      {isSuperAdmin && <SeedAtletPanel         onSeeded={fetchStats} />}
-      {isSuperAdmin && <SeedKeputusanPanel     onSeeded={fetchStats} />}
-      {isSuperAdmin && <SeedJadualAcaraPanel   onSeeded={fetchStats} />}
     </div>
   )
 }

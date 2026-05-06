@@ -59,6 +59,11 @@ const EMPTY_FORM = {
   daerah: 'Kemaman',
   tempoBantahan: 60,
   timerAutoRasmi: 15,
+  bilanganKedudukan: 3,       // tempat 1,2,3 (emas/perak/gangsa) dapat masuk medal tally
+  mataPingat1: 5,             // mata untuk tempat 1
+  mataPingat2: 3,             // mata untuk tempat 2
+  mataPingat3: 2,             // mata untuk tempat 3
+  mataPingat4: 1,             // mata untuk tempat 4
   catatanAdmin: '',
 }
 
@@ -177,6 +182,14 @@ function KejohananModal({ mode, initial, onClose, onSaved }) {
         ? localDTToISO(form.tarikhTamatDaftar)
         : null
 
+      // Bina objek mataPingat untuk simpan dalam Firestore
+      const mataPingatObj = {
+        1: Math.max(0, Number(form.mataPingat1) || 0),
+        2: Math.max(0, Number(form.mataPingat2) || 0),
+        3: Math.max(0, Number(form.mataPingat3) || 0),
+        4: Math.max(0, Number(form.mataPingat4) || 0),
+      }
+
       if (isEdit) {
         await updateDoc(doc(db, 'kejohanan', initial.kejohananId), {
           namaKejohanan:      form.namaKejohanan.trim(),
@@ -190,6 +203,8 @@ function KejohananModal({ mode, initial, onClose, onSaved }) {
           daerah:             form.daerah.trim(),
           tempoBantahan:      Number(form.tempoBantahan),
           timerAutoRasmi:     Number(form.timerAutoRasmi) || 15,
+          bilanganKedudukan:  Math.min(5, Math.max(1, Number(form.bilanganKedudukan) || 3)),
+          mataPingat:         mataPingatObj,
           catatanAdmin:       form.catatanAdmin.trim(),
           updatedAt:          serverTimestamp(),
         })
@@ -207,6 +222,9 @@ function KejohananModal({ mode, initial, onClose, onSaved }) {
           negeri:             form.negeri,
           daerah:             form.daerah.trim(),
           tempoBantahan:      Number(form.tempoBantahan),
+          timerAutoRasmi:     Number(form.timerAutoRasmi) || 15,
+          bilanganKedudukan:  Math.min(5, Math.max(1, Number(form.bilanganKedudukan) || 3)),
+          mataPingat:         mataPingatObj,
           catatanAdmin:       form.catatanAdmin.trim(),
           statusKejohanan: 'persediaan',
           isAktif:        false,
@@ -374,6 +392,44 @@ function KejohananModal({ mode, initial, onClose, onSaved }) {
                   ))}
                 </select>
               </FormField>
+
+              <FormField
+                label="Bilangan Kedudukan Dapat Pingat"
+                hint="Bilangan tempat teratas yang direkod dalam medal tally (1=emas sahaja, 3=emas/perak/gangsa, maks 5)."
+              >
+                <select
+                  className={inputCls}
+                  value={form.bilanganKedudukan}
+                  onChange={e => set('bilanganKedudukan', Number(e.target.value))}
+                >
+                  {[1,2,3,4,5].map(n => (
+                    <option key={n} value={n}>{n} Tempat Teratas</option>
+                  ))}
+                </select>
+              </FormField>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Mata Pingat (Tempat 1–4)
+                  <span className="font-normal text-gray-400 ml-1">— mata individu (bukan relay) masuk Olahragawan Terbaik</span>
+                </label>
+                <div className="grid grid-cols-4 gap-2">
+                  {[1,2,3,4].map(t => (
+                    <div key={t}>
+                      <label className="block text-[10px] text-gray-400 mb-1 text-center">Tempat {t}</label>
+                      <input
+                        className={inputCls + ' text-center'}
+                        type="number"
+                        min={0}
+                        max={99}
+                        value={form[`mataPingat${t}`]}
+                        onChange={e => set(`mataPingat${t}`, e.target.value)}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[10px] text-gray-400 mt-1">Standard MSSD: 5 – 3 – 2 – 1</p>
+              </div>
 
               <FormField label="Catatan Admin">
                 <textarea
@@ -622,6 +678,7 @@ export default function KejohananSetup() {
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
   function openEdit(k) {
+    const mp = k.mataPingat || {}
     setModal({
       mode: 'edit',
       data: {
@@ -637,6 +694,11 @@ export default function KejohananSetup() {
         daerah:         k.daerah || '',
         tempoBantahan:  k.tempoBantahan || 60,
         timerAutoRasmi: k.timerAutoRasmi || 15,
+        bilanganKedudukan: k.bilanganKedudukan ?? 3,
+        mataPingat1:    mp[1] ?? mp['1'] ?? 5,
+        mataPingat2:    mp[2] ?? mp['2'] ?? 3,
+        mataPingat3:    mp[3] ?? mp['3'] ?? 2,
+        mataPingat4:    mp[4] ?? mp['4'] ?? 1,
         catatanAdmin:   k.catatanAdmin || '',
       },
     })
@@ -671,15 +733,24 @@ export default function KejohananSetup() {
             )}
           </p>
         </div>
-        <button
-          onClick={() => setModal({ mode: 'add', data: { ...EMPTY_FORM } })}
-          className="flex items-center gap-2 px-4 py-2 bg-[#003399] text-white text-xs font-semibold rounded hover:bg-[#002277] shrink-0"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Daftar Kejohanan
-        </button>
+        <div className="flex flex-col items-end gap-1">
+          <button
+            onClick={() => setModal({ mode: 'add', data: { ...EMPTY_FORM } })}
+            disabled={!!aktifKejohanan}
+            title={aktifKejohanan ? `Tamatkan "${aktifKejohanan.namaKejohanan}" dahulu sebelum daftar kejohanan baru.` : ''}
+            className="flex items-center gap-2 px-4 py-2 bg-[#003399] text-white text-xs font-semibold rounded hover:bg-[#002277] disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            Daftar Kejohanan
+          </button>
+          {aktifKejohanan && (
+            <p className="text-[10px] text-amber-700 font-semibold">
+              Tamatkan kejohanan aktif dahulu untuk daftar baru.
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Filter bar */}

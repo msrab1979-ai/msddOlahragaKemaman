@@ -10,12 +10,32 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   collection, getDocs, doc, setDoc, deleteDoc, updateDoc, getDoc,
-  serverTimestamp, query, orderBy, where,
+  serverTimestamp, query, orderBy, where, writeBatch,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
-import { deleteAllAcara } from '../../utils/seedJadual2026'
-
 // ─── Konstanta ────────────────────────────────────────────────────────────────
+
+// Padam semua acara + jadual_acara bagi sesebuah kejohanan
+async function deleteAllAcara(kejohananId, onLog = console.log) {
+  if (!kejohananId) return
+  onLog(`⚠️ Padam SEMUA acara + jadual untuk kejohanan: ${kejohananId}`)
+  const BATCH = 400
+  const acaraSnap = await getDocs(collection(db, 'kejohanan', kejohananId, 'acara'))
+  let b = writeBatch(db), n = 0
+  for (const d of acaraSnap.docs) {
+    b.delete(d.ref); n++
+    if (n % BATCH === 0) { await b.commit(); b = writeBatch(db) }
+  }
+  if (n % BATCH !== 0) await b.commit()
+  const jSnap = await getDocs(query(collection(db, 'jadual_acara'), where('kejohananId', '==', kejohananId)))
+  let jb = writeBatch(db), jn = 0
+  for (const d of jSnap.docs) {
+    jb.delete(d.ref); jn++
+    if (jn % BATCH === 0) { await jb.commit(); jb = writeBatch(db) }
+  }
+  if (jn % BATCH !== 0) await jb.commit()
+  onLog(`🗑️ Padam ${n} acara + ${jn} jadual_acara`)
+}
 
 const STATUS_ACARA = {
   tidak_rasmi:    { label: 'Tidak Rasmi',   cls: 'bg-amber-100 text-amber-700 border-amber-300' },
@@ -322,7 +342,7 @@ function formatTarikhPanjang(dateStr) {
   return d.toLocaleDateString('ms-MY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
 }
 
-function TukarHariModal({ hari, tarikhAsal, rowsInHari, onClose, onSaved }) {
+function TukarHariModal({ hari, tarikhAsal, rowsInHari, kejohananId, onClose, onSaved }) {
   const [tarikhBaru, setTarikhBaru] = useState(tarikhAsal || '')
   const [saving, setSaving]         = useState(false)
   const [progress, setProgress]     = useState(0)
@@ -343,6 +363,13 @@ function TukarHariModal({ hari, tarikhAsal, rowsInHari, onClose, onSaved }) {
           tarikhAcara: tarikhBaru,
           updatedAt:   serverTimestamp(),
         })
+        // Sync ke acara subcollection supaya AcaraSetup & JadualSetup sentiasa selari
+        try {
+          await updateDoc(
+            doc(db, 'kejohanan', kejohananId, 'acara', String(row.noAcara)),
+            { tarikhAcara: tarikhBaru, updatedAt: serverTimestamp() }
+          )
+        } catch { /* acara doc mungkin tiada — abaikan */ }
         done++
         setProgress(done)
       }
@@ -511,11 +538,17 @@ function EditModal({ row, onClose, onSaved, allRows, kejId }) {
         // 3. Padam jadual lama
         await deleteDoc(doc(db, 'jadual_acara', row.jadualId))
 
-        // 4. Kemaskini field noAcara dalam acara subcollection (doc ID kekal — heat path selamat)
+        // 4. Kemaskini field noAcara + jadual dalam acara subcollection
         try {
           await updateDoc(
             doc(db, 'kejohanan', kejId, 'acara', String(row.noAcara)),
-            { noAcara: proposedNoAcara, updatedAt: serverTimestamp() }
+            {
+              noAcara:     proposedNoAcara,
+              tarikhAcara: form.tarikhAcara,
+              masa:        form.masaMula,
+              lokasi:      form.lokasi,
+              updatedAt:   serverTimestamp(),
+            }
           )
         } catch { /* acara doc mungkin tiada — bukan masalah kritikal */ }
 
@@ -530,6 +563,21 @@ function EditModal({ row, onClose, onSaved, allRows, kejId }) {
         // Kemaskini hari jika tarikh bertukar ke hari yang dikenali
         if (form.tarikhAcara !== row.tarikhAcara && newHari) updates.hari = newHari
         await updateDoc(doc(db, 'jadual_acara', row.jadualId), updates)
+
+        // Sync ke acara subcollection supaya AcaraSetup & JadualSetup sentiasa selari
+        try {
+          const acaraUpdates = {
+            tarikhAcara: form.tarikhAcara,
+            masa:        form.masaMula,
+            lokasi:      form.lokasi,
+            updatedAt:   serverTimestamp(),
+          }
+          if (form.tarikhAcara !== row.tarikhAcara && newHari) acaraUpdates.hari = newHari
+          await updateDoc(
+            doc(db, 'kejohanan', kejId, 'acara', String(row.noAcara)),
+            acaraUpdates
+          )
+        } catch { /* acara doc mungkin tiada — abaikan */ }
       }
 
       onSaved()
@@ -1264,6 +1312,7 @@ export default function JadualSetup() {
           hari={modal.hari}
           tarikhAsal={modal.tarikhAsal}
           rowsInHari={modal.rowsInHari}
+          kejohananId={selectedKej}
           onClose={() => setModal(null)}
           onSaved={fetchData}
         />

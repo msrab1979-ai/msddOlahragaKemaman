@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import {
   collection, getDocs, getDoc, doc, updateDoc, addDoc, setDoc,
-  query, orderBy, where, serverTimestamp, Timestamp, increment,
+  query, orderBy, where, serverTimestamp, Timestamp, increment, runTransaction,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
@@ -111,12 +111,19 @@ export default function KeputusanRasmi() {
   const intervalRef                   = useRef(null)
   const autoRasmiDone                 = useRef(false)
 
-  // ── Medal Tally setting ────────────────────────────────────────────────────
-  const [bilanganKedudukan, setBilanganKedudukan] = useState(5)
+  // ── Medal Tally & Mata Pingat setting ─────────────────────────────────────
+  const [bilanganKedudukan, setBilanganKedudukan] = useState(3)
+  // mataPingatKej: map tempat → mata, dimuatkan dari kejohanan doc (fallback hardcode)
+  const [mataPingatKej, setMataPingatKej] = useState({ 1: 5, 2: 3, 3: 2, 4: 1 })
 
+  // Muatkan dari tetapan/home sebagai fallback global
   useEffect(() => {
     getDoc(doc(db, 'tetapan', 'home'))
-      .then(s => { if (s.exists()) setBilanganKedudukan(s.data().bilanganKedudukan ?? 5) })
+      .then(s => {
+        if (s.exists() && s.data().bilanganKedudukan != null) {
+          setBilanganKedudukan(s.data().bilanganKedudukan)
+        }
+      })
       .catch(() => {})
   }, [])
 
@@ -139,11 +146,24 @@ export default function KeputusanRasmi() {
       .then(snap => {
         if (!snap.empty) {
           const d = snap.docs[0]
+          const kd = d.data()
           setSelKej(d.id)
-          setNamaKej(d.data().namaKejohanan || '')
-          // Baca peringkat dari kejohanan → map ke kod rekod
-          const pKod = PERINGKAT_KOD[d.data().peringkat] || 'D'
+          setNamaKej(kd.namaKejohanan || '')
+          // Peringkat → kod rekod
+          const pKod = PERINGKAT_KOD[kd.peringkat] || 'D'
           setPeringkatKej(pKod)
+          // Bilangan kedudukan dari kejohanan doc (override global tetapan/home)
+          if (kd.bilanganKedudukan != null) setBilanganKedudukan(kd.bilanganKedudukan)
+          // Mata pingat dari kejohanan doc (override hardcode)
+          if (kd.mataPingat) {
+            const mp = kd.mataPingat
+            setMataPingatKej({
+              1: Number(mp[1] ?? mp['1'] ?? 5),
+              2: Number(mp[2] ?? mp['2'] ?? 3),
+              3: Number(mp[3] ?? mp['3'] ?? 2),
+              4: Number(mp[4] ?? mp['4'] ?? 1),
+            })
+          }
         }
       })
       .catch(() => {})
@@ -277,13 +297,24 @@ export default function KeputusanRasmi() {
   async function postRasmi(heatDoc, acaraDoc, kejId) {
     const pecahRekodMap = {} // noKP → peringkat (untuk patch peserta selepas loop)
 
+    // Bina sekolah nama map sebagai backup untuk heat lama (tiada namaSekolah dalam peserta)
+    const kodSekolahSet = [...new Set((heatDoc.peserta || []).map(p => p.kodSekolah).filter(Boolean))]
+    const sekolahNamaMap = {}
+    await Promise.all(kodSekolahSet.map(async kod => {
+      try {
+        const snap = await getDoc(doc(db, 'sekolah', kod))
+        if (snap.exists()) sekolahNamaMap[kod] = snap.data().namaSekolah || kod
+      } catch { sekolahNamaMap[kod] = kod }
+    }))
+    const getNamaSekolah = (p) => p.namaSekolah || sekolahNamaMap[p.kodSekolah] || p.kodSekolah || ''
+
     for (const p of (heatDoc.peserta || [])) {
       const rank = p.rankDalamHeat
       if (!rank || p.status !== 'selesai') continue
 
       // Mata olahragawan (bukan relay, top 4 sahaja)
       if (!isRelay && p.noKP && rank <= 4) {
-        const mata        = MATA_PINGAT[rank] || 0
+        const mata        = mataPingatKej[rank] ?? 0
         const pingat      = NAMA_PINGAT[rank]
         const mId         = `${p.noKP}_${kejId}`
         const mRef        = doc(db, 'mata_olahragawan', mId)
@@ -293,7 +324,7 @@ export default function KeputusanRasmi() {
             noKP:        p.noKP,
             namaAtlet:   p.namaAtlet   || '',
             kodSekolah:  p.kodSekolah  || '',
-            namaSekolah: p.namaSekolah || p.kodSekolah || '',
+            namaSekolah: getNamaSekolah(p),
             jantina:     acaraDoc.jantina    || '',
             kategoriKod: acaraDoc.kategoriKod || '',
             kejohananId: kejId,
@@ -320,7 +351,7 @@ export default function KeputusanRasmi() {
         const tRef   = doc(db, 'medal_tally', tId)
         try {
           await setDoc(tRef, {
-            kodSekolah: p.kodSekolah, namaSekolah: p.namaSekolah || p.kodSekolah,
+            kodSekolah: p.kodSekolah, namaSekolah: getNamaSekolah(p),
             kejohananId: kejId,
           }, { merge: true })
           await updateDoc(tRef, { [pingat]: increment(1), jumlahPingat: increment(1) })
@@ -398,7 +429,7 @@ export default function KeputusanRasmi() {
               noKP:        p.noKP    || '',
               namaAtlet:   p.namaAtlet  || '',
               kodSekolah:  p.kodSekolah || '',
-              namaSekolah: p.namaSekolah || p.kodSekolah || '',
+              namaSekolah: getNamaSekolah(p),
               prestasi:    newPrestasi,
               unit,
               windSpeed:   heatDoc.windSpeed  ?? null,
@@ -412,6 +443,63 @@ export default function KeputusanRasmi() {
             })
           }
         } catch (e) { console.warn('rekod_tuntutan:', e.message) }
+      }
+
+      // ── Relay rekod — fasa final, pasukan tempat 1 sahaja ─────────────────
+      // Rekod relay disimpan atas nama sekolah (bukan individu). noKP = null.
+      if (
+        grantMedal && isRelayAcara && rank === 1 &&
+        p.keputusan != null && p.keputusan !== '' &&
+        p.kodSekolah &&
+        acaraDoc.namaAcara && acaraDoc.jantina && acaraDoc.kategoriKod
+      ) {
+        try {
+          const rKey        = rekodKeyStr(acaraDoc.namaAcara, acaraDoc.jantina, acaraDoc.kategoriKod, peringkatKej)
+          const rekodRef    = doc(db, 'rekod', rKey)
+          const tuntutanRef = doc(db, 'rekod', rKey + '_tuntutan')
+          const [rekodSnap, tuntutanSnap] = await Promise.all([getDoc(rekodRef), getDoc(tuntutanRef)])
+          const newPrestasi = Number(p.keputusan)
+
+          let isBetter = false
+          if (rekodSnap.exists() && rekodSnap.data().statusRekod === 'aktif') {
+            isBetter = newPrestasi < Number(rekodSnap.data().prestasi) // masa: lebih rendah lebih baik
+          } else if (tuntutanSnap.exists() && tuntutanSnap.data().statusRekod === 'tuntutan') {
+            isBetter = newPrestasi < Number(tuntutanSnap.data().prestasi)
+          } else {
+            isBetter = true // rekod pertama untuk acara ini
+          }
+
+          if (isBetter) {
+            const rekodLama = rekodSnap.exists() ? rekodSnap.data() : null
+            await setDoc(tuntutanRef, {
+              rekodId:      rKey + '_tuntutan',
+              rekodAsal:    rKey,
+              namaAcara:    acaraDoc.namaAcara,
+              jantina:      acaraDoc.jantina,
+              kategoriKod:  acaraDoc.kategoriKod,
+              peringkat:    peringkatKej,
+              noKP:         null,
+              namaAtlet:    getNamaSekolah(p),
+              kodSekolah:   p.kodSekolah || '',
+              namaSekolah:  getNamaSekolah(p),
+              prestasi:     newPrestasi,
+              unit:         's',
+              isRelay:      true,
+              windSpeed:    null,
+              isWindLegal:  true,
+              jenisRekod:   'elektronik',
+              statusRekod:  'tuntutan',
+              tarikhRekod:  new Date().toISOString().split('T')[0],
+              kejohananId:  kejId,
+              catatanKhas:  `Auto-tuntutan relay dari keputusan RASMI (${heatDoc.id})`,
+              prestasiLama: rekodLama ? Number(rekodLama.prestasi) : null,
+              tahunLama:    rekodLama ? String(rekodLama.tarikhRekod || '').slice(0, 4) : null,
+              namaLama:     rekodLama?.namaAtlet  || null,
+              lokasiLama:   rekodLama?.namaSekolah || null,
+              updatedAt:    serverTimestamp(),
+            })
+          }
+        } catch (e) { console.warn('rekod_relay:', e.message) }
       }
     }
 
@@ -428,45 +516,63 @@ export default function KeputusanRasmi() {
       } catch (e) { console.warn('patch pecahRekod:', e.message) }
     }
 
-    // BUG2 FIX: tandakan postRasmi sudah selesai — elak double counting jika sahkanRasmi dipanggil semula
-    try {
-      await updateDoc(hRef3, { postRasmiSelesai: true })
-      setHeat(prev => prev ? { ...prev, postRasmiSelesai: true } : prev)
-    } catch (e) { console.warn('postRasmiSelesai:', e.message) }
+    // postRasmiSelesai kini diset secara atomic dalam runTransaction di sahkanRasmi()
+    // — tidak perlu set semula di sini
   }
 
   async function sahkanRasmi() {
     if (!heat || !selKej || !selAcara || !acara) return
     setSavingRasmi(true); setMsg(null)
+
+    const hRef    = doc(db, 'kejohanan', selKej, 'acara', selAcara, 'heat', heat.id)
+    const acaraRef = doc(db, 'kejohanan', selKej, 'acara', selAcara)
+
     try {
-      // Semak Firestore terus — elak double counting walaupun selepas refresh
-      const freshSnap = await getDoc(doc(db, 'kejohanan', selKej, 'acara', selAcara, 'heat', heat.id))
-      if (freshSnap.data()?.postRasmiSelesai) {
+      // ── Atomic check-and-set ───────────────────────────────────────────────
+      // runTransaction: jika postRasmiSelesai sudah true (dari browser/tab lain),
+      // transaction abort dan tiada double-count berlaku.
+      let alreadyDone = false
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(hRef)
+        if (snap.data()?.postRasmiSelesai) {
+          alreadyDone = true
+          return // keluar transaction tanpa tulis — sudah rasmi
+        }
+        tx.update(hRef, {
+          statusKeputusan:  'rasmi',
+          postRasmiSelesai: true,        // kunci awal — elak race condition
+          tarikhRasmi:      serverTimestamp(),
+          rasmiOleh:        userData?.uid || null,
+          updatedAt:        serverTimestamp(),
+        })
+      })
+
+      if (alreadyDone) {
         setMsg({ type: 'ok', text: 'Keputusan sudah RASMI. Medal tally telah dikira sebelum ini.' })
         setSavingRasmi(false)
         return
       }
-    } catch { /* teruskan jika gagal semak */ }
-    try {
-      const hRef    = doc(db, 'kejohanan', selKej, 'acara', selAcara, 'heat', heat.id)
-      const acaraRef = doc(db, 'kejohanan', selKej, 'acara', selAcara)
-      await updateDoc(hRef, {
-        statusKeputusan: 'rasmi',
-        tarikhRasmi:     serverTimestamp(),
-        rasmiOleh:       userData?.uid || null,
-        updatedAt:       serverTimestamp(),
-      })
-      // Kemaskini statusAcara pada acara doc supaya Home.jsx papar status betul
+
+      // Kemaskini statusAcara pada acara doc
       const updatedHeatList = heatList.map(h => h.id === heat.id ? { ...h, statusKeputusan: 'rasmi' } : h)
-      const finalHeat = updatedHeatList.find(h => h.fasa === 'final' || h.fasa === 'terus_final' || h.peringkat === 'final')
+      const finalHeat = updatedHeatList.find(h => h.fasa === 'final' || h.fasa === 'terus_final')
       const newAcaraStatus = finalHeat
         ? (finalHeat.statusKeputusan === 'rasmi' ? 'rasmi' : 'tidak_rasmi')
         : (updatedHeatList.every(h => h.statusKeputusan === 'rasmi') ? 'rasmi' : 'tidak_rasmi')
       await updateDoc(acaraRef, { statusAcara: newAcaraStatus, updatedAt: serverTimestamp() }).catch(() => {})
-      const updated = { ...heat, statusKeputusan: 'rasmi' }
+
+      const updated = { ...heat, statusKeputusan: 'rasmi', postRasmiSelesai: true }
       setHeat(updated)
       setHeatList(updatedHeatList)
-      await postRasmi(updated, acara, selKej)
+
+      // Jalankan postRasmi — jika gagal, rollback postRasmiSelesai supaya boleh retry
+      try {
+        await postRasmi(updated, acara, selKej)
+      } catch (postErr) {
+        await updateDoc(hRef, { postRasmiSelesai: false }).catch(() => {})
+        throw new Error('Ralat kira medal/mata: ' + postErr.message + ' (postRasmiSelesai dibatalkan — boleh cuba semula)')
+      }
+
       setMsg({ type: 'ok', text: 'Keputusan RASMI. Medal tally & mata olahragawan dikemaskini.' })
     } catch (e) {
       setMsg({ type: 'err', text: 'Ralat: ' + e.message })

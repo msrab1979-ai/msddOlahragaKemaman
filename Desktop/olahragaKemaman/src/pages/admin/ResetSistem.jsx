@@ -74,6 +74,22 @@ const TOGGLES = [
     level: 'bahaya',
     icon: '🏷️',
   },
+  {
+    id: 'sekolah',
+    label: 'Sekolah',
+    desc: 'Padam semua rekod sekolah (untuk padam atlet juga, pilih togol Padam Master Atlet)',
+    collections: ['sekolah'],
+    level: 'bahaya',
+    icon: '🏫',
+  },
+  {
+    id: 'atlet',
+    label: 'Padam Master Atlet',
+    desc: 'Padam SEMUA rekod atlet dari sistem (noKP, nama, noBib). Tidak boleh undur!',
+    collections: ['atlet'],
+    level: 'bahaya',
+    icon: '🗑️',
+  },
 ]
 
 const LEVEL_STYLE = {
@@ -101,9 +117,9 @@ const PAKEJ = [
   {
     id: 'penuh',
     label: 'Reset Penuh',
-    desc: 'Semua togol diaktifkan',
+    desc: 'Semua togol diaktifkan (termasuk sekolah + atlet)',
     color: 'bg-red-600 hover:bg-red-700',
-    toggles: ['pendaftaran', 'jadual', 'keputusan', 'medal', 'olahragawan', 'acara', 'kategori'],
+    toggles: ['pendaftaran', 'jadual', 'keputusan', 'medal', 'olahragawan', 'acara', 'kategori', 'sekolah', 'atlet'],
   },
 ]
 
@@ -181,6 +197,14 @@ export default function ResetSistem() {
       // Kategori
       const katSnap = await getDocs(collection(db, 'kategori'))
       c.kategori = katSnap.size
+
+      // Sekolah
+      const sekolahSnap = await getDocs(collection(db, 'sekolah'))
+      c.sekolah = sekolahSnap.size
+
+      // Atlet (master)
+      const atletMasterSnap = await getDocs(collection(db, 'atlet'))
+      c.atlet = atletMasterSnap.size
 
     } catch (e) { console.error('loadCounts:', e) }
     setCounts(c)
@@ -328,6 +352,22 @@ export default function ResetSistem() {
         const snap = await getDocs(collection(db, 'kategori'))
         await batchDelete(snap.docs.map(d => d.ref))
         log(`✓ Kategori — ${snap.size} rekod dipadam`, true)
+      }
+
+      // ── Sekolah ──
+      if (selected.has('sekolah')) {
+        log('Memadam sekolah…')
+        const snap = await getDocs(collection(db, 'sekolah'))
+        await batchDelete(snap.docs.map(d => d.ref))
+        log(`✓ Sekolah — ${snap.size} rekod dipadam`, true)
+      }
+
+      // ── Padam Master Atlet ──
+      if (selected.has('atlet')) {
+        log('Memadam semua rekod atlet…')
+        const snap = await getDocs(collection(db, 'atlet'))
+        await batchDelete(snap.docs.map(d => d.ref))
+        log(`✓ Master Atlet — ${snap.size} rekod dipadam`, true)
       }
 
       // ── Audit log ──

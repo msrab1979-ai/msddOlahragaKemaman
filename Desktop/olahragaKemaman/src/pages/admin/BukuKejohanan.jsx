@@ -36,6 +36,12 @@ function fmtTarikh(str) {
   })
 }
 
+function katLabel(kod, kategoriList = []) {
+  if (!kod) return '—'
+  const kat = kategoriList.find(k => k.kod === kod)
+  return kat?.label || kod
+}
+
 function rekodKey(namaAcara, jantina, kategoriKod, peringkat) {
   return [namaAcara, jantina, kategoriKod, peringkat]
     .join('_').toUpperCase().replace(/[^A-Z0-9_]/g, '_')
@@ -330,12 +336,14 @@ export default function BukuKejohanan() {
       acc[k].push(s)
       return acc
     }, {})
-    const KAT_ORDER = ['SR', 'SM', 'PPKI']
+    // Susun mengikut urutan dari katList (jenisSekolah unik, ikut urutan kategori)
+    const jenisOrder = [...new Set(katList.map(k => k.jenisSekolah).filter(Boolean))]
     const katKeys = [
-      ...KAT_ORDER.filter(k => sklByKat[k]),
-      ...Object.keys(sklByKat).filter(k => !KAT_ORDER.includes(k)),
+      ...jenisOrder.filter(k => sklByKat[k]),
+      ...Object.keys(sklByKat).filter(k => !jenisOrder.includes(k)),
     ]
-    const KAT_LABEL = { SR: 'Sekolah Rendah', SM: 'Sekolah Menengah', PPKI: 'Pendidikan Khas (PPKI)' }
+    // Label dari jenisSekolah itu sendiri (sudah dinamik)
+    const KAT_LABEL = Object.fromEntries(jenisOrder.map(j => [j, j]))
 
     const sklRows = []
     katKeys.forEach(kat => {
@@ -392,7 +400,7 @@ export default function BukuKejohanan() {
             j.masaMula     || '—',
             acara.namaAcara || '—',
             acara.jantina  === 'L' ? 'Lelaki' : acara.jantina === 'P' ? 'Perempuan' : '—',
-            acara.kategoriKod || '—',
+            katLabel(acara.kategoriKod, katList) || '—',
             j.lokasi || acara.lokasi || cfg.tempatKejohanan || '—',
           ]
         })
@@ -505,7 +513,7 @@ export default function BukuKejohanan() {
 
           // Header acara
           const jantinaLabel = acara.jantina === 'L' ? 'Lelaki' : acara.jantina === 'P' ? 'Perempuan' : ''
-          const acaraHeader  = `${acara.noAcara ? `[${acara.noAcara}] ` : ''}${acara.namaAcara}  ${jantinaLabel}  Kat ${acara.kategoriKod || '—'}`
+          const acaraHeader  = `${acara.noAcara ? `[${acara.noAcara}] ` : ''}${acara.namaAcara}  ${jantinaLabel}  Kat ${katLabel(acara.kategoriKod, katList) || '—'}`
 
           const rows = peserta.map((p, i) => {
             const pingat = ['🥇', '🥈', '🥉'][i] || ''

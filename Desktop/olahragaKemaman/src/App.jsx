@@ -9,7 +9,6 @@ import SekolahSetup from './pages/admin/SekolahSetup'
 import KategoriSetup from './pages/admin/KategoriSetup'
 import TetapanHome from './pages/admin/TetapanHome'
 import AcaraSetup from './pages/admin/AcaraSetup'
-import JadualSetup from './pages/admin/JadualSetup'
 import PendaftaranSetup from './pages/admin/PendaftaranSetup'
 import StartList from './pages/admin/StartList'
 import InputKeputusanAdmin from './pages/admin/InputKeputusan'
@@ -21,6 +20,7 @@ import CetakAcara from './pages/admin/CetakAcara'
 import BukuKejohanan from './pages/admin/BukuKejohanan'
 import CetakKeputusan from './pages/admin/CetakKeputusan'
 import ResetSistem from './pages/admin/ResetSistem'
+import ManualPendaftaran from './pages/admin/ManualPendaftaran'
 
 function ProtectedRoute({ children }) {
   const { user } = useAuth()
@@ -83,11 +83,7 @@ function AppRoutes() {
           <DashboardLayout><AcaraSetup /></DashboardLayout>
         </ProtectedRoute>
       } />
-      <Route path="/dashboard/jadual" element={
-        <ProtectedRoute>
-          <DashboardLayout><JadualSetup /></DashboardLayout>
-        </ProtectedRoute>
-      } />
+      <Route path="/dashboard/jadual" element={<Navigate to="/dashboard/acara" replace />} />
       <Route path="/dashboard/pendaftaran" element={
         <ProtectedRoute>
           <DashboardLayout><PendaftaranSetup /></DashboardLayout>
@@ -136,6 +132,11 @@ function AppRoutes() {
       <Route path="/dashboard/reset" element={
         <ProtectedRoute>
           <DashboardLayout><ResetSistem /></DashboardLayout>
+        </ProtectedRoute>
+      } />
+      <Route path="/dashboard/manual" element={
+        <ProtectedRoute>
+          <DashboardLayout><ManualPendaftaran /></DashboardLayout>
         </ProtectedRoute>
       } />
       <Route path="/dashboard/laporan" element={

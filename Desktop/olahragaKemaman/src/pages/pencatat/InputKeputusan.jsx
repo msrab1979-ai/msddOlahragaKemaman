@@ -1011,7 +1011,7 @@ export default function InputKeputusan() {
           const map = {}
           snap.docs.forEach(d => { map[d.id] = d.data().namaSekolah || d.id })
           setSekolahMap(map)
-        }).catch(() => {})
+        }).catch(err => console.warn('[InputKeputusan] gagal load sekolah map:', err))
 
         // Semua acara — tanpa orderBy untuk elak index error, sort client-side
         const acaraSnap = await getDocs(
@@ -1357,7 +1357,7 @@ export default function InputKeputusan() {
       const updatedHeats = heats.map(h =>
         h.heatId === selectedHeat.heatId ? { ...h, statusKeputusan: 'rasmi' } : h
       )
-      const finalHeat = updatedHeats.find(h => h.peringkat === 'final')
+      const finalHeat = updatedHeats.find(h => h.fasa === 'final' || h.fasa === 'terus_final')
       let newAcaraStatus
       if (finalHeat) {
         // Ada final → rasmi hanya bila final heat sendiri yang rasmi

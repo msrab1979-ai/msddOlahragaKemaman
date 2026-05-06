@@ -20,76 +20,13 @@
  *        Standard MSSM = 1 pasukan. Setiap pasukan = saizPasukan atlet.
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   collection, getDocs, doc, setDoc, updateDoc, deleteDoc,
   serverTimestamp, query, orderBy, writeBatch, getDoc,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 
-// ─── Seed standard MSSM ───────────────────────────────────────────────────────
-
-const SEED_KATEGORI = [
-  {
-    kod: 'A',    nama: 'Kategori A',  jenisSekolah: 'SR',
-    umurHad: 10, umurMin: 9,
-    // Kuota atlet per sekolah
-    hadAtletL: 15, hadAtletP: 15,
-    // Had acara per atlet
-    hadAcaraIndividu: 3, hadAcaraBeregu: 2,
-    // Kuota pasukan berkumpulan per sekolah
-    hadPasukanL: 1, hadPasukanP: 1, saizPasukan: 4,
-    warna: '#1e40af', urutan: 1,
-    catatan: 'Bawah 10 Tahun — Sekolah Rendah',
-  },
-  {
-    kod: 'B',    nama: 'Kategori B',  jenisSekolah: 'SR',
-    umurHad: 12, umurMin: 11,
-    hadAtletL: 15, hadAtletP: 15,
-    hadAcaraIndividu: 3, hadAcaraBeregu: 2,
-    hadPasukanL: 1, hadPasukanP: 1, saizPasukan: 4,
-    warna: '#1d4ed8', urutan: 2,
-    catatan: 'Bawah 12 Tahun — Sekolah Rendah',
-  },
-  {
-    kod: 'C',    nama: 'Kategori C',  jenisSekolah: 'SM',
-    umurHad: 14, umurMin: 13,
-    hadAtletL: 20, hadAtletP: 20,
-    hadAcaraIndividu: 3, hadAcaraBeregu: 2,
-    hadPasukanL: 1, hadPasukanP: 1, saizPasukan: 4,
-    warna: '#166534', urutan: 3,
-    catatan: 'Bawah 14 Tahun — Sekolah Menengah',
-  },
-  {
-    kod: 'D',    nama: 'Kategori D',  jenisSekolah: 'SM',
-    umurHad: 16, umurMin: 15,
-    hadAtletL: 20, hadAtletP: 20,
-    hadAcaraIndividu: 3, hadAcaraBeregu: 2,
-    hadPasukanL: 1, hadPasukanP: 1, saizPasukan: 4,
-    warna: '#15803d', urutan: 4,
-    catatan: 'Bawah 16 Tahun — Sekolah Menengah',
-  },
-  {
-    kod: 'E',    nama: 'Kategori E',  jenisSekolah: 'SM',
-    umurHad: 18, umurMin: 17,
-    hadAtletL: 20, hadAtletP: 20,
-    hadAcaraIndividu: 3, hadAcaraBeregu: 2,
-    hadPasukanL: 1, hadPasukanP: 1, saizPasukan: 4,
-    warna: '#16a34a', urutan: 5,
-    catatan: 'Bawah 18 Tahun — Sekolah Menengah',
-  },
-  {
-    kod: 'PPKI', nama: 'PPKI',        jenisSekolah: 'PPKI',
-    umurHad: 18, umurMin: 7,
-    hadAtletL: 8, hadAtletP: 8,
-    hadAcaraIndividu: 4, hadAcaraBeregu: 2,
-    hadPasukanL: 1, hadPasukanP: 1, saizPasukan: 4,
-    warna: '#7c3aed', urutan: 6,
-    catatan: 'Program Pendidikan Khas Integrasi',
-  },
-]
-
-// Default jenis — digunakan sebagai cadangan dalam datalist
 const JENIS_DEFAULTS = ['SR', 'SM', 'PPKI']
 
 const JENIS_BADGE_COLORS = {
@@ -99,7 +36,7 @@ const JENIS_BADGE_COLORS = {
 }
 
 const EMPTY_FORM = {
-  kod: '', nama: '', jenisSekolah: 'SR',
+  kod: '', label: '', nama: '', jenisSekolah: 'SR',
   umurHad: '', umurMin: '',
   hadAtletL: 15, hadAtletP: 15,
   hadAcaraIndividu: 3, hadAcaraBeregu: 2,
@@ -344,7 +281,7 @@ function KategoriModal({ mode, initial, onClose, onSaved, allKod, tahun, jenisVa
     setSaving(true)
     try {
       const payload = {
-        kod: kodBersih, nama: form.nama.trim(),
+        kod: kodBersih, label: form.label.trim(), nama: form.nama.trim(),
         jenisSekolah: form.jenisSekolah,
         umurHad:  form.umurHad  === '' ? null : Number(form.umurHad),
         umurMin:  form.umurMin  === '' ? null : Number(form.umurMin),
@@ -413,20 +350,27 @@ function KategoriModal({ mode, initial, onClose, onSaved, allKod, tahun, jenisVa
                     placeholder="A" className={inputCls + (isEdit ? ' bg-gray-100 text-gray-400 cursor-not-allowed' : '')}
                     maxLength={8} readOnly={isEdit} />
                 </FormField>
+                <FormField label="Label Paparan" hint="Ganti kod dalam paparan. Cth: L12, P15">
+                  <input value={form.label}
+                    onChange={e => set('label', e.target.value.replace(/\s/g, '').toUpperCase())}
+                    placeholder="L12" className={inputCls}
+                    maxLength={10} />
+                </FormField>
                 <FormField label="Urutan">
                   <input type="number" min={1} value={form.urutan}
                     onChange={e => set('urutan', e.target.value)} className={inputCls} />
+                </FormField>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <FormField label="Nama Kategori" required>
+                  <input value={form.nama} onChange={e => set('nama', e.target.value)}
+                    placeholder="Kategori A" className={inputCls} />
                 </FormField>
                 <FormField label="Warna Label">
                   <input type="color" value={form.warna} onChange={e => set('warna', e.target.value)}
                     className="w-full h-[38px] rounded-lg cursor-pointer border border-gray-200" />
                 </FormField>
               </div>
-
-              <FormField label="Nama Kategori" required>
-                <input value={form.nama} onChange={e => set('nama', e.target.value)}
-                  placeholder="Kategori A" className={inputCls} />
-              </FormField>
 
               <div>
                 <label className="block text-[10px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide">
@@ -643,78 +587,295 @@ function DeleteModal({ kategori, onClose, onDeleted }) {
   )
 }
 
-// ─── SeedPanel ────────────────────────────────────────────────────────────────
 
-function SeedPanel({ onSeeded }) {
-  const [open, setOpen] = useState(false)
-  const [seeding, setSeeding] = useState(false)
-  const [done, setDone] = useState(false)
+// ─── TetapanFinal ─────────────────────────────────────────────────────────────
 
-  async function handleSeed() {
-    setSeeding(true)
+const JENIS_ACARA_TABS = [
+  { key: 'larian', label: 'Larian', hint: 'Larian lorong & mass start' },
+  { key: 'relay',  label: 'Relay',  hint: 'Acara berkumpulan 4×100m, 4×400m' },
+  { key: 'padang', label: 'Padang', hint: 'Lompat & balin/lempar' },
+]
+
+const numCls = 'w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-center ' +
+  'focus:outline-none focus:ring-2 focus:ring-[#003399]/25 focus:border-[#003399] bg-gray-50'
+
+function TetapanFinal({ kategoriList }) {
+  const [subTab,   setSubTab]   = useState('larian')
+  const [setup,    setSetup]    = useState({ larian: {}, relay: {}, padang: {} })
+  const [loading,  setLoading]  = useState(true)
+  const [saving,   setSaving]   = useState(false)
+  const [saved,    setSaved]    = useState(false)
+  const [dirty,    setDirty]    = useState(false)
+
+  // Load dari Firestore
+  const fetchSetup = useCallback(async () => {
+    setLoading(true)
     try {
-      const batch = writeBatch(db)
-      for (const k of SEED_KATEGORI) {
-        batch.set(doc(db, 'kategori', k.kod), {
-          ...k, isAktif: true,
-          createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
-        }, { merge: true })
+      const snap = await getDoc(doc(db, 'tetapan', 'finalSetup'))
+      if (snap.exists()) {
+        const d = snap.data()
+        setSetup({
+          larian: d.larian || {},
+          relay:  d.relay  || {},
+          padang: d.padang || {},
+        })
       }
-      await batch.commit()
-      setDone(true); onSeeded()
-    } catch (e) { alert('Ralat: ' + e.message) } finally { setSeeding(false) }
+    } catch (e) { console.error(e) }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { fetchSetup() }, [fetchSetup])
+
+  // Helper ubah nilai
+  function setVal(jenis, kod, field, val) {
+    setSetup(prev => ({
+      ...prev,
+      [jenis]: {
+        ...prev[jenis],
+        [kod]: {
+          ...(prev[jenis]?.[kod] || {}),
+          [field]: val === '' ? '' : Number(val),
+        },
+      },
+    }))
+    setDirty(true)
+    setSaved(false)
   }
 
+  function getVal(jenis, kod, field, def) {
+    const v = setup[jenis]?.[kod]?.[field]
+    return v === undefined ? def : v
+  }
+
+  // Simpan
+  async function handleSave() {
+    setSaving(true)
+    setSaved(false)
+    try {
+      // Normalise — tukar string kosong ke 0
+      const normalise = (obj) => {
+        const out = {}
+        Object.entries(obj).forEach(([kod, vals]) => {
+          out[kod] = {}
+          Object.entries(vals).forEach(([k, v]) => {
+            out[kod][k] = v === '' ? 0 : Number(v) || 0
+          })
+        })
+        return out
+      }
+      await setDoc(doc(db, 'tetapan', 'finalSetup'), {
+        larian:    normalise(setup.larian),
+        relay:     normalise(setup.relay),
+        padang:    normalise(setup.padang),
+        updatedAt: serverTimestamp(),
+      })
+      setDirty(false)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 3000)
+    } catch (e) {
+      alert('Ralat simpan: ' + e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) return <div className="py-16 text-center text-sm text-gray-400">Memuatkan tetapan…</div>
+
+  const kods = kategoriList.map(k => k.kod).filter(Boolean)
+
   return (
-    <div className="border border-dashed border-gray-300 rounded-xl bg-gray-50 overflow-hidden">
-      <button onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-4 py-3 text-xs font-semibold text-gray-500 hover:bg-gray-100 transition-colors">
-        <span>Muat Masuk Kategori Standard MSSM Malaysia (A, B, C, D, E, PPKI)</span>
-        <svg className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-      {open && (
-        <div className="px-4 pb-4 space-y-3">
-          <div className="overflow-x-auto">
-            <table className="w-full text-[10px] border-collapse">
-              <thead>
-                <tr className="text-gray-400 border-b border-gray-200">
-                  <th className="pb-1.5 text-left font-bold pr-3">Kat</th>
-                  <th className="pb-1.5 text-left font-bold pr-3">Had Umur</th>
-                  <th className="pb-1.5 text-left font-bold pr-3">Jenis</th>
-                  <th className="pb-1.5 text-center font-bold pr-3">Kuota L</th>
-                  <th className="pb-1.5 text-center font-bold pr-3">Kuota P</th>
-                  <th className="pb-1.5 text-center font-bold pr-3">Maks Ind.</th>
-                  <th className="pb-1.5 text-center font-bold pr-3">Maks Berkumpulan</th>
-                  <th className="pb-1.5 text-center font-bold">Saiz Pskmn</th>
-                </tr>
-              </thead>
-              <tbody>
-                {SEED_KATEGORI.map(k => (
-                  <tr key={k.kod} className="border-b border-gray-100">
-                    <td className="py-1.5 pr-3">
-                      <span className="font-black text-white px-1.5 py-0.5 rounded text-[9px]" style={{ backgroundColor: k.warna }}>{k.kod}</span>
-                    </td>
-                    <td className="py-1.5 pr-3 text-gray-600 font-semibold">Bawah {k.umurHad} Thn</td>
-                    <td className="py-1.5 pr-3 text-gray-500">{k.jenisSekolah}</td>
-                    <td className="py-1.5 pr-3 text-center font-bold text-blue-700">{k.hadAtletL}</td>
-                    <td className="py-1.5 pr-3 text-center font-bold text-pink-700">{k.hadAtletP}</td>
-                    <td className="py-1.5 pr-3 text-center font-bold text-green-700">{k.hadAcaraIndividu}</td>
-                    <td className="py-1.5 pr-3 text-center font-bold text-purple-700">{k.hadAcaraBeregu}</td>
-                    <td className="py-1.5 text-center font-bold text-orange-700">{k.saizPasukan}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {done && <p className="text-xs text-green-600 font-semibold">Berjaya dimuat masuk!</p>}
-          <button onClick={handleSeed} disabled={seeding}
-            className="px-4 py-1.5 text-xs font-bold bg-[#003399] text-white rounded-lg hover:bg-[#002288] disabled:opacity-50">
-            {seeding ? 'Memuat masuk…' : 'Muat Masuk Standard MSSM'}
+    <div className="space-y-4">
+
+      {/* Info */}
+      <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 text-xs text-blue-700 space-y-1">
+        <p className="font-bold">Tetapan ini menentukan cara atlet dipilih untuk perlawanan final</p>
+        <p className="text-[11px] text-blue-500">
+          Best Heat = tempat untuk pemenang heat terpantas ·
+          Best Time = tempat dari masa terbaik keseluruhan ·
+          Total = Best Heat + Best Time (auto-kira)
+        </p>
+      </div>
+
+      {/* Sub-tab: Larian / Relay / Padang */}
+      <div className="flex rounded-xl border border-gray-200 overflow-hidden text-xs bg-white w-fit shadow-sm">
+        {JENIS_ACARA_TABS.map(t => (
+          <button key={t.key} onClick={() => setSubTab(t.key)}
+            className={`px-5 py-2 font-semibold transition-colors border-r border-gray-200 last:border-r-0 ${
+              subTab === t.key ? 'bg-[#003399] text-white' : 'text-gray-500 hover:bg-gray-50'
+            }`}>
+            {t.label}
           </button>
+        ))}
+      </div>
+
+      {/* Hint jenis */}
+      <p className="text-[11px] text-gray-400">
+        {JENIS_ACARA_TABS.find(t => t.key === subTab)?.hint}
+      </p>
+
+      {/* Table Larian & Relay */}
+      {(subTab === 'larian' || subTab === 'relay') && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-wide">
+                <th className="px-4 py-3 text-left">Kategori</th>
+                <th className="px-4 py-3 text-center">
+                  Best Heat
+                  <p className="text-[9px] font-normal normal-case text-gray-300 mt-0.5">pemenang heat terpantas</p>
+                </th>
+                <th className="px-4 py-3 text-center">
+                  Best Time
+                  <p className="text-[9px] font-normal normal-case text-gray-300 mt-0.5">masa terbaik keseluruhan</p>
+                </th>
+                <th className="px-4 py-3 text-center">
+                  Total
+                  <p className="text-[9px] font-normal normal-case text-gray-300 mt-0.5">masuk final (auto)</p>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {kods.length === 0 && (
+                <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-400 text-xs">Tiada kategori. Tambah kategori dahulu.</td></tr>
+              )}
+              {kods.map((kod, i) => {
+                const kat       = kategoriList.find(k => k.kod === kod)
+                const bestHeat  = getVal(subTab, kod, 'bestHeat', 0)
+                const bestTime  = getVal(subTab, kod, 'bestTime', 8)
+                const total     = (Number(bestHeat) || 0) + (Number(bestTime) || 0)
+                const isErr     = Number(bestHeat) < 0 || Number(bestTime) < 0
+                return (
+                  <tr key={kod} className={`border-b border-gray-50 last:border-0 ${i % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-[10px] font-black shrink-0"
+                          style={{ backgroundColor: kat?.warna || '#6366f1' }}>
+                          {kod}
+                        </span>
+                        <div>
+                          <p className="font-semibold text-gray-700">{kat?.label || kod}</p>
+                          <p className="text-[9px] text-gray-400">{kat?.nama || ''}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <input
+                        type="number" min={0} max={99}
+                        value={bestHeat}
+                        onChange={e => setVal(subTab, kod, 'bestHeat', e.target.value)}
+                        className={numCls + (isErr ? ' border-red-300' : '')}
+                      />
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <input
+                        type="number" min={0} max={99}
+                        value={bestTime}
+                        onChange={e => setVal(subTab, kod, 'bestTime', e.target.value)}
+                        className={numCls + (isErr ? ' border-red-300' : '')}
+                      />
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`font-black text-base ${total === 0 ? 'text-gray-300' : 'text-[#003399]'}`}>
+                        {total}
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
       )}
+
+      {/* Table Padang */}
+      {subTab === 'padang' && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 bg-amber-50 border-b border-amber-100 text-[11px] text-amber-700">
+            ⚠️ Padang tiada konsep heat — semua peserta bertanding dalam 1 sesi. Pilihan ke final = jarak/ketinggian terbaik sahaja.
+          </div>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-wide">
+                <th className="px-4 py-3 text-left">Kategori</th>
+                <th className="px-4 py-3 text-center">
+                  Total Final
+                  <p className="text-[9px] font-normal normal-case text-gray-300 mt-0.5">berapa masuk peringkat akhir</p>
+                </th>
+                <th className="px-4 py-3 text-center">
+                  Cubaan Awal
+                  <p className="text-[9px] font-normal normal-case text-gray-300 mt-0.5">semua peserta</p>
+                </th>
+                <th className="px-4 py-3 text-center">
+                  Cubaan Akhir
+                  <p className="text-[9px] font-normal normal-case text-gray-300 mt-0.5">top N sahaja</p>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {kods.length === 0 && (
+                <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-400 text-xs">Tiada kategori. Tambah kategori dahulu.</td></tr>
+              )}
+              {kods.map((kod, i) => {
+                const kat        = kategoriList.find(k => k.kod === kod)
+                const total      = getVal('padang', kod, 'total',       8)
+                const cubaanAwal = getVal('padang', kod, 'cubaanAwal',  3)
+                const cubaanAkhr = getVal('padang', kod, 'cubaanAkhir', 3)
+                return (
+                  <tr key={kod} className={`border-b border-gray-50 last:border-0 ${i % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-[10px] font-black shrink-0"
+                          style={{ backgroundColor: kat?.warna || '#6366f1' }}>
+                          {kod}
+                        </span>
+                        <div>
+                          <p className="font-semibold text-gray-700">{kat?.label || kod}</p>
+                          <p className="text-[9px] text-gray-400">{kat?.nama || ''}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <input type="number" min={1} max={99} value={total}
+                        onChange={e => setVal('padang', kod, 'total', e.target.value)}
+                        className={numCls} />
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <input type="number" min={1} max={10} value={cubaanAwal}
+                        onChange={e => setVal('padang', kod, 'cubaanAwal', e.target.value)}
+                        className={numCls} />
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <input type="number" min={1} max={10} value={cubaanAkhr}
+                        onChange={e => setVal('padang', kod, 'cubaanAkhir', e.target.value)}
+                        className={numCls} />
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Panduan */}
+      <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 text-[10px] text-gray-500 space-y-1.5">
+        <p className="font-bold text-gray-600 text-xs mb-2">Panduan</p>
+        <p><span className="font-bold text-gray-700">Best Heat</span> — Ambil pemenang heat mengikut masa terpantas. Contoh: Best Heat=4 → ambil 4 pemenang heat terpantas.</p>
+        <p><span className="font-bold text-gray-700">Best Time</span> — Baki tempat diisi dari atlet dengan masa terbaik yang belum dipilih.</p>
+        <p><span className="font-bold text-gray-700">Total</span> — Dikira automatik (Best Heat + Best Time). Ini bilangan atlet yang berlari dalam final.</p>
+        <p><span className="font-bold text-gray-700">Cubaan Awal</span> — Semua peserta padang dapat N cubaan pada peringkat pertama.</p>
+        <p><span className="font-bold text-gray-700">Cubaan Akhir</span> — Hanya top N peserta terbaik yang dapat cubaan tambahan.</p>
+      </div>
+
+      {/* Simpan */}
+      <div className="flex items-center justify-end gap-3 pt-2">
+        {dirty && <p className="text-[11px] text-amber-600 font-semibold">Terdapat perubahan belum disimpan</p>}
+        {saved && <p className="text-[11px] text-green-600 font-semibold">✓ Tetapan disimpan</p>}
+        <button onClick={handleSave} disabled={saving || !dirty}
+          className="px-6 py-2 text-xs font-bold bg-[#003399] text-white rounded-lg hover:bg-[#002288] disabled:opacity-40 transition-colors">
+          {saving ? 'Menyimpan…' : 'Simpan Tetapan'}
+        </button>
+      </div>
     </div>
   )
 }
@@ -727,6 +888,7 @@ export default function KategoriSetup() {
   const [modal, setModal]       = useState(null)
   const [delTarget, setDelTarget] = useState(null)
   const [filterJenis, setFilterJenis] = useState('semua')
+  const [activeTab, setActiveTab] = useState('kategori')
   const tahun = new Date().getFullYear()
 
   async function fetchList() {
@@ -792,29 +954,50 @@ export default function KategoriSetup() {
           <h1 className="text-lg font-bold text-gray-900">Setup Kategori</h1>
           <p className="text-xs text-gray-400 mt-0.5">Standard MSSD / MSSM — had umur, kuota atlet, had acara & pasukan berkumpulan</p>
         </div>
-        <button onClick={() => setModal({ mode: 'add' })}
-          className="flex items-center gap-2 px-4 py-2 bg-[#003399] text-white text-xs font-bold rounded-lg hover:bg-[#002288] shadow-sm">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Tambah Kategori
-        </button>
+        {activeTab === 'kategori' && (
+          <button onClick={() => setModal({ mode: 'add' })}
+            className="flex items-center gap-2 px-4 py-2 bg-[#003399] text-white text-xs font-bold rounded-lg hover:bg-[#002288] shadow-sm">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            Tambah Kategori
+          </button>
+        )}
       </div>
+
+      {/* Tab Bar */}
+      <div className="flex rounded-xl border border-gray-200 overflow-hidden text-xs bg-white w-fit shadow-sm">
+        {[
+          { key: 'kategori', label: 'Senarai Kategori' },
+          { key: 'final',    label: 'Tetapan Final' },
+        ].map(t => (
+          <button key={t.key} onClick={() => setActiveTab(t.key)}
+            className={`px-5 py-2.5 font-semibold transition-colors border-r border-gray-200 last:border-r-0 ${
+              activeTab === t.key ? 'bg-[#003399] text-white' : 'text-gray-500 hover:bg-gray-50'
+            }`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab: Tetapan Final */}
+      {activeTab === 'final' && (
+        <TetapanFinal kategoriList={list} />
+      )}
+
+      {/* Tab: Senarai Kategori — sembunyikan jika tab lain aktif */}
+      {activeTab !== 'kategori' ? null : (<>
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          { label: 'Jumlah', val: list.length, color: 'text-[#003399]', bg: 'bg-blue-50' },
-          ...JENIS_DEFAULTS.map((j, i) => ({
-            label: j,
-            val: list.filter(k => k.jenisSekolah === j).length,
-            color: i === 0 ? 'text-blue-700' : i === 1 ? 'text-green-700' : 'text-purple-700',
-            bg: i === 0 ? 'bg-blue-50' : i === 1 ? 'bg-green-50' : 'bg-purple-50',
-          })),
-        ].map(s => (
-          <div key={s.label} className={`${s.bg} rounded-xl px-4 py-3 text-center`}>
-            <p className={`text-2xl font-black ${s.color}`}>{s.val}</p>
-            <p className="text-[10px] text-gray-500 uppercase tracking-wide mt-0.5">{s.label}</p>
+        <div className="bg-blue-50 rounded-xl px-4 py-3 text-center">
+          <p className="text-2xl font-black text-[#003399]">{list.length}</p>
+          <p className="text-[10px] text-gray-500 uppercase tracking-wide mt-0.5">Jumlah</p>
+        </div>
+        {jenisValues.map(j => (
+          <div key={j} className="bg-gray-50 rounded-xl px-4 py-3 text-center">
+            <p className="text-2xl font-black text-gray-700">{list.filter(k => k.jenisSekolah === j).length}</p>
+            <p className="text-[10px] text-gray-500 uppercase tracking-wide mt-0.5">{j}</p>
           </div>
         ))}
       </div>
@@ -857,9 +1040,6 @@ export default function KategoriSetup() {
         </div>
       )}
 
-      {/* Seed */}
-      <SeedPanel onSeeded={fetchList} />
-
       {/* Modals */}
       {modal?.mode === 'add' && (
         <KategoriModal mode="add" initial={{ ...EMPTY_FORM, urutan: list.length + 1 }}
@@ -874,6 +1054,7 @@ export default function KategoriSetup() {
       {delTarget && (
         <DeleteModal kategori={delTarget} onClose={() => setDelTarget(null)} onDeleted={fetchList} />
       )}
+      </>)}
     </div>
   )
 }

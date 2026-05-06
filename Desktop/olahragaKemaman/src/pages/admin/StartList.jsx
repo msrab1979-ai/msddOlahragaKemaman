@@ -30,6 +30,14 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { cariRekodUntukAcara, formatPrestasiRekod, tahunRekod, lokasiRekod } from '../../utils/rekodUtils'
 
+// ─── Helper ───────────────────────────────────────────────────────────────────
+
+function katLabel(kod, kategoriList = []) {
+  if (!kod) return '—'
+  const kat = kategoriList.find(k => k.kod === kod)
+  return kat?.label || kod
+}
+
 // ─── Konstanta ────────────────────────────────────────────────────────────────
 
 const ASSIGN_LORONG_WA = [4, 5, 3, 6, 2, 7, 1, 8] // rank 1→8, WA standard dalam-keluar-tengah
@@ -100,7 +108,7 @@ function buatHeatId(aceraId, fasa, noHeat) {
 
 // ─── PDF Export ───────────────────────────────────────────────────────────────
 
-function exportStartListPDF(acara, heatList, namaKejohanan, namaSekolahMap = {}, rekodDNK = {}) {
+function exportStartListPDF(acara, heatList, namaKejohanan, namaSekolahMap = {}, rekodDNK = {}, kategoriList = []) {
   const pdf   = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
   const pageW = pdf.internal.pageSize.getWidth()
   const now   = new Date().toLocaleString('ms-MY')
@@ -131,7 +139,7 @@ function exportStartListPDF(acara, heatList, namaKejohanan, namaSekolahMap = {},
     pdf.setFontSize(9)
     pdf.setFont('helvetica', 'normal')
     pdf.text(
-      `${acara.namaAcara} — Kategori ${acara.kategoriKod} ${acara.jantina === 'L' ? 'Lelaki' : 'Perempuan'}`,
+      `${acara.namaAcara} — Kategori ${katLabel(acara.kategoriKod, kategoriList)} ${acara.jantina === 'L' ? 'Lelaki' : 'Perempuan'}`,
       pageW / 2, 30, { align: 'center' }
     )
     pdf.text(
@@ -173,7 +181,7 @@ function exportStartListPDF(acara, heatList, namaKejohanan, namaSekolahMap = {},
         p.noBib,
         p.namaAtlet,
         namaSekolahMap[p.kodSekolah] || p.namaSekolah || p.kodSekolah,
-        p.kategoriKod || '—',
+        katLabel(p.kategoriKod, kategoriList) || '—',
         '',
       ])
 
@@ -536,6 +544,7 @@ async function generateHeatsForAcara({ acara, pesertaAll, kejohananId, caraDraw,
       peserta: h.peserta.map(pp => ({
         noBib: pp.noBib, noKP: pp.noKP || '',
         namaAtlet: pp.namaAtlet, kodSekolah: pp.kodSekolah,
+        namaSekolah: namaSekolahMap[pp.kodSekolah] || pp.namaSekolah || pp.kodSekolah,
         kategoriKod: pp.kategoriKod || '',
         lorong: pp.lorong ?? null, giliran: pp.giliran ?? null,
         keputusan: null, status: 'belum', cubaan: [], rankDalamHeat: null,
@@ -659,7 +668,7 @@ function JanaSemuaModal({ kejohananId, acaraList, onClose, onDone }) {
 
     for (let i = 0; i < acaraAktif.length; i++) {
       const acara = acaraAktif[i]
-      const label = `${acara.namaAcara} Kat${acara.kategoriKod} ${acara.jantina}`
+      const label = `${acara.namaAcara} Kat${katLabel(acara.kategoriKod, kategoriList)} ${acara.jantina}`
       try {
         const result = await generateHeatsForAcara({ acara, pesertaAll, kejohananId, caraDraw, skipJikaAda })
         if (result.status === 'ok') {
@@ -740,7 +749,7 @@ function JanaSemuaModal({ kejohananId, acaraList, onClose, onDone }) {
                 <div className="max-h-40 overflow-y-auto space-y-1 pr-1">
                   {acaraAktif.map(a => (
                     <div key={a.aceraId} className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-lg">
-                      <span className="text-[9px] font-bold text-[#003399] w-8">{a.kategoriKod}</span>
+                      <span className="text-[9px] font-bold text-[#003399] w-8">{katLabel(a.kategoriKod, kategoriList)}</span>
                       <span className={`text-[9px] font-black w-4 ${a.jantina==='L'?'text-blue-600':'text-pink-600'}`}>{a.jantina}</span>
                       <span className="text-[10px] text-gray-700 flex-1">{a.namaAcara}</span>
                       <span className="text-[9px] text-gray-400">{a.bilanganLorong || '—'} lorong</span>
@@ -1132,7 +1141,7 @@ function QuickJanaModal({ acara, kejohananId, onClose, onDone }) {
           <div>
             <h2 className="text-sm font-bold text-gray-800">Jana Heat — {acara.namaAcara}</h2>
             <div className="flex items-center gap-2 mt-1">
-              <span className="text-[10px] font-bold px-2 py-0.5 bg-[#003399]/10 text-[#003399] rounded-full">Kat {acara.kategoriKod}</span>
+              <span className="text-[10px] font-bold px-2 py-0.5 bg-[#003399]/10 text-[#003399] rounded-full">Kat {katLabel(acara.kategoriKod, kategoriList)}</span>
               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${acara.jantina==='L'?'bg-blue-100 text-blue-700':'bg-pink-100 text-pink-700'}`}>
                 {acara.jantina === 'L' ? 'Lelaki' : 'Perempuan'}
               </span>
@@ -1262,6 +1271,7 @@ export default function StartList() {
   const [heatCountMap, setHeatCountMap]  = useState({})   // aceraId → bilangan heat
   const [heatCountTick, setHeatCountTick] = useState(0)   // trigger refresh
   const [sekolahList, setSekolahList]    = useState([])
+  const [kategoriList, setKategoriList]  = useState([])
   const [pesertaCountMap, setPesertaCountMap] = useState({}) // aceraId → bilangan peserta
   const [viewMode, setViewMode]          = useState('acara') // 'acara' | 'status'
   const [quickJanaAcara, setQuickJanaAcara] = useState(null) // acara obj | null
@@ -1274,10 +1284,13 @@ export default function StartList() {
     [sekolahList]
   )
 
-  // Fetch sekolah once
+  // Fetch sekolah + kategori once
   useEffect(() => {
     getDocs(collection(db, 'sekolah'))
       .then(snap => setSekolahList(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+      .catch(() => {})
+    getDocs(query(collection(db, 'kategori'), orderBy('urutan')))
+      .then(snap => setKategoriList(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
       .catch(() => {})
   }, [])
 
@@ -1607,7 +1620,7 @@ export default function StartList() {
             {katKeys.map(kat => (
               <div key={kat} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
                 <div className="px-4 py-2.5 bg-[#003399] flex items-center gap-2">
-                  <span className="text-xs font-black text-white">Kategori {kat}</span>
+                  <span className="text-xs font-black text-white">Kategori {katLabel(kat, kategoriList)}</span>
                   <span className="text-[10px] text-blue-200">{byKat[kat].length} acara</span>
                 </div>
                 <table className="w-full text-xs">
@@ -1711,7 +1724,7 @@ export default function StartList() {
               {['semua', ...katList].map(k => (
                 <button key={k} onClick={() => setFilterKat(k)}
                   className={`px-2.5 py-1 text-[10px] font-bold rounded-lg border transition-colors ${filterKat===k?'bg-[#003399] text-white border-[#003399]':'bg-white text-gray-600 border-gray-200 hover:border-gray-400'}`}>
-                  {k==='semua'?'Semua':`Kat ${k}`}
+                  {k==='semua'?'Semua':`Kat ${katLabel(k, kategoriList)}`}
                 </button>
               ))}
             </div>
@@ -1737,7 +1750,7 @@ export default function StartList() {
                       <div className="min-w-0">
                         <p className="text-xs font-bold text-gray-800 truncate">{a.namaAcara}</p>
                         <div className="flex items-center gap-1 mt-0.5">
-                          <span className="text-[9px] font-bold text-[#003399]">{a.kategoriKod}</span>
+                          <span className="text-[9px] font-bold text-[#003399]">{katLabel(a.kategoriKod, kategoriList)}</span>
                           <span className={`text-[9px] font-black ${a.jantina==='L'?'text-blue-600':'text-pink-600'}`}>{a.jantina}</span>
                           <span className="text-[9px] text-gray-400">{jenisShort[a.jenisAcara]}</span>
                         </div>
@@ -1799,7 +1812,7 @@ export default function StartList() {
                       {/* PDF — semua boleh export */}
                       {heatList.length > 0 && (
                         <button
-                          onClick={() => exportStartListPDF(selectedAcara, heatList, namaKej, namaSekolahMap, rekodAcara)}
+                          onClick={() => exportStartListPDF(selectedAcara, heatList, namaKej, namaSekolahMap, rekodAcara, kategoriList)}
                           className="flex items-center gap-1.5 px-3 py-2 text-[10px] font-bold border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors">
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                           PDF

@@ -12,14 +12,13 @@ import {
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
 import PasswordInput from '../../components/ui/PasswordInput'
-import { SEKOLAH_LIST } from '../../utils/seedSekolah'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const KATEGORI_LIST = ['SR', 'SM', 'PPKI']
+const KATEGORI_LIST_FALLBACK = ['SR', 'SM', 'PPKI']
 const NEGERI_LIST   = ['Terengganu', 'Kelantan', 'Pahang', 'Johor', 'Selangor',
   'Perak', 'Kedah', 'Perlis', 'Pulau Pinang', 'Negeri Sembilan',
   'Melaka', 'Sabah', 'Sarawak', 'W.P. Kuala Lumpur', 'W.P. Labuan', 'W.P. Putrajaya']
@@ -50,10 +49,13 @@ const inputCls = 'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm ' +
 
 // ─── Badge ────────────────────────────────────────────────────────────────────
 
+const KATEG_CLS = {
+  SR:   'bg-blue-100 text-blue-700',
+  SM:   'bg-green-100 text-green-700',
+  PPKI: 'bg-purple-100 text-purple-700',
+}
 const KategBadge = ({ k }) => {
-  const cls = k === 'SR' ? 'bg-blue-100 text-blue-700'
-    : k === 'SM' ? 'bg-green-100 text-green-700'
-    : 'bg-purple-100 text-purple-700'
+  const cls = KATEG_CLS[k] || 'bg-gray-100 text-gray-600'
   return <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${cls}`}>{k}</span>
 }
 
@@ -77,7 +79,7 @@ const FormField = ({ label, required, hint, children }) => (
 
 // ─── Modal Tambah / Edit ──────────────────────────────────────────────────────
 
-function SekolahModal({ initial, onClose, onSaved }) {
+function SekolahModal({ initial, onClose, onSaved, jenisList = KATEGORI_LIST_FALLBACK }) {
   const isEdit  = !!initial
   const [form,  setForm]  = useState(initial ?? EMPTY_FORM)
   const [busy,  setBusy]  = useState(false)
@@ -242,7 +244,7 @@ function SekolahModal({ initial, onClose, onSaved }) {
 
             <FormField label="Kategori" required>
               <select className={inputCls} value={form.kategori} onChange={e => set('kategori', e.target.value)}>
-                {KATEGORI_LIST.map(k => <option key={k} value={k}>{k}</option>)}
+                {jenisList.map(k => <option key={k} value={k}>{k}</option>)}
               </select>
             </FormField>
           </div>
@@ -337,14 +339,28 @@ function SekolahModal({ initial, onClose, onSaved }) {
             label={isEdit ? 'PIN Login (Tukar PIN)' : 'PIN Login (6 Digit)'}
             required={!isEdit}
             hint={isEdit ? 'Kosongkan jika tidak mahu tukar PIN.' : 'Pengurus pasukan guna PIN ini untuk log masuk.'}>
-            <PasswordInput
-              isPin
-              inputMode="numeric"
-              value={form.pin}
-              onChange={e => set('pin', e.target.value.replace(/\D/g, '').slice(0, 6))}
-              placeholder={isEdit ? '(kosong = kekal sama)' : '••••••'}
-              maxLength={6}
-            />
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <PasswordInput
+                  isPin
+                  inputMode="numeric"
+                  value={form.pin}
+                  onChange={e => set('pin', e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder={isEdit ? '(kosong = kekal sama)' : '••••••'}
+                  maxLength={6}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => set('pin', String(Math.floor(100000 + Math.random() * 900000)))}
+                className="shrink-0 px-3 py-2 text-[10px] font-bold border border-[#003399]/30 text-[#003399] bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors whitespace-nowrap"
+                title="Jana PIN rawak 6 digit">
+                <svg className="w-3.5 h-3.5 inline mr-1" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Jana PIN
+              </button>
+            </div>
           </FormField>
 
           <div className="flex gap-3 pt-2">
@@ -571,95 +587,6 @@ function BibBulkPanel({ list, onUpdated }) {
   )
 }
 
-// ─── Seed Panel ───────────────────────────────────────────────────────────────
-
-function SeedPanel({ onSeeded }) {
-  const [open,     setOpen]     = useState(false)
-  const [running,  setRunning]  = useState(false)
-  const [progress, setProgress] = useState(null)
-  const [result,   setResult]   = useState(null)
-
-  async function handleSeed() {
-    setRunning(true)
-    setResult(null)
-    const total = SEKOLAH_LIST.length
-    let ok = 0, skip = 0, fail = 0
-
-    // Tulis sekolah docs ke Firestore sahaja — tiada Firebase Auth per sekolah
-    for (let i = 0; i < SEKOLAH_LIST.length; i++) {
-      const s = SEKOLAH_LIST[i]
-      setProgress({ done: i, total, sekolah: s.namaSekolah })
-      try {
-        const existing = await getDoc(doc(db, 'sekolah', s.kodSekolah))
-        if (existing.exists()) { skip++; continue }
-        await setDoc(doc(db, 'sekolah', s.kodSekolah), { ...s, createdAt: serverTimestamp() })
-        ok++
-      } catch { fail++ }
-    }
-
-    setProgress({ done: total, total })
-    setResult({ ok, skip, fail })
-    setRunning(false)
-    onSeeded()
-  }
-
-  const pct = progress ? Math.round((progress.done / progress.total) * 100) : 0
-
-  return (
-    <div className="border border-dashed border-orange-300 rounded bg-orange-50">
-      <button onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-4 py-3 text-left">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] bg-orange-200 text-orange-800 font-bold px-2 py-0.5 rounded uppercase tracking-wider">
-            Dev
-          </span>
-          <span className="text-xs font-semibold text-orange-800">Seed 20 Sekolah Daerah Kemaman</span>
-        </div>
-        <svg className={`w-4 h-4 text-orange-500 transition-transform ${open ? 'rotate-180' : ''}`}
-          fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-
-      {open && (
-        <div className="px-4 pb-4 space-y-3">
-          <p className="text-[10px] text-orange-700">
-            Tulis 20 dokumen sekolah + 20 akaun Firebase Auth pengurus pasukan.
-            Sekiranya sudah wujud, akan diskip.
-          </p>
-
-          {running && progress && (
-            <div className="space-y-1">
-              <div className="flex justify-between text-[10px] text-orange-700">
-                <span>{progress.sekolah}</span>
-                <span>{progress.done}/{progress.total}</span>
-              </div>
-              <div className="h-2 bg-orange-200 rounded-full overflow-hidden">
-                <div className="h-full bg-orange-500 transition-all rounded-full" style={{ width: `${pct}%` }} />
-              </div>
-            </div>
-          )}
-
-          {result && (
-            <div className={`text-xs font-semibold px-3 py-2 rounded border ${
-              result.fail > 0 ? 'bg-red-50 border-red-200 text-red-700'
-                : 'bg-green-50 border-green-200 text-green-700'}`}>
-              {result.ok} baru · {result.skip} diskip · {result.fail} gagal
-            </div>
-          )}
-
-          {!result && (
-            <button onClick={handleSeed} disabled={running}
-              className="px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white text-xs font-bold rounded transition-colors">
-              {running ? `Menjalankan… (${pct}%)` : '▶ Jalankan Seed'}
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ─── SekolahSetup (Main) ──────────────────────────────────────────────────────
 
 export default function SekolahSetup() {
@@ -670,10 +597,12 @@ export default function SekolahSetup() {
   const [loading, setLoading] = useState(true)
   const [search,  setSearch]  = useState('')
   const [katFil,  setKatFil]  = useState('SEMUA')
+  const [jenisList, setJenisList] = useState(KATEGORI_LIST_FALLBACK)
 
   // Modals
-  const [modal,    setModal]    = useState(null)  // 'tambah' | 'edit' | 'resetPin' | 'toggleAktif'
+  const [modal,    setModal]    = useState(null)  // 'tambah' | 'edit' | 'resetPin' | 'toggleAktif' | 'padam'
   const [selected, setSelected] = useState(null)
+  const [deleting, setDeleting] = useState(false)
 
   const fileRef = useRef()
 
@@ -689,6 +618,15 @@ export default function SekolahSetup() {
 
   useEffect(() => { fetchList() }, [])
 
+  // Load jenis institusi dari kategori collection
+  useEffect(() => {
+    getDocs(query(collection(db, 'kategori'), orderBy('urutan')))
+      .then(snap => {
+        const jenis = [...new Set(snap.docs.map(d => d.data().jenisSekolah).filter(Boolean))]
+        if (jenis.length > 0) setJenisList(jenis)
+      }).catch(() => {})
+  }, [])
+
   // ── Toggle Aktif ──
   async function doToggleAktif() {
     if (!selected) return
@@ -697,6 +635,22 @@ export default function SekolahSetup() {
     })
     setModal(null)
     fetchList()
+  }
+
+  // ── Padam Sekolah ──
+  async function doPadam() {
+    if (!selected) return
+    setDeleting(true)
+    try {
+      await deleteDoc(doc(db, 'sekolah', selected.kodSekolah))
+      setModal(null)
+      setSelected(null)
+      fetchList()
+    } catch (e) {
+      alert('Gagal padam: ' + e.message)
+    } finally {
+      setDeleting(false)
+    }
   }
 
   // ── Import Excel ──
@@ -808,8 +762,8 @@ export default function SekolahSetup() {
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
-        <div className="flex gap-1">
-          {['SEMUA', 'SR', 'SM', 'PPKI'].map(k => (
+        <div className="flex flex-wrap gap-1">
+          {['SEMUA', ...jenisList].map(k => (
             <button key={k} onClick={() => setKatFil(k)}
               className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors ${
                 katFil === k
@@ -907,6 +861,10 @@ export default function SekolahSetup() {
                               }`}>
                               {s.isAktif ? 'Nyahaktif' : 'Aktifkan'}
                             </button>
+                            <button onClick={() => { setSelected(s); setModal('padam') }}
+                              className="px-2.5 py-1.5 text-[10px] font-semibold border border-red-300 rounded text-red-700 bg-red-50 hover:bg-red-100 transition-colors">
+                              Padam
+                            </button>
                           </>
                         )}
                       </div>
@@ -919,18 +877,15 @@ export default function SekolahSetup() {
         )}
       </div>
 
-      {/* Seed Panel — superadmin only */}
       {/* ── BIB Bulk Update ── */}
       {isSuperAdmin && <BibBulkPanel list={list} onUpdated={fetchList} />}
 
-      {isSuperAdmin && <SeedPanel onSeeded={fetchList} />}
-
       {/* Modals */}
       {modal === 'tambah' && (
-        <SekolahModal onClose={() => setModal(null)} onSaved={fetchList} />
+        <SekolahModal onClose={() => setModal(null)} onSaved={fetchList} jenisList={jenisList} />
       )}
       {modal === 'edit' && selected && (
-        <SekolahModal initial={selected} onClose={() => { setModal(null); setSelected(null) }} onSaved={fetchList} />
+        <SekolahModal initial={selected} onClose={() => { setModal(null); setSelected(null) }} onSaved={fetchList} jenisList={jenisList} />
       )}
       {modal === 'resetPin' && selected && (
         <ResetPinModal sekolah={selected} onClose={() => { setModal(null); setSelected(null) }} onSaved={fetchList} />
@@ -944,6 +899,36 @@ export default function SekolahSetup() {
           onYes={doToggleAktif}
           onNo={() => { setModal(null); setSelected(null) }}
         />
+      )}
+      {modal === 'padam' && selected && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-5 space-y-4">
+            <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto">
+              <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </div>
+            <div className="text-center">
+              <h3 className="text-sm font-bold text-gray-800 mb-1">Padam Sekolah?</h3>
+              <p className="text-xs text-gray-500">Rekod sekolah ini akan dipadam secara kekal.</p>
+              <p className="text-xs font-bold text-gray-800 mt-2">{selected.namaSekolah}</p>
+              <p className="text-[10px] font-mono text-gray-400">{selected.kodSekolah}</p>
+              <p className="text-[10px] text-red-600 mt-2 bg-red-50 border border-red-200 rounded px-2 py-1">
+                Nota: Data atlet yang berkaitan tidak turut dipadam.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => { setModal(null); setSelected(null) }}
+                className="flex-1 py-2.5 border border-gray-200 text-gray-600 text-xs font-semibold rounded-lg hover:bg-gray-50">
+                Batal
+              </button>
+              <button onClick={doPadam} disabled={deleting}
+                className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors">
+                {deleting ? 'Memadam…' : 'Ya, Padam'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

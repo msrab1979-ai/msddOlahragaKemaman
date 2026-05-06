@@ -93,11 +93,11 @@ function formatDayLabel(dateStr) {
 // ─── LupaPinModal ─────────────────────────────────────────────────────────────
 
 function LupaPinModal({ onClose }) {
-  const { sendPinReset } = useAuth()
-  const [email, setEmail] = useState('')
-  const [status, setStatus] = useState('')
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [kodSekolah, setKodSekolah] = useState('')
+  const [email,      setEmail]      = useState('')
+  const [pin,        setPin]        = useState(null)   // null = belum semak, string = pin dijumpai
+  const [error,      setError]      = useState('')
+  const [loading,    setLoading]    = useState(false)
 
   useEffect(() => {
     const fn = e => { if (e.key === 'Escape') onClose() }
@@ -108,13 +108,23 @@ function LupaPinModal({ onClose }) {
   async function handleSubmit(e) {
     e.preventDefault()
     setError('')
-    if (!email.trim()) return setError('Sila masukkan alamat e-mel.')
+    if (!kodSekolah.trim()) return setError('Sila masukkan Kod Sekolah.')
+    if (!email.trim())      return setError('Sila masukkan E-mel Sekolah.')
     setLoading(true)
     try {
-      await sendPinReset(email.trim())
-      setStatus('sent')
+      const snap = await getDoc(doc(db, 'sekolah', kodSekolah.trim().toUpperCase()))
+      if (!snap.exists()) {
+        setError('Kod Sekolah tidak dijumpai dalam sistem.')
+        return
+      }
+      const data = snap.data()
+      if ((data.email || '').toLowerCase().trim() !== email.toLowerCase().trim()) {
+        setError('E-mel tidak sepadan dengan rekod sekolah ini.')
+        return
+      }
+      setPin(data.pin || '—')
     } catch {
-      setError('E-mel tidak dijumpai atau ralat sistem.')
+      setError('Ralat sistem. Cuba sebentar lagi.')
     } finally {
       setLoading(false)
     }
@@ -133,26 +143,46 @@ function LupaPinModal({ onClose }) {
           </button>
         </div>
         <div className="p-5">
-          {status === 'sent' ? (
-            <div className="text-center py-4">
-              <p className="text-2xl mb-2">📧</p>
-              <p className="text-sm font-semibold text-gray-800">E-mel reset dihantar.</p>
-              <p className="text-xs text-gray-400 mt-1">Semak peti masuk anda.</p>
-              <button onClick={onClose} className="mt-4 w-full bg-[#003399] text-white font-bold py-2 rounded-lg text-xs">TUTUP</button>
+          {pin !== null ? (
+            <div className="text-center py-2 space-y-3">
+              <p className="text-3xl">🔑</p>
+              <p className="text-xs text-gray-500">PIN Sekolah anda:</p>
+              <p className="text-3xl font-black tracking-[0.3em] text-[#003399] font-mono bg-blue-50 rounded-xl py-4">
+                {pin}
+              </p>
+              <p className="text-[10px] text-gray-400">Simpan PIN ini. Gunakan untuk log masuk.</p>
+              <button onClick={onClose}
+                className="w-full bg-[#003399] text-white font-bold py-2 rounded-lg text-xs">
+                TUTUP
+              </button>
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-3">
-              <p className="text-xs text-gray-500">Masukkan e-mel yang didaftarkan.</p>
-              {error && <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{error}</p>}
+              <p className="text-xs text-gray-500">Masukkan Kod Sekolah dan E-mel untuk semak PIN.</p>
+              {error && (
+                <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{error}</p>
+              )}
               <div>
-                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">E-mel</label>
-                <input type="email" value={email} onChange={e => { setEmail(e.target.value); setError('') }}
-                  required autoFocus placeholder="contoh@email.com"
+                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
+                  Kod Sekolah
+                </label>
+                <input type="text" value={kodSekolah}
+                  onChange={e => { setKodSekolah(e.target.value.toUpperCase()); setError('') }}
+                  required autoFocus placeholder="cth: KMN-SR-001"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm font-mono tracking-wider focus:outline-none focus:ring-2 focus:ring-[#003399]/25 focus:border-[#003399] bg-gray-50" />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
+                  E-mel Sekolah
+                </label>
+                <input type="email" value={email}
+                  onChange={e => { setEmail(e.target.value); setError('') }}
+                  required placeholder="sk@moe.edu.my"
                   className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#003399]/25 focus:border-[#003399] bg-gray-50" />
               </div>
               <button type="submit" disabled={loading}
                 className="w-full bg-[#003399] hover:bg-[#002277] disabled:bg-gray-300 text-white font-bold py-2.5 rounded-lg text-xs tracking-widest transition-colors">
-                {loading ? 'MENGHANTAR…' : 'HANTAR PAUTAN RESET'}
+                {loading ? 'MENYEMAK…' : 'TUNJUK PIN'}
               </button>
             </form>
           )}
@@ -164,7 +194,7 @@ function LupaPinModal({ onClose }) {
 
 // ─── LoginForm ────────────────────────────────────────────────────────────────
 
-function LoginForm({ role, onCancel }) {
+function LoginForm({ role, onCancel, cfg }) {
   const { loginPencatat, loginPengurus } = useAuth()
   const navigate = useNavigate()
   const [kod, setKod] = useState('')
@@ -224,6 +254,8 @@ function LoginForm({ role, onCancel }) {
                 Lupa PIN?
               </button>
             </p>
+
+
           </div>
         </form>
       </div>
@@ -516,6 +548,7 @@ export default function Home() {
   // UI
   const [selected,    setSelected]    = useState(null)
   const [adminModal,  setAdminModal]  = useState(false)
+  const [printingPdf, setPrintingPdf] = useState(false)
 
   // Jadual
   const [jadualByDay,    setJadualByDay]    = useState({})
@@ -528,8 +561,9 @@ export default function Home() {
 
   // Tab Keputusan
   const [activeTab,      setActiveTab]      = useState('jadual')
-  const [filterKat,      setFilterKat]      = useState('semua')
-  const [filterJantina,  setFilterJantina]  = useState('semua')
+  const [filterKombo,    setFilterKombo]    = useState('semua') // 'semua' | 'L_A' | 'P_B' ...
+  const [kategoriMap,    setKategoriMap]    = useState({})      // kod → { umurHad, nama }
+  const [jenisMap,       setJenisMap]       = useState({})      // jenisSekolah → { warna, nama }
 
   // Medal Standing
   const [medalTally,          setMedalTally]          = useState([])
@@ -545,10 +579,29 @@ export default function Home() {
     if (user) navigate('/dashboard', { replace: true })
   }, [user, navigate])
 
-  // Load config + sekolah sekali sahaja
+  // Load config + sekolah + kategori sekali sahaja
   useEffect(() => {
     getDoc(doc(db, 'tetapan', 'home'))
       .then(s => { if (s.exists()) setCfg({ ...TETAPAN_DEFAULTS, ...s.data() }) })
+      .catch(() => {})
+    // Kategori collection — doc ID = kod (A, B, C, D, E, PPKI)
+    getDocs(collection(db, 'kategori'))
+      .then(snap => {
+        const map = {}
+        const jMap = {}
+        snap.forEach(d => {
+          const data = d.data()
+          map[d.id] = { umurHad: data.umurHad, nama: data.nama || d.id }
+          // Build jenisMap: jenisSekolah → { warna, nama }
+          if (data.jenisSekolah) {
+            if (!jMap[data.jenisSekolah]) {
+              jMap[data.jenisSekolah] = { warna: data.warna || '#6b7280', nama: data.jenisSekolah }
+            }
+          }
+        })
+        setKategoriMap(map)
+        setJenisMap(jMap)
+      })
       .catch(() => {})
     getDocs(collection(db, 'sekolah')).then(snap => {
       const map = {}
@@ -687,18 +740,14 @@ export default function Home() {
       const tallyMap = {}
       tallySnap.docs.forEach(d => { tallyMap[d.data().kodSekolah] = { id: d.id, ...d.data() } })
 
-      // 3. Load semua sekolah berdaftar dalam kejohanan (dari pendaftaran)
-      const pendSnap = await getDocs(collection(db, 'kejohanan', kejId, 'pendaftaran'))
+      // 3. Bina senarai sekolah dari collection('sekolah') terus — bukan pendaftaran
+      //    Sekolah aktif terus muncul dalam tally walaupun tiada atlet daftar lagi
       const sekolahSet = {}
-      pendSnap.docs.forEach(d => {
-        const p = d.data()
-        if (p.kodSekolah && !sekolahSet[p.kodSekolah]) {
-          const info = sklInfo[p.kodSekolah] || {}
-          sekolahSet[p.kodSekolah] = {
-            kodSekolah:  p.kodSekolah,
-            namaSekolah: info.namaSekolah || p.namaSekolah || p.kodSekolah,
-            jenisSekolah: info.jenisSekolah || 'Lain-lain',
-          }
+      Object.entries(sklInfo).forEach(([kod, info]) => {
+        sekolahSet[kod] = {
+          kodSekolah:   kod,
+          namaSekolah:  info.namaSekolah,
+          jenisSekolah: info.jenisSekolah,
         }
       })
 
@@ -788,6 +837,269 @@ export default function Home() {
   const isToday    = d => d === new Date().toISOString().slice(0, 10)
   const activeRole = ROLES.find(r => r.id === selected)
 
+  // ── Keputusan items (hoisted for print + display) ──────────────────────────
+  const _allJadualItems = jadualDays.flatMap(d => jadualByDay[d] || [])
+  const _kepAllItems = _allJadualItems
+    .filter(item => {
+      const s = item.acara.statusAcara
+      return s === 'rasmi' || s === 'tidak_rasmi'
+    })
+    .sort((a, b) => {
+      const sa = a.acara.statusAcara === 'rasmi' ? 0 : 1
+      const sb = b.acara.statusAcara === 'rasmi' ? 0 : 1
+      if (sa !== sb) return sa - sb
+      if (a.tarikhAcara !== b.tarikhAcara) return (a.tarikhAcara || '').localeCompare(b.tarikhAcara || '')
+      return (Number(a.acara.noAcara) || 0) - (Number(b.acara.noAcara) || 0)
+    })
+  const _kepFiltered = _kepAllItems.filter(item =>
+    filterKombo === 'semua' || `${item.acara.jantina}_${item.acara.kategoriKod}` === filterKombo
+  )
+
+  // ── PDF: Jadual ───────────────────────────────────────────────────────────
+  async function cetakJadualPDF() {
+    if (!jadualDays.length) return
+    setPrintingPdf(true)
+    try {
+      const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+        import('jspdf'),
+        import('jspdf-autotable'),
+      ])
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+      const namaKej = kejohanan?.namaKejohanan || 'Kejohanan Olahraga'
+      const tarikhKej = kejohanan
+        ? formatTarikh(kejohanan.tarikhMula, kejohanan.tarikhTamat)
+        : ''
+
+      // Title
+      doc.setFontSize(15)
+      doc.setFont(undefined, 'bold')
+      doc.setTextColor(0, 51, 153)
+      doc.text('JADUAL ACARA', 148, 14, { align: 'center' })
+      doc.setFontSize(10)
+      doc.setTextColor(30, 30, 30)
+      doc.text(namaKej.toUpperCase(), 148, 21, { align: 'center' })
+      if (tarikhKej) {
+        doc.setFontSize(8)
+        doc.setTextColor(120)
+        doc.text(tarikhKej, 148, 27, { align: 'center' })
+      }
+      doc.setFontSize(7)
+      doc.setTextColor(180)
+      doc.text(`Dicetak: ${new Date().toLocaleString('ms-MY')}`, 14, 202)
+      doc.setTextColor(0)
+
+      let startY = 32
+      let isFirst = true
+
+      for (const date of jadualDays) {
+        const items = jadualByDay[date] || []
+        if (items.length === 0) continue
+
+        if (!isFirst) {
+          doc.addPage()
+          startY = 14
+        }
+        isFirst = false
+
+        // Day header
+        autoTable(doc, {
+          startY,
+          head: [[{
+            content: formatDayLabel(date).toUpperCase() + `  (${items.length} acara)`,
+            colSpan: 7,
+            styles: { halign: 'left', fillColor: [0, 51, 153], textColor: 255, fontStyle: 'bold', fontSize: 10 },
+          }]],
+          body: [],
+          margin: { left: 14, right: 14 },
+          styles: { cellPadding: { top: 4, bottom: 4, left: 5, right: 5 } },
+          theme: 'plain',
+        })
+
+        autoTable(doc, {
+          startY: doc.lastAutoTable.finalY,
+          head: [['No', 'Masa', 'Nama Acara', 'Kelas', 'J', 'Peringkat', 'Lokasi']],
+          body: items.map(item => [
+            item.acara.noAcara || '—',
+            item.masaMula || '—',
+            item.acara.namaAcara || item.acara.namaAcaraPendek || '—',
+            item.acara.kategoriKod || '—',
+            item.acara.jantina || '—',
+            item.acara.peringkat === 'saringan' ? 'Saringan'
+              : item.acara.parentAcaraId ? 'Final'
+              : item.acara.peringkat === 'akhir' ? 'Terus Final' : '—',
+            item.lokasi || '—',
+          ]),
+          margin: { left: 14, right: 14 },
+          headStyles: { fillColor: [230, 236, 255], textColor: [0, 51, 153], fontStyle: 'bold', fontSize: 8.5 },
+          styles: { fontSize: 9, cellPadding: 2.5 },
+          alternateRowStyles: { fillColor: [248, 250, 255] },
+          columnStyles: {
+            0: { cellWidth: 12, halign: 'center' },
+            1: { cellWidth: 18, halign: 'center' },
+            2: { cellWidth: 'auto' },
+            3: { cellWidth: 14, halign: 'center' },
+            4: { cellWidth: 10, halign: 'center' },
+            5: { cellWidth: 27, halign: 'center' },
+            6: { cellWidth: 42 },
+          },
+        })
+      }
+
+      const safeName = namaKej.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase().slice(0, 30)
+      doc.save(`jadual-${safeName}.pdf`)
+    } catch (e) {
+      alert('Ralat menjana PDF: ' + e.message)
+    } finally {
+      setPrintingPdf(false)
+    }
+  }
+
+  // ── PDF: Keputusan ────────────────────────────────────────────────────────
+  async function cetakKeputusanPDF(items) {
+    if (!items.length) return
+    setPrintingPdf(true)
+    try {
+      // Load heats for any not yet in cache
+      const localCache = { ...heatCache }
+      const toFetch = items.filter(item => {
+        const k = item.acara.noAcara || item.acara.aceraId || item.acara.acaraId
+        return localCache[k] === undefined
+      })
+      if (toFetch.length > 0) {
+        const results = await Promise.all(toFetch.map(async item => {
+          const aceraKey = item.acara.noAcara || item.acara.aceraId || item.acara.acaraId
+          const kId = item.acara._kejId || kejohananId
+          if (!kId) return [aceraKey, []]
+          try {
+            const snap = await getDocs(collection(db, 'kejohanan', kId, 'acara', aceraKey, 'heat'))
+            const heats = snap.docs.map(d => ({ heatId: d.id, ...d.data() }))
+              .sort((a, b) => (a.noHeat ?? 0) - (b.noHeat ?? 0))
+            return [aceraKey, heats]
+          } catch { return [aceraKey, []] }
+        }))
+        results.forEach(([k, v]) => { localCache[k] = v })
+        setHeatCache(prev => ({ ...prev, ...localCache }))
+      }
+
+      const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+        import('jspdf'),
+        import('jspdf-autotable'),
+      ])
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const namaKej = kejohanan?.namaKejohanan || 'Kejohanan Olahraga'
+
+      // Title page header
+      doc.setFontSize(15)
+      doc.setFont(undefined, 'bold')
+      doc.setTextColor(0, 51, 153)
+      doc.text('KEPUTUSAN ACARA', 105, 14, { align: 'center' })
+      doc.setFontSize(10)
+      doc.setTextColor(30, 30, 30)
+      doc.text(namaKej.toUpperCase(), 105, 21, { align: 'center' })
+      doc.setFontSize(7)
+      doc.setTextColor(180)
+      doc.text(`Dicetak: ${new Date().toLocaleString('ms-MY')}`, 14, 27)
+      doc.setTextColor(0)
+
+      const FASA_FINAL = ['final', 'terus_final']
+      let isFirstAcara = true
+
+      for (const item of items) {
+        const aceraKey = item.acara.noAcara || item.acara.aceraId || item.acara.acaraId
+        const heats = localCache[aceraKey] || []
+        const isPadang = ['padang_lompat', 'padang_balin'].includes(item.acara.jenisAcara)
+        const isRelay  = item.acara.jenisAcara === 'relay'
+
+        const heatsWithResult = heats.filter(h =>
+          h.statusKeputusan === 'tidak_rasmi' || h.statusKeputusan === 'rasmi'
+        )
+        if (heatsWithResult.length === 0) continue
+
+        const finalHeats   = heatsWithResult.filter(h =>
+          FASA_FINAL.includes(h.fasa) || h.peringkat === 'final' || heats.length === 1
+        )
+        const displayHeats = finalHeats.length > 0 ? finalHeats : heatsWithResult
+        const isRasmi      = displayHeats.some(h => h.statusKeputusan === 'rasmi')
+
+        const allPeserta = []
+        displayHeats.forEach(heat => {
+          ;(heat.peserta || []).forEach(p => { allPeserta.push({ ...p }) })
+        })
+        allPeserta.sort((a, b) => {
+          const ar = a.kedudukan || a.rankDalamHeat
+          const br = b.kedudukan || b.rankDalamHeat
+          if (ar && br) return ar - br
+          if (ar) return -1
+          if (br) return 1
+          const av = Number(a.keputusan) || 0, bv = Number(b.keputusan) || 0
+          if (!av && !bv) return 0
+          if (!av) return 1
+          if (!bv) return -1
+          return isPadang ? bv - av : av - bv
+        })
+        if (allPeserta.length === 0) continue
+
+        const startY = isFirstAcara ? 32 : undefined
+        isFirstAcara = false
+
+        const jantinaLabel = item.acara.jantina === 'L' ? 'Lelaki' : 'Perempuan'
+        const statusLabel  = isRasmi ? '✓ RASMI' : '⏳ SEMENTARA'
+        const acaraHdr = `${item.acara.noAcara || ''} | ${item.acara.namaAcara || '—'}  —  Kat ${item.acara.kategoriKod || '?'} ${jantinaLabel}  |  ${statusLabel}`
+
+        const colLabel = isPadang ? 'Jarak' : 'Masa'
+        const headCols = isRelay
+          ? ['#', 'Pasukan / Sekolah', colLabel]
+          : ['#', 'BIB', 'Nama Atlet', 'Sekolah', colLabel]
+
+        const body = allPeserta.map((p, idx) => {
+          const kddk  = p.kedudukan || p.rankDalamHeat || (idx + 1)
+          const namaSkl = (p.kodSekolah && (sekolahMap[p.kodSekolah] || p.kodSekolah)) || p.kodSekolah || '—'
+          const hasil = isPadang ? fmtJarak(p.keputusan) : fmtMasa(p.keputusan)
+          const flagged = ['DNS', 'DNF', 'DQ'].includes(p.status)
+          if (isRelay) return [kddk, namaSkl, flagged ? p.status : (hasil || '—')]
+          return [kddk, p.noBib || '—', p.namaAtlet || '—', namaSkl, flagged ? p.status : (hasil || '—')]
+        })
+
+        const colCount = isRelay ? 3 : 5
+        autoTable(doc, {
+          startY,
+          head: [
+            [{ content: acaraHdr, colSpan: colCount, styles: {
+              halign: 'left',
+              fillColor: isRasmi ? [0, 100, 60] : [160, 100, 0],
+              textColor: 255,
+              fontStyle: 'bold',
+              fontSize: 8.5,
+            }}],
+            headCols,
+          ],
+          body,
+          margin: { left: 14, right: 14 },
+          headStyles: { fillColor: [230, 236, 255], textColor: [0, 51, 153], fontStyle: 'bold', fontSize: 8 },
+          styles: { fontSize: 9, cellPadding: 2.5 },
+          alternateRowStyles: { fillColor: [248, 250, 255] },
+          columnStyles: {
+            0: { cellWidth: 10, halign: 'center' },
+            ...(isRelay ? {} : { 1: { cellWidth: 18, halign: 'center' } }),
+          },
+        })
+      }
+
+      if (isFirstAcara) {
+        // No acara had results — nothing generated
+        alert('Tiada keputusan untuk dicetak.')
+        return
+      }
+
+      const safeName = namaKej.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase().slice(0, 30)
+      doc.save(`keputusan-${safeName}.pdf`)
+    } catch (e) {
+      alert('Ralat menjana PDF: ' + e.message)
+    } finally {
+      setPrintingPdf(false)
+    }
+  }
+
   function toggleDay(date) {
     setExpandedDays(prev => {
       const next = new Set(prev)
@@ -801,30 +1113,41 @@ export default function Home() {
     <div className="min-h-screen bg-gray-50 flex flex-col">
 
       {/* ── Header ── */}
-      <header className="relative" style={{ backgroundColor: cfg.warnaTema }}>
-        <div className="max-w-4xl mx-auto px-5 py-4 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center shrink-0 overflow-hidden">
+      <header style={{ backgroundColor: cfg.warnaTema }}>
+        <div className="max-w-4xl mx-auto px-4 py-3 flex items-center gap-3">
+          {/* Logo kiri */}
+          <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center shrink-0 overflow-hidden shadow-sm">
             {cfg.logoKiriBase64
               ? <img src={cfg.logoKiriBase64} className="w-full h-full object-contain" alt="logo" />
               : <span className="font-black text-[9px]" style={{ color: cfg.warnaTema }}>{cfg.logoKiriTeks}</span>}
           </div>
-          <div className="flex-1 text-center">
-            <p className="text-[9px] text-white/40 uppercase tracking-[0.2em]">{cfg.namaAgensi}</p>
-            <p className="text-sm font-black text-white tracking-[0.15em] mt-0.5">{cfg.namaSistem}</p>
+
+          {/* Tajuk tengah */}
+          <div className="flex-1 text-center min-w-0">
+            <p className="text-[9px] text-white/40 uppercase tracking-[0.2em] truncate">{cfg.namaAgensi}</p>
+            <p className="text-sm font-black text-white tracking-[0.12em] mt-0.5 truncate">{cfg.namaSistem}</p>
           </div>
-          <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center shrink-0 overflow-hidden">
+
+          {/* Logo kanan */}
+          <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center shrink-0 overflow-hidden shadow-sm">
             {cfg.logoKananBase64
               ? <img src={cfg.logoKananBase64} className="w-full h-full object-contain" alt="logo" />
               : <span className="font-black text-[9px]" style={{ color: cfg.warnaTema }}>{cfg.logoKananTeks}</span>}
           </div>
+
+          {/* Admin — gear icon, dalam flex row supaya tidak tertindih logo pada mobile */}
+          <button
+            onClick={() => setAdminModal(true)}
+            title="Pentadbir"
+            aria-label="Log masuk pentadbir"
+            className="w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white/35 hover:text-white/80 transition-all duration-200 shrink-0 active:scale-95"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.6} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </button>
         </div>
-        <button onClick={() => setAdminModal(true)} title="Pentadbir"
-          className="absolute top-2 right-2 p-1.5 text-white/15 hover:text-white/50 transition-colors rounded">
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-        </button>
       </header>
 
       {/* Jalur */}
@@ -914,7 +1237,7 @@ export default function Home() {
               )
             })}
           </div>
-          {activeRole && <LoginForm role={activeRole} onCancel={() => setSelected(null)} />}
+          {activeRole && <LoginForm role={activeRole} onCancel={() => setSelected(null)} cfg={cfg} />}
         </div>
       </section>
 
@@ -931,13 +1254,63 @@ export default function Home() {
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Program Kejohanan</p>
                 <h2 className="text-base font-black text-gray-800 leading-tight">Jadual &amp; Keputusan</h2>
               </div>
-              <button onClick={loadJadualData} disabled={jadualLoading}
-                className="p-2 text-gray-400 hover:text-[#003399] hover:bg-white rounded-xl transition-all disabled:opacity-50"
-                title="Muat semula">
-                <svg className={`w-4 h-4 ${jadualLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-              </button>
+              <div className="flex items-center gap-2">
+                {/* Cetak PDF — Jadual */}
+                {activeTab === 'jadual' && jadualDays.length > 0 && !jadualLoading && (
+                  <button onClick={cetakJadualPDF} disabled={printingPdf}
+                    className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-bold text-[#003399] bg-white border border-[#003399]/25 rounded-xl hover:bg-blue-50 transition-all disabled:opacity-50 shadow-sm"
+                    title="Cetak Jadual sebagai PDF">
+                    {printingPdf ? (
+                      <>
+                        <svg className="w-3.5 h-3.5 animate-spin" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        Menjana…
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                        </svg>
+                        Cetak PDF
+                      </>
+                    )}
+                  </button>
+                )}
+                {/* Cetak PDF — Keputusan */}
+                {activeTab === 'keputusan' && _kepFiltered.length > 0 && !jadualLoading && (
+                  <button onClick={() => cetakKeputusanPDF(_kepFiltered)} disabled={printingPdf}
+                    className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-bold text-[#003399] bg-white border border-[#003399]/25 rounded-xl hover:bg-blue-50 transition-all disabled:opacity-50 shadow-sm"
+                    title="Cetak Keputusan sebagai PDF">
+                    {printingPdf ? (
+                      <>
+                        <svg className="w-3.5 h-3.5 animate-spin" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        Menjana…
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                        </svg>
+                        Cetak PDF
+                        {filterKombo !== 'semua' && (
+                          <span className="opacity-60">({_kepFiltered.length})</span>
+                        )}
+                      </>
+                    )}
+                  </button>
+                )}
+                {/* Refresh */}
+                <button onClick={loadJadualData} disabled={jadualLoading}
+                  className="p-2 text-gray-400 hover:text-[#003399] hover:bg-white rounded-xl transition-all disabled:opacity-50"
+                  title="Muat semula">
+                  <svg className={`w-4 h-4 ${jadualLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </button>
+              </div>
             </div>
 
             {/* Tab Pills */}
@@ -1058,56 +1431,62 @@ export default function Home() {
 
             {/* ── Tab: Keputusan ── */}
             {activeTab === 'keputusan' && (() => {
-              const allItems = jadualDays.flatMap(d => jadualByDay[d] || [])
-              const keputusanItems = allItems
-                .filter(item => {
-                  const s = item.acara.statusAcara
-                  return s === 'rasmi' || s === 'tidak_rasmi'
-                })
-                .sort((a, b) => {
-                  // Rasmi dulu, kemudian tidak_rasmi
-                  const sa = a.acara.statusAcara === 'rasmi' ? 0 : 1
-                  const sb = b.acara.statusAcara === 'rasmi' ? 0 : 1
-                  if (sa !== sb) return sa - sb
-                  // Kemudian ikut tarikh + noAcara
-                  if (a.tarikhAcara !== b.tarikhAcara) return (a.tarikhAcara || '').localeCompare(b.tarikhAcara || '')
-                  return (Number(a.acara.noAcara) || 0) - (Number(b.acara.noAcara) || 0)
-                })
+              // Use hoisted _kepAllItems and _kepFiltered (computed before return)
+              const keputusanItems = _kepAllItems
+              const filtered = _kepFiltered
 
-              const katList = [...new Set(keputusanItems.map(i => i.acara.kategoriKod).filter(Boolean))].sort()
+              // ── Bina senarai filter kombo (jantina+kategori) dari data sebenar ──
+              function komboKey(j, k) { return `${j}_${k}` }
+              function komboLabel(j, k) {
+                if (k === 'PPKI') return `PPKI-${j}`
+                const umur = kategoriMap[k]?.umurHad
+                return umur ? `${j}${umur}` : `${j}-${k}`
+              }
 
-              const filtered = keputusanItems
-                .filter(item => filterKat === 'semua' || item.acara.kategoriKod === filterKat)
-                .filter(item => filterJantina === 'semua' || item.acara.jantina === filterJantina)
+              const seenKombo = new Set()
+              keputusanItems.forEach(item => {
+                const j = item.acara.jantina, k = item.acara.kategoriKod
+                if (j && k) seenKombo.add(komboKey(j, k))
+              })
+
+              const komboList = [...seenKombo].sort((a, b) => {
+                const [ja, ka] = a.split('_')
+                const [jb, kb] = b.split('_')
+                if (ka === 'PPKI' && kb !== 'PPKI') return 1
+                if (kb === 'PPKI' && ka !== 'PPKI') return -1
+                const ua = kategoriMap[ka]?.umurHad ?? 99
+                const ub = kategoriMap[kb]?.umurHad ?? 99
+                if (ua !== ub) return ua - ub
+                return ja.localeCompare(jb)
+              })
+
+              function komboCls(key, active) {
+                const j = key.split('_')[0]
+                const k = key.split('_')[1]
+                if (!active) return 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+                if (k === 'PPKI') return 'bg-purple-600 text-white border-purple-600'
+                if (j === 'L')    return 'bg-blue-600 text-white border-blue-600'
+                return 'bg-rose-500 text-white border-rose-500'
+              }
 
               return (
                 <div>
-                  {/* Filter Kategori */}
-                  <div className="flex flex-wrap gap-1.5 mb-2">
-                    {['semua', ...katList].map(k => (
-                      <button key={k} onClick={() => setFilterKat(k)}
-                        className={`px-2.5 py-1 text-[10px] font-bold rounded-lg border transition-colors ${
-                          filterKat === k
-                            ? 'bg-[#003399] text-white border-[#003399]'
-                            : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
-                        }`}>
-                        {k === 'semua' ? 'Semua Kat' : `Kat ${k}`}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Filter Jantina */}
-                  <div className="flex gap-1.5 mb-4">
-                    {[{v:'semua',l:'L + P'},{v:'L',l:'Lelaki'},{v:'P',l:'Perempuan'}].map(o => (
-                      <button key={o.v} onClick={() => setFilterJantina(o.v)}
-                        className={`px-2.5 py-1 text-[10px] font-bold rounded-lg border transition-colors ${
-                          filterJantina === o.v
-                            ? o.v === 'L' ? 'bg-blue-600 text-white border-blue-600'
-                            : o.v === 'P' ? 'bg-pink-500 text-white border-pink-500'
-                            : 'bg-gray-700 text-white border-gray-700'
-                            : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
-                        }`}>
-                        {o.l}
+                  {/* Filter Kombo — 1 baris, bergantian L-P */}
+                  <div className="flex flex-wrap gap-1.5 mb-4">
+                    <button
+                      onClick={() => setFilterKombo('semua')}
+                      className={`px-3 py-1 text-[10px] font-bold rounded-lg border transition-colors ${
+                        filterKombo === 'semua'
+                          ? 'bg-gray-700 text-white border-gray-700'
+                          : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+                      }`}>
+                      Semua
+                    </button>
+                    {komboList.map(key => (
+                      <button key={key}
+                        onClick={() => setFilterKombo(prev => prev === key ? 'semua' : key)}
+                        className={`px-3 py-1 text-[10px] font-bold rounded-lg border transition-colors ${komboCls(key, filterKombo === key)}`}>
+                        {komboLabel(...key.split('_'))}
                       </button>
                     ))}
                   </div>
@@ -1197,12 +1576,11 @@ export default function Home() {
         const kdMax   = cfg.medalHomeKedudukan ?? 3
         const isPisah = (cfg.medalHomeGroupJenis ?? 'pisah') === 'pisah'
 
-        const PREFERRED_ORDER = ['SR', 'SM', 'PPKI']
-        const JENIS_LABEL = { SR: 'Sekolah Rendah', SM: 'Sekolah Menengah', PPKI: 'Pendidikan Khas (PPKI)' }
-        const JENIS_HDR   = {
-          SR:   { open: 'bg-blue-600',   closed: 'hover:bg-blue-50',   dot: 'bg-blue-600',   txt: 'text-blue-700',   badge: 'bg-blue-100 text-blue-700' },
-          SM:   { open: 'bg-green-600',  closed: 'hover:bg-green-50',  dot: 'bg-green-600',  txt: 'text-green-700',  badge: 'bg-green-100 text-green-700' },
-          PPKI: { open: 'bg-purple-600', closed: 'hover:bg-purple-50', dot: 'bg-purple-600', txt: 'text-purple-700', badge: 'bg-purple-100 text-purple-700' },
+        // Dinamik — susun ikut urutan dari jenisMap, jenis baru ke belakang
+        const allJenisInMap = Object.keys(jenisMap)
+        const getJenisHdr = (jenis) => {
+          const warna = jenisMap[jenis]?.warna || '#6b7280'
+          return { open: '', closed: '', warna }
         }
         const RANK_STYLE = {
           1: { row: 'bg-yellow-50/60 border-l-4 border-l-yellow-400', badge: 'bg-yellow-400 text-white' },
@@ -1229,10 +1607,10 @@ export default function Home() {
           })
         }
 
-        // Bina kumpulan dinamik
+        // Bina kumpulan dinamik — susun ikut urutan jenisMap, yang tiada dalam map ke belakang
         const allJenis = [...new Set(medalTally.map(r => r.jenisSekolah || 'Lain-lain'))]
         const jenisKeys = isPisah
-          ? [...PREFERRED_ORDER.filter(j => allJenis.includes(j)), ...allJenis.filter(j => !PREFERRED_ORDER.includes(j)).sort()]
+          ? [...allJenisInMap.filter(j => allJenis.includes(j)), ...allJenis.filter(j => !allJenisInMap.includes(j)).sort()]
           : ['Semua']
         const groups = isPisah
           ? jenisKeys.reduce((acc, j) => { acc[j] = sortAndRank(medalTally.filter(r => (r.jenisSekolah||'Lain-lain') === j)); return acc }, {})
@@ -1274,8 +1652,8 @@ export default function Home() {
                   {jenisKeys.map(jenis => {
                     const rows = groups[jenis] || []
                     if (rows.length === 0) return null
-                    const hdr      = JENIS_HDR[jenis] || { open: 'bg-gray-600', closed: 'hover:bg-gray-50', dot: 'bg-gray-500', txt: 'text-gray-700', badge: 'bg-gray-100 text-gray-600' }
-                    const label    = isPisah ? (JENIS_LABEL[jenis] || jenis) : 'Kedudukan Pingat'
+                    const hdr      = getJenisHdr(jenis)
+                    const label    = isPisah ? (jenisMap[jenis]?.nama || jenis) : 'Kedudukan Pingat'
                     const isOpen   = expandedMedalGroups.has(jenis)
                     const hasAnyMedal = rows.some(r => (r.emas||0) + (r.perak||0) + (r.gangsa||0) > 0)
                     const top3     = rows.filter(r => r.rank <= 3)
@@ -1290,14 +1668,13 @@ export default function Home() {
                             else next.add(jenis)
                             return next
                           })}
-                          className={`w-full flex items-center justify-between px-4 py-3 transition-colors ${
-                            isOpen ? hdr.open : 'hover:bg-gray-50'
-                          }`}
+                          className="w-full flex items-center justify-between px-4 py-3 transition-colors hover:opacity-90"
+                          style={isOpen ? { backgroundColor: hdr.warna } : {}}
                         >
                           <div className="flex items-center gap-2.5">
-                            {!isOpen && <span className={`w-2 h-2 rounded-full shrink-0 ${hdr.dot}`} />}
+                            {!isOpen && <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: hdr.warna }} />}
                             <div className="text-left">
-                              <p className={`text-xs font-black ${isOpen ? 'text-white' : hdr.txt}`}>{label}</p>
+                              <p className="text-xs font-black" style={{ color: isOpen ? '#fff' : hdr.warna }}>{label}</p>
                               {!isOpen && (
                                 <p className="text-[9px] text-gray-400 mt-0.5">
                                   {rows.length} sekolah
