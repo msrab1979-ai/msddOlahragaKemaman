@@ -4,6 +4,8 @@
  * Paparan & pengurusan rekod daerah/negeri/kebangsaan per acara.
  * Pengurus Teknik boleh:
  *   - Tambah rekod awal (seed)
+ *   - Import rekod dari Excel/CSV (template disediakan)
+ *   - Cetak rekod semasa ke PDF
  *   - Sahkan / Tolak tuntutan rekod baru dari KeputusanRasmi
  *   - Edit & padam rekod (dengan audit ke rekod_sejarah)
  *
@@ -14,10 +16,13 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   collection, getDocs, doc, setDoc, updateDoc, deleteDoc,
-  query, orderBy, where, serverTimestamp, getDoc,
+  query, orderBy, where, serverTimestamp, getDoc, writeBatch,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
+import * as XLSX from 'xlsx'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -26,6 +31,8 @@ const PERINGKAT_META = {
   N: { label: 'Negeri',      cls: 'bg-indigo-100 text-indigo-800 border-indigo-300' },
   K: { label: 'Kebangsaan',  cls: 'bg-red-100 text-red-800 border-red-300' },
 }
+
+const PERINGKAT_LABEL = { D: 'DAERAH', N: 'NEGERI', K: 'KEBANGSAAN' }
 
 const STATUS_META = {
   aktif:    { label: 'Aktif',    cls: 'bg-green-100 text-green-700' },
@@ -66,6 +73,553 @@ const EMPTY_FORM = {
   windSpeed: '', isWindLegal: true, jenisRekod: 'elektronik',
   tarikhRekod: new Date().toISOString().split('T')[0],
   catatanKhas: '',
+}
+
+// ─── Import: validate satu baris ─────────────────────────────────────────────
+
+function validateImportRow(r) {
+  const errors = []
+  const warnings = []
+
+  const na = r.namaAcara?.toString().trim()
+  const jt = r.jantina?.toString().trim()
+  const kk = r.kategoriKod?.toString().trim()
+  const pp = r.peringkat?.toString().trim()
+  const pr = r.prestasi
+  const un = r.unit?.toString().trim()
+
+  if (!na)                          errors.push('namaAcara kosong')
+  if (!['L','P'].includes(jt))      errors.push('jantina mesti L atau P')
+  if (!kk)                          errors.push('kategoriKod kosong')
+  if (!['D','N','K'].includes(pp))  errors.push('peringkat mesti D / N / K')
+  if (!pr || isNaN(Number(pr)) || Number(pr) <= 0) errors.push('prestasi tidak sah')
+  if (!['s','m'].includes(un))      errors.push('unit mesti s atau m')
+
+  if (errors.length === 0) {
+    if (pp === 'D' && !r.namaSekolah?.toString().trim()) warnings.push('namaSekolah kosong (Daerah)')
+    if (pp === 'N' && !r.namaDaerah?.toString().trim())  warnings.push('namaDaerah kosong (Negeri)')
+    if (pp === 'K' && !r.namaNegeri?.toString().trim())  warnings.push('namaNegeri kosong (Kebangsaan)')
+  }
+
+  return {
+    errors,
+    warnings,
+    status: errors.length > 0 ? 'error' : warnings.length > 0 ? 'warn' : 'ok',
+  }
+}
+
+// ─── Template download ────────────────────────────────────────────────────────
+
+function downloadTemplate(acaraList) {
+  const wb = XLSX.utils.book_new()
+
+  // Sheet 1: REKOD — headers + 3 contoh
+  const headers = [
+    'namaAcara','jantina','kategoriKod','peringkat',
+    'namaAtlet','noKP','namaSekolah','namaDaerah','namaNegeri',
+    'prestasi','unit','windSpeed','isWindLegal','jenisRekod','tarikhRekod','catatanKhas',
+  ]
+  const examples = [
+    ['100M','L','C','D','Ahmad bin Ali','050112-11-1234','SK Sultan Ismail','','',12.45,'s',1.8,true,'elektronik','2025-04-12',''],
+    ['Lompat Jauh','P','B','N','Siti binti Abu','','','Kemaman','',4.85,'m',0.5,true,'elektronik','2024-08-20',''],
+    ['400M','L','A','K','','','','','Terengganu',52.30,'s','','','manual','2023-11-05','Rekod lama'],
+  ]
+  const ws1 = XLSX.utils.aoa_to_sheet([headers, ...examples])
+  // Set column widths
+  ws1['!cols'] = [
+    {wch:18},{wch:8},{wch:12},{wch:10},
+    {wch:22},{wch:16},{wch:24},{wch:16},{wch:16},
+    {wch:10},{wch:6},{wch:10},{wch:12},{wch:12},{wch:14},{wch:20},
+  ]
+  XLSX.utils.book_append_sheet(wb, ws1, 'REKOD')
+
+  // Sheet 2: RUJUKAN — panduan nilai sah
+  const rujukan = [
+    ['KOLUM','NILAI SAH','NOTA'],
+    ['jantina','L, P','L = Lelaki, P = Perempuan'],
+    ['peringkat','D, N, K','D = Daerah, N = Negeri, K = Kebangsaan'],
+    ['unit','s, m','s = masa (saat), m = jarak (meter)'],
+    ['jenisRekod','elektronik, manual',''],
+    ['isWindLegal','TRUE, FALSE','Angin ≤ 2.0 m/s = TRUE'],
+    ['tarikhRekod','YYYY-MM-DD','Contoh: 2025-04-12'],
+    ['prestasi','Nombor positif','Masa dalam saat (12.45), Jarak dalam meter (5.80). Masa >1 min dalam saat (800m = 125.32)'],
+    ['windSpeed','Nombor atau kosong','Positif atau negatif. Cth: 1.8 atau -0.5'],
+    ['','',''],
+    ['PERINGKAT','KOLUM LOKASI WAJIB',''],
+    ['D (Daerah)','namaSekolah',''],
+    ['N (Negeri)','namaDaerah',''],
+    ['K (Kebangsaan)','namaNegeri',''],
+    ['','',''],
+    ['NOTA PENTING','',''],
+    ['Kolum wajib: namaAcara, jantina, kategoriKod, peringkat, prestasi, unit','',''],
+    ['Kolum lain: boleh kosong (akan guna nilai default)','',''],
+  ]
+  const ws2 = XLSX.utils.aoa_to_sheet(rujukan)
+  ws2['!cols'] = [{wch:20},{wch:20},{wch:60}]
+  XLSX.utils.book_append_sheet(wb, ws2, 'RUJUKAN')
+
+  // Sheet 3: CONTOH_ACARA — senarai acara unik dari sistem
+  const acaraRows = [...new Set(
+    acaraList.map(a => `${a.namaAcara}|||${a.kategoriKod}|||${a.jantina}`)
+  )]
+    .map(s => { const [n,k,j] = s.split('|||'); return [n, k, j] })
+    .sort((a, b) => a[1].localeCompare(b[1]) || a[0].localeCompare(b[0]))
+
+  const ws3 = XLSX.utils.aoa_to_sheet([
+    ['namaAcara (SALIN TEPAT)', 'kategoriKod', 'jantina'],
+    ...acaraRows,
+  ])
+  ws3['!cols'] = [{wch:24},{wch:14},{wch:10}]
+  XLSX.utils.book_append_sheet(wb, ws3, 'CONTOH_ACARA')
+
+  XLSX.writeFile(wb, 'template_rekod_olahraga.xlsx')
+}
+
+// ─── Cetak Rekod PDF ──────────────────────────────────────────────────────────
+
+function cetakRekodPDF(rekodList, kategoriList, selectedPeringkat) {
+  const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+  const pageW = pdf.internal.pageSize.width
+  const pageH = pdf.internal.pageSize.height
+  const katMap = Object.fromEntries(kategoriList.map(k => [k.kod, k]))
+  const today  = new Date().toLocaleDateString('ms-MY', { day:'2-digit', month:'2-digit', year:'numeric' })
+
+  let isFirst = true
+
+  selectedPeringkat.forEach(prg => {
+    const filtered = rekodList.filter(r => r.peringkat === prg)
+    if (filtered.length === 0) return
+
+    if (!isFirst) pdf.addPage()
+    isFirst = false
+
+    // Header
+    pdf.setFillColor(0, 51, 153)
+    pdf.rect(0, 0, pageW, 30, 'F')
+    pdf.setTextColor(255, 255, 255)
+    pdf.setFontSize(13)
+    pdf.setFont('helvetica', 'bold')
+    pdf.text('REKOD OLAHRAGA MSSD KEMAMAN', pageW / 2, 11, { align: 'center' })
+    pdf.setFontSize(9)
+    pdf.setFont('helvetica', 'normal')
+    pdf.text(`Peringkat: ${PERINGKAT_LABEL[prg]}`, pageW / 2, 19, { align: 'center' })
+    pdf.text(`Tarikh Cetak: ${today}`, pageW / 2, 25, { align: 'center' })
+    pdf.setTextColor(0, 0, 0)
+
+    // Group by kategoriKod
+    const grouped = filtered.reduce((acc, r) => {
+      const k = r.kategoriKod || 'Lain-lain'
+      if (!acc[k]) acc[k] = []
+      acc[k].push(r)
+      return acc
+    }, {})
+
+    const groupKeys = Object.keys(grouped).sort((a, b) => {
+      const au = katMap[a]?.urutan ?? 999
+      const bu = katMap[b]?.urutan ?? 999
+      return au !== bu ? au - bu : a.localeCompare(b)
+    })
+
+    const lokasiHeader = prg === 'D' ? 'Sekolah' : prg === 'N' ? 'Daerah' : 'Negeri'
+    const lokasiField  = prg === 'D' ? 'namaSekolah' : prg === 'N' ? 'namaDaerah' : 'namaNegeri'
+
+    let startY = 34
+
+    groupKeys.forEach(katKod => {
+      const kat  = katMap[katKod]
+      const rows = grouped[katKod]
+        .sort((a, b) => a.namaAcara.localeCompare(b.namaAcara) || a.jantina.localeCompare(b.jantina))
+        .map(r => [
+          r.namaAcara,
+          r.jantina,
+          r.namaAtlet || '—',
+          r[lokasiField] || '—',
+          formatPrestasi(r.prestasi, r.unit) + (r.jenisRekod === 'manual' ? ' *' : ''),
+          r.windSpeed != null
+            ? `${r.windSpeed >= 0 ? '+' : ''}${Number(r.windSpeed).toFixed(1)}`
+            : '—',
+          r.tarikhRekod || '—',
+        ])
+
+      autoTable(pdf, {
+        startY,
+        head: [
+          [{ content: `${kat?.nama || katKod}  (${katKod})`, colSpan: 7, styles: { fillColor: [0,51,153], textColor:[255,255,255], fontStyle:'bold', fontSize:8 } }],
+          ['Acara','Jan.','Atlet', lokasiHeader,'Prestasi','Angin','Tarikh'],
+        ],
+        body: rows,
+        styles:     { fontSize: 7, cellPadding: 1.8 },
+        headStyles: { fillColor: [80,80,80], textColor:[255,255,255], fontSize:7, fontStyle:'bold' },
+        alternateRowStyles: { fillColor: [248,249,252] },
+        columnStyles: {
+          0: { cellWidth: 36 },
+          1: { cellWidth: 10, halign: 'center' },
+          2: { cellWidth: 48 },
+          3: { cellWidth: 48 },
+          4: { cellWidth: 22, halign: 'right', fontStyle: 'bold' },
+          5: { cellWidth: 14, halign: 'center' },
+          6: { cellWidth: 22, halign: 'center' },
+        },
+        margin: { left: 10, right: 10 },
+        theme: 'grid',
+      })
+
+      startY = pdf.lastAutoTable.finalY + 5
+    })
+
+    // Footer
+    pdf.setFontSize(6)
+    pdf.setTextColor(150)
+    pdf.text('* Rekod manual   |   Angin > 2.0 m/s tidak layak sebagai rekod rasmi (WA Rule)', 10, pageH - 6)
+    pdf.text(`Sistem KOAM — mssdkemaman-olahraga.web.app`, pageW - 10, pageH - 6, { align: 'right' })
+    pdf.setTextColor(0)
+  })
+
+  const label = selectedPeringkat.map(p => PERINGKAT_LABEL[p]).join('_')
+  pdf.save(`Rekod_Olahraga_${label}_${new Date().toISOString().slice(0,10)}.pdf`)
+}
+
+// ─── Modal: Import Rekod ──────────────────────────────────────────────────────
+
+function ImportRekodModal({ onClose, onDone }) {
+  const [step,   setStep]   = useState('idle')   // idle | preview | importing | done
+  const [rows,   setRows]   = useState([])
+  const [result, setResult] = useState(null)
+  const [err,    setErr]    = useState('')
+
+  async function handleFile(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    setErr('')
+    try {
+      const buffer = await file.arrayBuffer()
+      const wb  = XLSX.read(buffer, { type: 'array' })
+      const ws  = wb.Sheets[wb.SheetNames[0]]
+      const raw = XLSX.utils.sheet_to_json(ws, { defval: '' })
+      if (raw.length === 0) { setErr('Fail kosong atau format salah.'); return }
+
+      const parsed = raw.map((r, i) => ({ data: r, idx: i + 2, ...validateImportRow(r) }))
+      setRows(parsed)
+      setStep('preview')
+    } catch (ex) {
+      setErr('Gagal baca fail: ' + ex.message)
+    }
+  }
+
+  async function handleImport(includeWarns) {
+    const toImport = rows.filter(r => r.status === 'ok' || (includeWarns && r.status === 'warn'))
+    if (toImport.length === 0) { setErr('Tiada rekod untuk diimport.'); return }
+    setStep('importing')
+
+    let success = 0, failed = 0
+    const CHUNK = 500
+
+    try {
+      for (let i = 0; i < toImport.length; i += CHUNK) {
+        const chunk = toImport.slice(i, i + CHUNK)
+        const batch = writeBatch(db)
+
+        chunk.forEach(({ data: r }) => {
+          const key = rekodKey(
+            r.namaAcara.toString().trim(),
+            r.jantina.toString().trim(),
+            r.kategoriKod.toString().trim(),
+            r.peringkat.toString().trim(),
+          )
+          const ref = doc(db, 'rekod', key)
+
+          const windSpeed = (r.windSpeed !== '' && r.windSpeed != null)
+            ? Number(r.windSpeed) : null
+
+          const rawWind = r.isWindLegal?.toString().toLowerCase()
+          const isWindLegal = rawWind === 'false' || rawWind === '0' ? false : true
+
+          batch.set(ref, {
+            rekodId:      key,
+            namaAcara:    r.namaAcara.toString().trim(),
+            jantina:      r.jantina.toString().trim(),
+            kategoriKod:  r.kategoriKod.toString().trim().toUpperCase(),
+            peringkat:    r.peringkat.toString().trim(),
+            noKP:         r.noKP?.toString().trim()        || '',
+            namaAtlet:    r.namaAtlet?.toString().trim()   || '',
+            kodSekolah:   '',
+            namaSekolah:  r.namaSekolah?.toString().trim() || '',
+            namaDaerah:   r.namaDaerah?.toString().trim()  || '',
+            namaNegeri:   r.namaNegeri?.toString().trim()  || '',
+            prestasi:     Number(r.prestasi),
+            unit:         r.unit.toString().trim(),
+            windSpeed,
+            isWindLegal,
+            jenisRekod:   r.jenisRekod?.toString().trim() || 'elektronik',
+            statusRekod:  'aktif',
+            tarikhRekod:  r.tarikhRekod?.toString().trim() || new Date().toISOString().split('T')[0],
+            kejohananId:  '',
+            disahkanOleh: null,
+            catatanKhas:  r.catatanKhas?.toString().trim() || '',
+            updatedAt:    serverTimestamp(),
+          })
+        })
+
+        try {
+          await batch.commit()
+          success += chunk.length
+        } catch {
+          failed += chunk.length
+        }
+      }
+
+      setResult({ success, failed })
+      setStep('done')
+    } catch (ex) {
+      setErr('Gagal import: ' + ex.message)
+      setStep('preview')
+    }
+  }
+
+  const okCount   = rows.filter(r => r.status === 'ok').length
+  const warnCount = rows.filter(r => r.status === 'warn').length
+  const errCount  = rows.filter(r => r.status === 'error').length
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 overflow-y-auto py-8 px-4">
+      <div className="bg-white w-full max-w-3xl rounded-xl shadow-2xl overflow-hidden">
+
+        {/* Header */}
+        <div className="bg-[#003399] text-white px-5 py-4 flex items-center justify-between">
+          <div>
+            <p className="text-[10px] text-white/50 uppercase tracking-widest">Import Excel / CSV</p>
+            <p className="text-sm font-bold">Import Rekod ke Sistem</p>
+          </div>
+          <button onClick={onClose} className="text-white/60 hover:text-white text-lg">✕</button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {err && (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{err}</p>
+          )}
+
+          {/* Step: idle */}
+          {step === 'idle' && (
+            <div className="border-2 border-dashed border-gray-200 rounded-xl p-10 text-center space-y-3">
+              <p className="text-3xl">📂</p>
+              <p className="text-sm font-semibold text-gray-700">Pilih fail Excel (.xlsx) atau CSV (.csv)</p>
+              <p className="text-xs text-gray-400">
+                Gunakan template yang disediakan untuk elak ralat format.<br/>
+                Sheet pertama dalam fail akan dibaca sebagai data rekod.
+              </p>
+              <label className="inline-block mt-2 px-6 py-2.5 bg-[#003399] hover:bg-[#002277] text-white text-xs font-bold rounded-lg cursor-pointer transition-colors">
+                Pilih Fail
+                <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleFile} />
+              </label>
+            </div>
+          )}
+
+          {/* Step: preview */}
+          {step === 'preview' && (
+            <>
+              {/* Summary cards */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-green-50 border border-green-200 rounded-xl px-3 py-3 text-center">
+                  <p className="text-2xl font-black text-green-700">{okCount}</p>
+                  <p className="text-[10px] text-green-600 font-bold uppercase tracking-wide mt-0.5">OK — Sedia Import</p>
+                </div>
+                <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-3 text-center">
+                  <p className="text-2xl font-black text-amber-600">{warnCount}</p>
+                  <p className="text-[10px] text-amber-600 font-bold uppercase tracking-wide mt-0.5">Amaran (boleh import)</p>
+                </div>
+                <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-3 text-center">
+                  <p className="text-2xl font-black text-red-600">{errCount}</p>
+                  <p className="text-[10px] text-red-600 font-bold uppercase tracking-wide mt-0.5">Error — akan skip</p>
+                </div>
+              </div>
+
+              {/* Preview table */}
+              <div className="border border-gray-200 rounded-xl overflow-hidden">
+                <div className="max-h-72 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-gray-50 border-b border-gray-200">
+                      <tr className="text-[10px] text-gray-400 uppercase tracking-wide">
+                        <th className="px-3 py-2 text-left w-12">Baris</th>
+                        <th className="px-3 py-2 text-left">Acara</th>
+                        <th className="px-2 py-2 text-center w-10">Jan.</th>
+                        <th className="px-2 py-2 text-center w-12">Kat.</th>
+                        <th className="px-2 py-2 text-center w-10">Prg.</th>
+                        <th className="px-3 py-2 text-right w-24">Prestasi</th>
+                        <th className="px-3 py-2 text-left">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map(r => (
+                        <tr key={r.idx} className={`border-b border-gray-50 ${
+                          r.status === 'error' ? 'bg-red-50' :
+                          r.status === 'warn'  ? 'bg-amber-50' : ''
+                        }`}>
+                          <td className="px-3 py-2 text-gray-400 font-mono text-[10px]">{r.idx}</td>
+                          <td className="px-3 py-2 font-semibold text-gray-800">{r.data.namaAcara || '—'}</td>
+                          <td className="px-2 py-2 text-center">{r.data.jantina || '—'}</td>
+                          <td className="px-2 py-2 text-center font-mono">{r.data.kategoriKod || '—'}</td>
+                          <td className="px-2 py-2 text-center">{r.data.peringkat || '—'}</td>
+                          <td className="px-3 py-2 text-right font-mono">
+                            {r.data.prestasi || '—'}{r.data.unit ? ` ${r.data.unit}` : ''}
+                          </td>
+                          <td className="px-3 py-2">
+                            {r.status === 'ok' && (
+                              <span className="text-green-600 font-semibold text-[10px]">✓ OK</span>
+                            )}
+                            {r.status === 'warn' && (
+                              <span className="text-amber-600 font-semibold text-[10px]" title={r.warnings.join(', ')}>
+                                ⚠ {r.warnings[0]}
+                              </span>
+                            )}
+                            {r.status === 'error' && (
+                              <span className="text-red-600 font-semibold text-[10px]" title={r.errors.join(', ')}>
+                                ✗ {r.errors[0]}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Action buttons */}
+              <div className="flex items-center gap-3 pt-1">
+                <button
+                  onClick={() => handleImport(true)}
+                  disabled={okCount + warnCount === 0}
+                  className="flex-1 py-2.5 bg-[#003399] hover:bg-[#002277] disabled:bg-gray-200 disabled:text-gray-400 text-white text-xs font-bold rounded-lg transition-colors"
+                >
+                  Import Semua ({okCount + warnCount} rekod)
+                </button>
+                {errCount > 0 && okCount > 0 && (
+                  <button
+                    onClick={() => handleImport(false)}
+                    className="flex-1 py-2.5 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-lg transition-colors"
+                  >
+                    Import OK Sahaja ({okCount} rekod)
+                  </button>
+                )}
+                <button onClick={() => { setStep('idle'); setRows([]) }}
+                  className="px-4 py-2.5 border border-gray-200 text-xs text-gray-500 rounded-lg hover:bg-gray-50">
+                  Pilih Semula
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* Step: importing */}
+          {step === 'importing' && (
+            <div className="py-14 text-center space-y-3">
+              <div className="w-10 h-10 border-2 border-[#003399] border-t-transparent rounded-full animate-spin mx-auto" />
+              <p className="text-sm text-gray-500">Mengimport rekod ke Firestore…</p>
+              <p className="text-xs text-gray-400">Sila tunggu, jangan tutup tetingkap ini.</p>
+            </div>
+          )}
+
+          {/* Step: done */}
+          {step === 'done' && result && (
+            <div className="py-10 text-center space-y-4">
+              <p className="text-4xl">✅</p>
+              <p className="text-sm font-bold text-gray-800">Import Selesai!</p>
+              <div className="flex justify-center gap-4">
+                <div className="bg-green-50 border border-green-200 rounded-xl px-6 py-3">
+                  <p className="text-2xl font-black text-green-700">{result.success}</p>
+                  <p className="text-[10px] text-green-600 font-semibold">Rekod Berjaya</p>
+                </div>
+                {result.failed > 0 && (
+                  <div className="bg-red-50 border border-red-200 rounded-xl px-6 py-3">
+                    <p className="text-2xl font-black text-red-600">{result.failed}</p>
+                    <p className="text-[10px] text-red-600 font-semibold">Gagal</p>
+                  </div>
+                )}
+              </div>
+              <button onClick={onDone}
+                className="px-8 py-2.5 bg-[#003399] hover:bg-[#002277] text-white text-xs font-bold rounded-lg transition-colors">
+                Tutup & Muat Semula
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Modal: Cetak Rekod ───────────────────────────────────────────────────────
+
+function CetakModal({ rekodList, kategoriList, onClose }) {
+  const [sel, setSel] = useState(['D'])
+
+  function toggle(p) {
+    setSel(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p])
+  }
+
+  function handleCetak() {
+    if (sel.length === 0) return
+    const ordered = ['D','N','K'].filter(p => sel.includes(p))
+    cetakRekodPDF(rekodList, kategoriList, ordered)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+      <div className="bg-white w-full max-w-sm rounded-xl shadow-2xl overflow-hidden">
+        <div className="bg-[#003399] text-white px-5 py-4 flex items-center justify-between">
+          <div>
+            <p className="text-[10px] text-white/50 uppercase tracking-widest">PDF</p>
+            <p className="text-sm font-bold">Cetak Rekod</p>
+          </div>
+          <button onClick={onClose} className="text-white/60 hover:text-white text-lg">✕</button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div>
+            <p className="text-xs font-bold text-gray-600 mb-3 uppercase tracking-wide">Pilih Peringkat:</p>
+            <div className="space-y-2">
+              {[['D','Daerah'],['N','Negeri'],['K','Kebangsaan']].map(([p, label]) => {
+                const count = rekodList.filter(r => r.peringkat === p).length
+                return (
+                  <label key={p} className={`flex items-center gap-3 cursor-pointer p-3 rounded-xl border transition-all ${
+                    sel.includes(p)
+                      ? 'border-[#003399] bg-blue-50'
+                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                  }`}>
+                    <input type="checkbox" checked={sel.includes(p)} onChange={() => toggle(p)}
+                      className="rounded border-gray-300 text-[#003399] w-4 h-4" />
+                    <span className="text-sm text-gray-700 font-semibold flex-1">{label}</span>
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                      PERINGKAT_META[p].cls
+                    }`}>
+                      {count} rekod
+                    </span>
+                  </label>
+                )
+              })}
+            </div>
+          </div>
+
+          <p className="text-[10px] text-gray-400">
+            Format: A4 Landscape · Dikumpul ikut kategori · PDF akan dimuat turun secara automatik.
+          </p>
+
+          <div className="flex gap-3 pt-1">
+            <button onClick={handleCetak} disabled={sel.length === 0}
+              className="flex-1 py-2.5 bg-[#003399] hover:bg-[#002277] disabled:bg-gray-200 disabled:text-gray-400 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-2">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+              </svg>
+              Cetak PDF
+            </button>
+            <button onClick={onClose}
+              className="px-4 py-2.5 border border-gray-200 text-xs text-gray-500 rounded-lg hover:bg-gray-50">
+              Batal
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // ─── Modal Tambah / Edit Rekod ────────────────────────────────────────────────
@@ -348,8 +902,9 @@ export default function Rekod() {
   const [selPeringkat, setSelPeringkat] = useState('D')
   const [activeTab,    setActiveTab]    = useState('semasa')  // 'semasa' | 'tuntutan'
   const [modal,        setModal]        = useState(null)      // null | { mode, initial }
+  const [showImport,   setShowImport]   = useState(false)
+  const [showCetak,    setShowCetak]    = useState(false)
   const [msg,          setMsg]          = useState(null)
-  const [expandedRows, setExpandedRows] = useState(new Set())
 
   // ── Load data ───────────────────────────────────────────────────────────────
 
@@ -383,9 +938,9 @@ export default function Rekod() {
   async function handleSahkan(tuntutan) {
     if (!confirm(`Sahkan rekod baru?\n${tuntutan.namaAcara} ${tuntutan.jantina} ${tuntutan.kategoriKod}\nPrestasi: ${formatPrestasi(tuntutan.prestasi, tuntutan.unit)}`)) return
     try {
-      const rekodRef  = doc(db, 'rekod', tuntutan.rekodAsal)
+      const rekodRef    = doc(db, 'rekod', tuntutan.rekodAsal)
       const tuntutanRef = doc(db, 'rekod', tuntutan.id)
-      const rekodSnap = await getDoc(rekodRef)
+      const rekodSnap   = await getDoc(rekodRef)
 
       // Archive rekod lama ke rekod_sejarah
       if (rekodSnap.exists()) {
@@ -393,8 +948,8 @@ export default function Rekod() {
         await setDoc(sejarahRef, {
           ...rekodSnap.data(),
           dipecahOleh: {
-            namaAtlet: tuntutan.namaAtlet,
-            prestasi:  tuntutan.prestasi,
+            namaAtlet:   tuntutan.namaAtlet,
+            prestasi:    tuntutan.prestasi,
             tarikhRekod: tuntutan.tarikhRekod,
             kejohananId: tuntutan.kejohananId,
           },
@@ -472,23 +1027,63 @@ export default function Rekod() {
     <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-5">
 
       {/* Header */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-base font-bold text-gray-800">Rekod Semasa</h1>
           <p className="text-xs text-gray-500 mt-0.5">
             Rekod acara peringkat daerah / negeri / kebangsaan
           </p>
         </div>
+
         {canEdit && (
-          <button
-            onClick={() => setModal({ mode: 'add', initial: null })}
-            className="flex items-center gap-2 px-4 py-2 bg-[#003399] hover:bg-[#002277] text-white text-xs font-bold rounded-lg transition-colors"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-            Tambah Rekod
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Download Template */}
+            <button
+              onClick={() => downloadTemplate(acaraList)}
+              className="flex items-center gap-1.5 px-3 py-2 border border-gray-300 hover:border-gray-400 bg-white text-gray-600 hover:text-gray-800 text-xs font-semibold rounded-lg transition-colors"
+              title="Muat turun template Excel"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Template
+            </button>
+
+            {/* Import */}
+            <button
+              onClick={() => setShowImport(true)}
+              className="flex items-center gap-1.5 px-3 py-2 border border-green-300 hover:border-green-400 bg-green-50 hover:bg-green-100 text-green-700 text-xs font-semibold rounded-lg transition-colors"
+              title="Import rekod dari Excel/CSV"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+              </svg>
+              Import
+            </button>
+
+            {/* Cetak */}
+            <button
+              onClick={() => setShowCetak(true)}
+              className="flex items-center gap-1.5 px-3 py-2 border border-indigo-300 hover:border-indigo-400 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-lg transition-colors"
+              title="Cetak rekod ke PDF"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+              </svg>
+              Cetak
+            </button>
+
+            {/* Tambah Rekod */}
+            <button
+              onClick={() => setModal({ mode: 'add', initial: null })}
+              className="flex items-center gap-1.5 px-4 py-2 bg-[#003399] hover:bg-[#002277] text-white text-xs font-bold rounded-lg transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              Tambah Rekod
+            </button>
+          </div>
         )}
       </div>
 
@@ -575,10 +1170,17 @@ export default function Rekod() {
               <p className="text-2xl mb-2">📋</p>
               <p className="text-sm font-semibold text-gray-500">Tiada rekod untuk peringkat {PERINGKAT_META[selPeringkat]?.label}.</p>
               {canEdit && (
-                <button onClick={() => setModal({ mode: 'add', initial: null })}
-                  className="mt-4 text-xs text-[#003399] hover:underline font-semibold">
-                  + Tambah Rekod Pertama
-                </button>
+                <div className="flex items-center justify-center gap-3 mt-4">
+                  <button onClick={() => setShowImport(true)}
+                    className="text-xs text-green-600 hover:underline font-semibold">
+                    ↑ Import dari Excel
+                  </button>
+                  <span className="text-gray-300">|</span>
+                  <button onClick={() => setModal({ mode: 'add', initial: null })}
+                    className="text-xs text-[#003399] hover:underline font-semibold">
+                    + Tambah Manual
+                  </button>
+                </div>
               )}
             </div>
           ) : (
@@ -653,14 +1255,12 @@ export default function Rekod() {
                                     <button
                                       onClick={() => setModal({ mode: 'edit', initial: { ...r, prestasi: String(r.prestasi), windSpeed: r.windSpeed != null ? String(r.windSpeed) : '' } })}
                                       className="text-[10px] px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded font-semibold transition-colors"
-                                      title="Edit rekod"
                                     >
                                       Edit
                                     </button>
                                     <button
                                       onClick={() => handleDelete(r)}
                                       className="text-[10px] px-2 py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded font-semibold transition-colors"
-                                      title="Padam rekod"
                                     >
                                       Padam
                                     </button>
@@ -697,7 +1297,7 @@ export default function Rekod() {
                 {tuntutanList.length} tuntutan menunggu pengesahan. Semak angin dan kelayakan atlet sebelum sahkan.
               </p>
               {tuntutanList.map(t => {
-                const isMasa = t.unit === 's'
+                const isMasa    = t.unit === 's'
                 const rekodAsal = rekodList.find(r => r.id === t.rekodAsal)
                 return (
                   <div key={t.id} className="bg-white border-2 border-amber-200 rounded-xl shadow-sm overflow-hidden">
@@ -789,9 +1389,10 @@ export default function Rekod() {
         <p>· Rekod manual ada tanda asterisk (*). Rekod elektronik lebih dipercayai.</p>
         <p>· Angin &gt; 2.0 m/s — prestasi TIDAK layak sebagai rekod rasmi (WA Rule).</p>
         <p>· Sahkan tuntutan selepas semak angin, kelayakan atlet, dan timing system.</p>
+        <p>· Import: gunakan template Excel yang disediakan. Sheet pertama = data rekod.</p>
       </div>
 
-      {/* Modal */}
+      {/* ── Modals ── */}
       {modal && (
         <RekodModal
           initial={modal.initial}
@@ -799,6 +1400,21 @@ export default function Rekod() {
           acaraList={acaraList}
           onClose={() => setModal(null)}
           onSaved={() => { setModal(null); setMsg({ type: 'ok', text: 'Rekod disimpan.' }); load() }}
+        />
+      )}
+
+      {showImport && (
+        <ImportRekodModal
+          onClose={() => setShowImport(false)}
+          onDone={() => { setShowImport(false); setMsg({ type: 'ok', text: 'Import selesai. Rekod dikemaskini.' }); load() }}
+        />
+      )}
+
+      {showCetak && (
+        <CetakModal
+          rekodList={rekodList}
+          kategoriList={kategoriList}
+          onClose={() => setShowCetak(false)}
         />
       )}
     </div>

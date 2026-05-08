@@ -45,24 +45,41 @@ const inputCls = 'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm ' +
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Kira kategori MSSM dari tahun lahir dan tahun kejohanan.
- * Jika kategoriList dibekalkan, guna umurMin/umurHad dari Firestore.
- * Fallback ke nilai hardcode (A-E) jika kategoriList kosong.
+ * Kira kategori MSSM dari tahun lahir, jantina, dan tahun kejohanan.
+ * Gunakan label prefix (L/P) untuk tapis jantina — elak atlet L dapat kategori P.
+ * Pilih kategori paling spesifik (umurHad terkecil) supaya atlet 10 tahun dapat
+ * kategori L10 bukan L12 walaupun kedua-dua merangkumi umur 10.
+ * Kategori OPEN (ada 'OPEN' dalam label) diabaikan — dikendalikan secara berasingan.
  */
-function kiraKategori(tarikhLahir, tahunKejohanan, kategoriList = []) {
+function kiraKategori(tarikhLahir, jantina, tahunKejohanan, kategoriList = []) {
   if (!tarikhLahir || !tahunKejohanan) return null
   const tahunLahir = new Date(tarikhLahir).getFullYear()
   const umur = tahunKejohanan - tahunLahir
   if (kategoriList.length > 0) {
-    const kat = kategoriList.find(k => umur >= (k.umurMin || 0) && umur <= k.umurHad)
-    return kat?.kod || null
+    const filtered = kategoriList.filter(k => {
+      const label = (k.label || '').toUpperCase()
+      if (label.includes('OPEN')) return false        // OPEN: handle berasingan
+      if (jantina === 'L' && !label.startsWith('L')) return false
+      if (jantina === 'P' && !label.startsWith('P')) return false
+      return true
+    })
+    const candidates = filtered.filter(k => umur >= (k.umurMin || 0) && umur <= k.umurHad)
+    if (candidates.length === 0) return null
+    candidates.sort((a, b) => a.umurHad - b.umurHad)  // paling spesifik dahulu
+    return candidates[0].kod
   }
-  // Fallback
-  if (umur >= 9  && umur <= 10) return 'A'
-  if (umur >= 11 && umur <= 12) return 'B'
-  if (umur >= 13 && umur <= 14) return 'C'
-  if (umur >= 15 && umur <= 16) return 'D'
-  if (umur >= 17 && umur <= 18) return 'E'
+  // Fallback hardcode (guna jantina)
+  if (jantina === 'L') {
+    if (umur >= 9  && umur <= 10) return 'A'
+    if (umur >= 11 && umur <= 12) return 'C'
+    if (umur >= 13 && umur <= 15) return 'E'
+    if (umur >= 16 && umur <= 18) return 'G'
+  } else {
+    if (umur >= 9  && umur <= 10) return 'B'
+    if (umur >= 11 && umur <= 12) return 'D'
+    if (umur >= 13 && umur <= 15) return 'F'
+    if (umur >= 16 && umur <= 18) return 'H'
+  }
   return null
 }
 
@@ -444,7 +461,7 @@ function DaftarModal({ acara, kejohanan, atletSekolah, pendaftaranList, jadualLi
   const atletLayak = atletSekolah.filter(a => {
     if (a.isAktif === false) return false
     if (a.jantina !== acara.jantina) return false
-    const kat = kiraKategori(a.tarikhLahir, tahunKej, kategoriList)
+    const kat = kiraKategori(a.tarikhLahir, a.jantina, tahunKej, kategoriList)
     if (kat !== acara.kategoriKod) return false
     if (sudahDaftar.includes(a.noKP)) return false
     return true
@@ -580,7 +597,7 @@ function DaftarModal({ acara, kejohanan, atletSekolah, pendaftaranList, jadualLi
               tarikhLahir: atlet.tarikhLahir,
               kodSekolah:  atlet.kodSekolah,
               namaSekolah: sekolahDataLive.namaSekolah || atlet.kodSekolah,
-              kategoriKod: kiraKategori(atlet.tarikhLahir, tahunKej, kategoriList),
+              kategoriKod: kiraKategori(atlet.tarikhLahir, atlet.jantina, tahunKej, kategoriList),
               acaraIds:    [acara.aceraId],
               isAktif:     true,
               isRelay:     false,
@@ -650,7 +667,7 @@ function DaftarModal({ acara, kejohanan, atletSekolah, pendaftaranList, jadualLi
             <div className="space-y-1.5">
               <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold mb-2">Pilih Atlet ({atletLayak.length} layak)</p>
               {atletLayak.map(a => {
-                const kat = kiraKategori(a.tarikhLahir, tahunKej, kategoriList)
+                const kat = kiraKategori(a.tarikhLahir, a.jantina, tahunKej, kategoriList)
                 const isSelected = selected.includes(a.noKP)
                 // Semak jika memilih ini akan melebihi had
                 const willExceed = !isSelected && selected.length >= slotSekolahBaki
@@ -2207,7 +2224,7 @@ function TabPendaftaran({ userRole: userRoleProp, userData: userDataProp, sekola
                           ) : (
                             <div className="space-y-1">
                               {pesertaDisplay.map(p => {
-                                const kat = kiraKategori(p.tarikhLahir, tahunKej, kategoriList)
+                                const kat = kiraKategori(p.tarikhLahir, p.jantina, tahunKej, kategoriList)
                                 // Tunjuk sekolah badge jika superadmin
                                 return (
                                   <div key={p.noBib} className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg">
@@ -2310,7 +2327,7 @@ function PPAtletModal({ mode, initial, sekolahData, existingBibs, myPendaftaran,
   }
 
   const fullNoBib   = bibPrefix && bibNum ? bibPrefix + String(bibNum).padStart(bibFormat, '0') : bibNum
-  const kategori    = kiraKategori(form.tarikhLahir, tahunKej, kategoriList)
+  const kategori    = kiraKategori(form.tarikhLahir, form.jantina, tahunKej, kategoriList)
   const sensitiveChanged = isEdit && (form.jantina !== initial?.jantina || form.tarikhLahir !== initial?.tarikhLahir)
   const atletPend   = myPendaftaran.filter(p => p.noKP === initial?.noKP)
   const acaraCount  = atletPend.flatMap(p => p.acaraIds || []).length
@@ -2764,7 +2781,7 @@ function PPPendaftaranView({ sekolahList }) {
               jantina:     atlet.jantina,
               tarikhLahir: atlet.tarikhLahir,
               kodSekolah:  atlet.kodSekolah,
-              kategoriKod: kiraKategori(atlet.tarikhLahir, tahunKej, kategoriList),
+              kategoriKod: kiraKategori(atlet.tarikhLahir, atlet.jantina, tahunKej, kategoriList),
               acaraIds:    [acara.aceraId || acara.id],
               isAktif:     true,
               isRelay:     false,
@@ -3027,7 +3044,7 @@ function PPPendaftaranView({ sekolahList }) {
                 </thead>
                 <tbody>
                   {atletSekolah.map(a => {
-                    const kat       = kiraKategori(a.tarikhLahir, tahunKej, kategoriList)
+                    const kat       = kiraKategori(a.tarikhLahir, a.jantina, tahunKej, kategoriList)
                     const pRec      = myPendaftaran.find(p => p.noKP === a.noKP)
                     const acaraJml  = pRec ? (pRec.acaraIds || []).length : 0
                     return (
@@ -3124,7 +3141,7 @@ function PPPendaftaranView({ sekolahList }) {
       ? atletSekolah.filter(a => {
           if (a.isAktif === false) return false
           if (a.jantina !== acaraObj.jantina) return false
-          return kiraKategori(a.tarikhLahir, tahunKej, kategoriList) === acaraObj.kategoriKod
+          return kiraKategori(a.tarikhLahir, a.jantina, tahunKej, kategoriList) === acaraObj.kategoriKod
         })
       : []
     // Kira bilangan acara individu atlet dalam kategori ini (dari cache)
@@ -3471,7 +3488,7 @@ function PPPendaftaranView({ sekolahList }) {
             </div>
           ) : (
             atletSekolah.map(a => {
-              const kat = kiraKategori(a.tarikhLahir, tahunKej, kategoriList)
+              const kat = kiraKategori(a.tarikhLahir, a.jantina, tahunKej, kategoriList)
               const pRec = myPendaftaran.find(p => p.noKP === a.noKP)
               const acaraIds = pRec?.acaraIds || []
               return (
@@ -3573,7 +3590,7 @@ function PPPendaftaranView({ sekolahList }) {
       atletSekolah.forEach(a => {
         const pRec     = myPendaftaran.find(p => p.noKP === a.noKP)
         const acaraIds = pRec?.acaraIds || []
-        const kat      = kiraKategori(a.tarikhLahir, tahunKej, kategoriList) || '—'
+        const kat      = kiraKategori(a.tarikhLahir, a.jantina, tahunKej, kategoriList) || '—'
         const acaraNama = acaraIds.map(id => acaraMap[id]?.namaAcara || id).join(', ') || '—'
         rows.push([
           bil++,

@@ -308,17 +308,24 @@ export default function KeputusanRasmi() {
     }))
     const getNamaSekolah = (p) => p.namaSekolah || sekolahNamaMap[p.kodSekolah] || p.kodSekolah || ''
 
+    // ── Kunci idempoten: satu acara hanya boleh contribute sekali ke medal_tally ──
+    // contrib key: heatId + noKP/kodSekolah — unik per atlet per heat
+    // Jika postRasmi dijalankan semula (selepas bantahan), contribution lama
+    // dibalikkan dahulu sebelum contribution baru ditulis. Elak double-count.
+
     for (const p of (heatDoc.peserta || [])) {
       const rank = p.rankDalamHeat
       if (!rank || p.status !== 'selesai') continue
 
       // Mata olahragawan (bukan relay, top 4 sahaja)
+      // R2/R3 FIX: semak sama ada acaraDetail sudah ada — jika ya, kira diff bukan tambah blind
       if (!isRelay && p.noKP && rank <= 4) {
-        const mata        = mataPingatKej[rank] ?? 0
-        const pingat      = NAMA_PINGAT[rank]
-        const mId         = `${p.noKP}_${kejId}`
-        const mRef        = doc(db, 'mata_olahragawan', mId)
-        const unitAcara   = ['padang_lompat', 'padang_balin'].includes(acaraDoc.jenisAcara) ? 'm' : 's'
+        const mata      = mataPingatKej[rank] ?? 0
+        const pingat    = NAMA_PINGAT[rank]
+        const mId       = `${p.noKP}_${kejId}`
+        const mRef      = doc(db, 'mata_olahragawan', mId)
+        const unitAcara = ['padang_lompat', 'padang_balin'].includes(acaraDoc.jenisAcara) ? 'm' : 's'
+        const acaraKey  = `acaraDetail_${acaraDoc.id}`
         try {
           await setDoc(mRef, {
             noKP:        p.noKP,
@@ -329,32 +336,63 @@ export default function KeputusanRasmi() {
             kategoriKod: acaraDoc.kategoriKod || '',
             kejohananId: kejId,
           }, { merge: true })
-          const patch = {
-            jumlahMata: increment(mata),
-            [`pingat_${pingat}`]: increment(1),
-            [`acaraDetail_${acaraDoc.id}`]: {
-              aceraId:  acaraDoc.id,
-              namaAcara: acaraDoc.namaAcara,
-              pingat, mata, rank,
-              prestasi: p.keputusan ?? null,
-              unit:     unitAcara,
-            },
+
+          // Baca doc semasa — semak contribution lama untuk acara ini
+          const existingSnap = await getDoc(mRef)
+          const existingData = existingSnap.exists() ? existingSnap.data() : {}
+          const prevDetail   = existingData[acaraKey]
+
+          const patch = { [acaraKey]: { aceraId: acaraDoc.id, namaAcara: acaraDoc.namaAcara, pingat, mata, rank, prestasi: p.keputusan ?? null, unit: unitAcara } }
+          if (prevDetail) {
+            // Sudah ada — kira diff: balik lama, tambah baru
+            const prevMata   = prevDetail.mata   || 0
+            const prevPingat = prevDetail.pingat  || ''
+            if (mata !== prevMata)     patch.jumlahMata         = increment(mata - prevMata)
+            if (pingat !== prevPingat) {
+              patch[`pingat_${prevPingat}`] = increment(-1)
+              patch[`pingat_${pingat}`]     = increment(1)
+            }
+          } else {
+            // Contribution pertama — tambah terus
+            patch.jumlahMata          = increment(mata)
+            patch[`pingat_${pingat}`] = increment(1)
           }
           await updateDoc(mRef, patch)
         } catch (e) { console.warn('mata_olahragawan:', e.message) }
       }
 
       // Medal tally agregat per sekolah (fasa final, sehingga ke-5 jika setting benarkan)
+      // R2 FIX: track contribution per heat per peserta — elak double-count pada retry
       if (grantMedal && p.kodSekolah && rank <= Math.min(bilanganKedudukan, 5) && NAMA_PINGAT[rank]) {
-        const pingat = NAMA_PINGAT[rank]
-        const tId    = `${p.kodSekolah}_${kejId}`
-        const tRef   = doc(db, 'medal_tally', tId)
+        const pingat      = NAMA_PINGAT[rank]
+        const tId         = `${p.kodSekolah}_${kejId}`
+        const tRef        = doc(db, 'medal_tally', tId)
+        const contribKey  = `contrib_${heatDoc.id}_${p.noKP || p.noBib || rank}`
         try {
           await setDoc(tRef, {
             kodSekolah: p.kodSekolah, namaSekolah: getNamaSekolah(p),
             kejohananId: kejId,
           }, { merge: true })
-          await updateDoc(tRef, { [pingat]: increment(1), jumlahPingat: increment(1) })
+
+          const tSnap     = await getDoc(tRef)
+          const tData     = tSnap.exists() ? tSnap.data() : {}
+          const prevContr = tData[contribKey]
+
+          const tPatch = { [contribKey]: { pingat, noKP: p.noKP || null, rank } }
+          if (prevContr) {
+            const prevPingat = prevContr.pingat || ''
+            if (pingat !== prevPingat) {
+              tPatch[prevPingat]    = increment(-1)
+              tPatch.jumlahPingat   = increment(-1)
+              tPatch[pingat]        = increment(1)
+              tPatch.jumlahPingat   = increment(1)
+            }
+            // pingat sama — tiada perubahan kiraan
+          } else {
+            tPatch[pingat]      = increment(1)
+            tPatch.jumlahPingat = increment(1)
+          }
+          await updateDoc(tRef, tPatch)
         } catch (e) { console.warn('medal_tally:', e.message) }
       }
 
@@ -382,12 +420,18 @@ export default function KeputusanRasmi() {
             const oldPrestasi = Number(rekodSnap.data().prestasi)
             // Masa (s): lebih rendah = lebih baik | Jarak (m): lebih tinggi = lebih baik
             isBetter = unit === 's' ? newPrestasi < oldPrestasi : newPrestasi > oldPrestasi
-          } else if (tuntutanSnap.exists() && tuntutanSnap.data().statusRekod === 'tuntutan') {
-            // Ada tuntutan belum diluluskan — bandingkan dengan tuntutan sedia ada
+          } else if (
+            tuntutanSnap.exists() &&
+            tuntutanSnap.data().statusRekod === 'tuntutan' &&
+            // R8 FIX: elak self-compare — jangan bandingkan tuntutan dari heat ini sendiri
+            // (berlaku bila postRasmi dijalankan semula selepas bantahan diterima)
+            tuntutanSnap.data().catatanKhas?.includes?.(heatDoc.id) !== true
+          ) {
+            // Ada tuntutan dari heat lain — bandingkan dengan tuntutan sedia ada
             const oldTuntutan = Number(tuntutanSnap.data().prestasi)
             isBetter = unit === 's' ? newPrestasi < oldTuntutan : newPrestasi > oldTuntutan
-          } else {
-            isBetter = true // tiada rekod & tiada tuntutan — rekod pertama
+          } else if (!tuntutanSnap.exists() || tuntutanSnap.data().catatanKhas?.includes?.(heatDoc.id)) {
+            isBetter = true // tiada rekod, tiada tuntutan, atau tuntutan dari heat ini sendiri
           }
 
           if (isBetter) {
@@ -583,6 +627,20 @@ export default function KeputusanRasmi() {
     if (!bantahanForm.sebab.trim() || !heat) return
     setSavingBantahan(true)
     try {
+      // R5 FIX: hadkan 1 bantahan menunggu per heat per sekolah — elak spam
+      const spamSnap = await getDocs(query(
+        collection(db, 'bantahan'),
+        where('heatId', '==', heat.id),
+        where('hantarOlehSekolah', '==', kodSekolahUser || ''),
+        where('status', '==', 'menunggu'),
+      ))
+      if (!spamSnap.empty) {
+        setMsg({ type: 'err', text: 'Anda sudah ada bantahan menunggu untuk heat ini. Tunggu keputusan dahulu.' })
+        setBantahanModal(false)
+        setSavingBantahan(false)
+        return
+      }
+
       await addDoc(collection(db, 'bantahan'), {
         heatId: heat.id, aceraId: selAcara, kejohananId: selKej,
         noBib: bantahanForm.noBib || null,

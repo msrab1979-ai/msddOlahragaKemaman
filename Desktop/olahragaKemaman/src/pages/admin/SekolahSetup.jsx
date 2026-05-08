@@ -3,15 +3,16 @@
  * Pengurusan sekolah: tambah, edit, aktif/nyahaktif, reset PIN, import Excel, export PDF, seed dummy
  */
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import {
-  collection, getDocs, getDoc, doc, setDoc, updateDoc, deleteDoc,
+  collection, getDocs, getDoc, doc, setDoc, updateDoc, deleteDoc, deleteField,
   serverTimestamp, query, orderBy, writeBatch, where, limit,
 } from 'firebase/firestore'
 // Firebase Auth tidak digunakan lagi untuk sekolah — login via Firestore PIN check
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
 import PasswordInput from '../../components/ui/PasswordInput'
+import { hashPin } from '../../utils/hashPin'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -19,6 +20,7 @@ import autoTable from 'jspdf-autotable'
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const KATEGORI_LIST_FALLBACK = ['SR', 'SM', 'PPKI']
+const KATEGORI_SAH = ['SR', 'SM', 'PPKI']
 const NEGERI_LIST   = ['Terengganu', 'Kelantan', 'Pahang', 'Johor', 'Selangor',
   'Perak', 'Kedah', 'Perlis', 'Pulau Pinang', 'Negeri Sembilan',
   'Melaka', 'Sabah', 'Sarawak', 'W.P. Kuala Lumpur', 'W.P. Labuan', 'W.P. Putrajaya']
@@ -46,6 +48,393 @@ const EMPTY_FORM = {
 const inputCls = 'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm ' +
   'focus:outline-none focus:ring-2 focus:ring-[#003399]/25 focus:border-[#003399] ' +
   'bg-gray-50 transition-colors'
+
+// ─── Import: validate satu baris ─────────────────────────────────────────────
+
+// Normalise semua kunci header — cover case mismatch (pin/PIN/Pin)
+function normaliseRow(r) {
+  const out = {}
+  for (const [k, v] of Object.entries(r)) {
+    out[k.trim().toLowerCase()] = v
+  }
+  // Peta nama alternatif → nama standard
+  const MAP = {
+    kodsekolah:  'kodSekolah',
+    namasekolah: 'namaSekolah',
+    bibprefix:   'bibPrefix',
+    bibmula:     'bibMula',
+    bibformat:   'bibFormat',
+  }
+  const norm = {}
+  for (const [k, v] of Object.entries(out)) {
+    norm[MAP[k] || k] = v
+  }
+  return norm
+}
+
+// Normalise pin — cover Excel strip leading zero (012345 → 12345)
+function normalisePin(raw) {
+  if (raw === null || raw === undefined || raw === '') return ''
+  const s = String(raw).trim()
+  // Pad balik ke 6 digit jika nombor (Excel strip leading zero)
+  if (/^\d{1,6}$/.test(s)) return s.padStart(6, '0')
+  return s
+}
+
+function validateImportRowSekolah(r) {
+  const errors   = []
+  const warnings = []
+
+  const kod    = r.kodSekolah?.toString().trim()
+  const nama   = r.namaSekolah?.toString().trim()
+  const kat    = r.kategori?.toString().trim()
+  const prefix = r.bibPrefix?.toString().trim()
+  const pin    = normalisePin(r.pin)
+
+  if (!kod)   errors.push('kodSekolah kosong')
+  if (!nama)  errors.push('namaSekolah kosong')
+  if (!kat || !KATEGORI_SAH.includes(kat.toUpperCase()))
+              errors.push('kategori mesti SR / SM / PPKI')
+  if (!prefix) errors.push('bibPrefix kosong')
+  else if (prefix.length > 5) errors.push('bibPrefix mesti ≤ 5 aksara')
+
+  // bibFormat mesti 1, 2, atau 3 — bukan string seperti "001"
+  const bf = r.bibFormat !== undefined && r.bibFormat !== ''
+    ? Number(r.bibFormat) : null
+  if (bf !== null && ![1, 2, 3].includes(bf))
+    errors.push('bibFormat mesti 1, 2, atau 3 (bukan "001")')
+
+  if (errors.length === 0) {
+    if (!pin || !/^\d{6}$/.test(pin)) warnings.push('pin bukan 6 digit — akan guna 000000')
+    if (r.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.email?.toString().trim()))
+      warnings.push('format email tidak sah')
+    if (!r.daerah?.toString().trim()) warnings.push('daerah kosong')
+  }
+
+  return {
+    errors,
+    warnings,
+    status: errors.length > 0 ? 'error' : warnings.length > 0 ? 'warn' : 'ok',
+    _pin: pin,  // simpan pin yang dah dinormalise untuk guna masa import
+  }
+}
+
+// ─── Template download ────────────────────────────────────────────────────────
+
+function downloadTemplateSekolah() {
+  const wb = XLSX.utils.book_new()
+
+  // Sheet 1: SEKOLAH — headers + 3 contoh
+  const headers = [
+    'kodSekolah', 'namaSekolah', 'kategori', 'negeri', 'daerah',
+    'email', 'bibPrefix', 'bibMula', 'bibFormat', 'pin',
+  ]
+  const examples = [
+    ['KMN-SR-001', 'SK Sultan Ismail', 'SR', 'Terengganu', 'Kemaman', 'sk@moe.edu.my', 'SSI', 1, 3, '123456'],
+    ['KMN-SM-001', 'SMK Kemaman', 'SM', 'Terengganu', 'Kemaman', '', 'MKM', 1, 3, '234567'],
+    ['KMN-PPKI-001', 'SK (PPKI) Kemaman', 'PPKI', 'Terengganu', 'Kemaman', '', 'PPK', 1, 3, '345678'],
+  ]
+  const ws1 = XLSX.utils.aoa_to_sheet([headers, ...examples])
+
+  // Format kolum pin sebagai TEXT — elak Excel strip leading zero (012345 → 12345)
+  const pinCol = 'J'
+  for (let row = 2; row <= examples.length + 1; row++) {
+    const cell = `${pinCol}${row}`
+    if (ws1[cell]) ws1[cell].t = 's'  // force string type
+  }
+  // Set format untuk seluruh kolum pin supaya input user pun jadi text
+  if (!ws1['!cols']) ws1['!cols'] = []
+  ws1['!cols'][9] = { wch: 8, z: '@' }  // @ = text format dalam Excel
+  ws1['!cols'] = [
+    {wch:16},{wch:28},{wch:8},{wch:14},{wch:12},
+    {wch:24},{wch:10},{wch:10},{wch:10},{wch:8},
+  ]
+  XLSX.utils.book_append_sheet(wb, ws1, 'SEKOLAH')
+
+  // Sheet 2: RUJUKAN
+  const rujukan = [
+    ['KOLUM',      'NILAI SAH',           'NOTA'],
+    ['kodSekolah', 'Teks unik',           'Huruf besar, tanpa ruang. Cth: KMN-SR-001'],
+    ['namaSekolah','Teks',                'Nama penuh sekolah'],
+    ['kategori',   'SR, SM, PPKI',        'SR = Sekolah Rendah, SM = Menengah, PPKI = Pendidikan Khas'],
+    ['negeri',     'Nama negeri',         'Cth: Terengganu, Kelantan, Pahang'],
+    ['daerah',     'Nama daerah',         'Cth: Kemaman'],
+    ['email',      'Format emel atau kosong','Cth: sekolah@moe.edu.my'],
+    ['bibPrefix',  'Teks ≤ 5 aksara',    'Huruf besar sahaja. Cth: SSI, MKM, PPK'],
+    ['bibMula',    'Nombor (default: 1)', 'Nombor BIB permulaan'],
+    ['bibFormat',  '1, 2, atau 3 (NOMBOR)',  '1=tiada pad (1,2,3), 2=2digit (01,02), 3=3digit (001,002). JANGAN isi "001" — isi nombor 1/2/3 sahaja'],
+    ['pin',        '6 digit angka (TEXT)',  '⚠ Kolum ini FORMAT TEXT. Jangan tukar ke nombor. PIN bermula 0 contoh: 012345 mesti kekal sebagai teks'],
+    ['','',''],
+    ['NOTA PENTING','',''],
+    ['Kolum wajib: kodSekolah, namaSekolah, kategori, bibPrefix','',''],
+    ['pin tidak 6 digit: akan diguna 000000 (boleh reset kemudian via butang Reset PIN)','',''],
+    ['kodSekolah duplikasi: rekod akan DIKEMASKINI (createdAt asal kekal)','',''],
+    ['Header Excel tidak case-sensitive: PIN / pin / Pin semuanya OK','',''],
+  ]
+  const ws2 = XLSX.utils.aoa_to_sheet(rujukan)
+  ws2['!cols'] = [{wch:16},{wch:22},{wch:52}]
+  XLSX.utils.book_append_sheet(wb, ws2, 'RUJUKAN')
+
+  XLSX.writeFile(wb, 'template_sekolah_koam.xlsx')
+}
+
+// ─── Modal: Import Sekolah ────────────────────────────────────────────────────
+
+function ImportSekolahModal({ onClose, onDone }) {
+  const [step,   setStep]   = useState('idle')   // idle | preview | importing | done
+  const [rows,   setRows]   = useState([])
+  const [result, setResult] = useState(null)
+  const [err,    setErr]    = useState('')
+
+  async function handleFile(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    setErr('')
+    try {
+      const buffer = await file.arrayBuffer()
+      const wb  = XLSX.read(buffer, { type: 'array' })
+      const ws  = wb.Sheets[wb.SheetNames[0]]
+      const raw = XLSX.utils.sheet_to_json(ws, { defval: '' })
+      if (raw.length === 0) { setErr('Fail kosong atau format salah.'); return }
+
+      const parsed = raw.map((r, i) => {
+        const norm = normaliseRow(r)
+        return { data: norm, idx: i + 2, ...validateImportRowSekolah(norm) }
+      })
+      setRows(parsed)
+      setStep('preview')
+    } catch (ex) {
+      setErr('Gagal baca fail: ' + ex.message)
+    }
+  }
+
+  async function handleImport(includeWarns) {
+    const toImport = rows.filter(r => r.status === 'ok' || (includeWarns && r.status === 'warn'))
+    if (toImport.length === 0) { setErr('Tiada rekod untuk diimport.'); return }
+    setStep('importing')
+
+    let success = 0, failed = 0
+    const CHUNK = 500
+
+    try {
+      for (let i = 0; i < toImport.length; i += CHUNK) {
+        const chunk = toImport.slice(i, i + CHUNK)
+
+        // R7: hash semua PIN dahulu (async) sebelum batch
+        const chunkWithHash = await Promise.all(chunk.map(async ({ data: r, _pin }) => {
+          const pinSah = _pin && /^\d{6}$/.test(_pin) ? _pin : '000000'
+          const ph     = await hashPin(pinSah)
+          return { r, pinHash: ph }
+        }))
+
+        const batch = writeBatch(db)
+
+        chunkWithHash.forEach(({ r, pinHash: ph }) => {
+          const kod = r.kodSekolah.toString().trim().toUpperCase()
+          const bf  = [1, 2, 3].includes(Number(r.bibFormat)) ? Number(r.bibFormat) : 3
+
+          batch.set(doc(db, 'sekolah', kod), {
+            kodSekolah:  kod,
+            namaSekolah: r.namaSekolah.toString().trim(),
+            kategori:    r.kategori.toString().trim().toUpperCase(),
+            negeri:      r.negeri?.toString().trim() || 'Terengganu',
+            daerah:      r.daerah?.toString().trim() || '',
+            email:       r.email?.toString().trim() || '',
+            bibPrefix:   r.bibPrefix.toString().trim().toUpperCase(),
+            bibMula:     Number(r.bibMula) || 1,
+            bibFormat:   bf,
+            pinHash:     ph,   // R7: simpan hash, bukan plain text
+            isAktif:     true,
+            updatedAt:   serverTimestamp(),
+            // createdAt TIDAK disertakan — merge kekal nilai asal bagi sekolah sedia ada
+          }, { merge: true })
+        })
+
+        try {
+          await batch.commit()
+          success += chunk.length
+        } catch {
+          failed += chunk.length
+        }
+      }
+
+      setResult({ success, failed })
+      setStep('done')
+    } catch (ex) {
+      setErr('Gagal import: ' + ex.message)
+      setStep('preview')
+    }
+  }
+
+  const okCount   = rows.filter(r => r.status === 'ok').length
+  const warnCount = rows.filter(r => r.status === 'warn').length
+  const errCount  = rows.filter(r => r.status === 'error').length
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 overflow-y-auto py-8 px-4">
+      <div className="bg-white w-full max-w-3xl rounded-xl shadow-2xl overflow-hidden">
+
+        {/* Header */}
+        <div className="bg-[#003399] text-white px-5 py-4 flex items-center justify-between">
+          <div>
+            <p className="text-[10px] text-white/50 uppercase tracking-widest">Import Excel / CSV</p>
+            <p className="text-sm font-bold">Import Sekolah ke Sistem</p>
+          </div>
+          <button onClick={onClose} className="text-white/60 hover:text-white text-lg">✕</button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {err && (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{err}</p>
+          )}
+
+          {/* Step: idle */}
+          {step === 'idle' && (
+            <div className="border-2 border-dashed border-gray-200 rounded-xl p-10 text-center space-y-3">
+              <p className="text-3xl">📂</p>
+              <p className="text-sm font-semibold text-gray-700">Pilih fail Excel (.xlsx) atau CSV (.csv)</p>
+              <p className="text-xs text-gray-400">
+                Gunakan template yang disediakan untuk elak ralat format.<br />
+                Sheet pertama dalam fail akan dibaca sebagai data sekolah.
+              </p>
+              <label className="inline-block mt-2 px-6 py-2.5 bg-[#003399] hover:bg-[#002277] text-white text-xs font-bold rounded-lg cursor-pointer transition-colors">
+                Pilih Fail
+                <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleFile} />
+              </label>
+            </div>
+          )}
+
+          {/* Step: preview */}
+          {step === 'preview' && (
+            <>
+              {/* Summary cards */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-green-50 border border-green-200 rounded-xl px-3 py-3 text-center">
+                  <p className="text-2xl font-black text-green-700">{okCount}</p>
+                  <p className="text-[10px] text-green-600 font-bold uppercase tracking-wide mt-0.5">OK — Sedia Import</p>
+                </div>
+                <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-3 text-center">
+                  <p className="text-2xl font-black text-amber-600">{warnCount}</p>
+                  <p className="text-[10px] text-amber-600 font-bold uppercase tracking-wide mt-0.5">Amaran (boleh import)</p>
+                </div>
+                <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-3 text-center">
+                  <p className="text-2xl font-black text-red-600">{errCount}</p>
+                  <p className="text-[10px] text-red-600 font-bold uppercase tracking-wide mt-0.5">Error — akan skip</p>
+                </div>
+              </div>
+
+              {/* Preview table */}
+              <div className="border border-gray-200 rounded-xl overflow-hidden">
+                <div className="max-h-72 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-gray-50 border-b border-gray-200">
+                      <tr className="text-[10px] text-gray-400 uppercase tracking-wide">
+                        <th className="px-3 py-2 text-left w-12">Baris</th>
+                        <th className="px-3 py-2 text-left">Kod</th>
+                        <th className="px-3 py-2 text-left">Nama Sekolah</th>
+                        <th className="px-2 py-2 text-center w-14">Kat.</th>
+                        <th className="px-2 py-2 text-center w-16">Prefix</th>
+                        <th className="px-3 py-2 text-left">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map(r => (
+                        <tr key={r.idx} className={`border-b border-gray-50 ${
+                          r.status === 'error' ? 'bg-red-50' :
+                          r.status === 'warn'  ? 'bg-amber-50' : ''
+                        }`}>
+                          <td className="px-3 py-2 text-gray-400 font-mono text-[10px]">{r.idx}</td>
+                          <td className="px-3 py-2 font-mono text-gray-700">{r.data.kodSekolah || '—'}</td>
+                          <td className="px-3 py-2 font-semibold text-gray-800">{r.data.namaSekolah || '—'}</td>
+                          <td className="px-2 py-2 text-center font-mono">{r.data.kategori || '—'}</td>
+                          <td className="px-2 py-2 text-center font-mono font-bold text-[#003399]">{r.data.bibPrefix || '—'}</td>
+                          <td className="px-3 py-2">
+                            {r.status === 'ok' && (
+                              <span className="text-green-600 font-semibold text-[10px]">✓ OK</span>
+                            )}
+                            {r.status === 'warn' && (
+                              <span className="text-amber-600 font-semibold text-[10px]" title={r.warnings.join(', ')}>
+                                ⚠ {r.warnings[0]}
+                              </span>
+                            )}
+                            {r.status === 'error' && (
+                              <span className="text-red-600 font-semibold text-[10px]" title={r.errors.join(', ')}>
+                                ✗ {r.errors[0]}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Action buttons */}
+              <div className="flex items-center gap-3 pt-1">
+                <button
+                  onClick={() => handleImport(true)}
+                  disabled={okCount + warnCount === 0}
+                  className="flex-1 py-2.5 bg-[#003399] hover:bg-[#002277] disabled:bg-gray-200 disabled:text-gray-400 text-white text-xs font-bold rounded-lg transition-colors"
+                >
+                  Import Semua ({okCount + warnCount} sekolah)
+                </button>
+                {errCount > 0 && okCount > 0 && (
+                  <button
+                    onClick={() => handleImport(false)}
+                    className="flex-1 py-2.5 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-lg transition-colors"
+                  >
+                    Import OK Sahaja ({okCount} sekolah)
+                  </button>
+                )}
+                <button onClick={() => { setStep('idle'); setRows([]) }}
+                  className="px-4 py-2.5 border border-gray-200 text-xs text-gray-500 rounded-lg hover:bg-gray-50">
+                  Pilih Semula
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* Step: importing */}
+          {step === 'importing' && (
+            <div className="py-14 text-center space-y-3">
+              <div className="w-10 h-10 border-2 border-[#003399] border-t-transparent rounded-full animate-spin mx-auto" />
+              <p className="text-sm text-gray-500">Mengimport sekolah ke Firestore…</p>
+              <p className="text-xs text-gray-400">Sila tunggu, jangan tutup tetingkap ini.</p>
+            </div>
+          )}
+
+          {/* Step: done */}
+          {step === 'done' && result && (
+            <div className="py-10 text-center space-y-4">
+              <p className="text-4xl">✅</p>
+              <p className="text-sm font-bold text-gray-800">Import Selesai!</p>
+              <div className="flex justify-center gap-4">
+                <div className="bg-green-50 border border-green-200 rounded-xl px-6 py-3">
+                  <p className="text-2xl font-black text-green-700">{result.success}</p>
+                  <p className="text-[10px] text-green-600 font-semibold">Sekolah Berjaya</p>
+                </div>
+                {result.failed > 0 && (
+                  <div className="bg-red-50 border border-red-200 rounded-xl px-6 py-3">
+                    <p className="text-2xl font-black text-red-600">{result.failed}</p>
+                    <p className="text-[10px] text-red-600 font-semibold">Gagal</p>
+                  </div>
+                )}
+              </div>
+              <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mx-auto max-w-xs">
+                Sekolah dengan pin "000000" — sila reset PIN melalui butang Reset PIN.
+              </p>
+              <button onClick={onDone}
+                className="px-8 py-2.5 bg-[#003399] hover:bg-[#002277] text-white text-xs font-bold rounded-lg transition-colors">
+                Tutup & Muat Semula
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 // ─── Badge ────────────────────────────────────────────────────────────────────
 
@@ -141,7 +530,8 @@ function SekolahModal({ initial, onClose, onSaved, jenisList = KATEGORI_LIST_FAL
       }
 
       if (!isEdit) {
-        // ── TAMBAH BARU — Firestore sahaja, tiada Firebase Auth ──────────────
+        // ── TAMBAH BARU — hash PIN sebelum simpan ────────────────────────────
+        const ph = await hashPin(form.pin)
         await setDoc(doc(db, 'sekolah', kodBaru), {
           kodSekolah:  kodBaru,
           namaSekolah: form.namaSekolah.trim(),
@@ -152,19 +542,23 @@ function SekolahModal({ initial, onClose, onSaved, jenisList = KATEGORI_LIST_FAL
           bibPrefix:   form.bibPrefix.trim().toUpperCase(),
           bibMula:     Number(form.bibMula) || 1,
           bibFormat:   Number(form.bibFormat) || 3,
-          pin:         form.pin,
+          pinHash:     ph,    // R7: simpan hash sahaja
           isAktif:     true,
           createdAt:   serverTimestamp(),
         })
 
       } else if (kodBerubah) {
-        // ── EDIT + KOD BERUBAH — pindah dokumen Firestore sahaja ────────────
+        // ── EDIT + KOD BERUBAH — pindah dokumen, hash PIN baru jika ada ─────
         const dataLama = (await getDoc(doc(db, 'sekolah', kodLama))).data()
-        const pinAktif = (form.pin && form.pin !== dataLama?.pin) ? form.pin : (dataLama?.pin || '')
+        // Guna pinHash baru jika PIN diubah, kekal pinHash lama jika tidak
+        const pinHashAktif = form.pin
+          ? await hashPin(form.pin)
+          : (dataLama?.pinHash || null)
 
+        const { pin: _drop, ...dataLamaBersih } = dataLama || {}  // buang plain pin lama
         const batch = writeBatch(db)
         batch.set(doc(db, 'sekolah', kodBaru), {
-          ...dataLama,
+          ...dataLamaBersih,
           kodSekolah:  kodBaru,
           namaSekolah: form.namaSekolah.trim(),
           kategori:    form.kategori,
@@ -174,7 +568,7 @@ function SekolahModal({ initial, onClose, onSaved, jenisList = KATEGORI_LIST_FAL
           bibPrefix:   form.bibPrefix.trim().toUpperCase(),
           bibMula:     Number(form.bibMula) || 1,
           bibFormat:   Number(form.bibFormat) || 3,
-          pin:         pinAktif,
+          pinHash:     pinHashAktif,  // R7: hash sahaja
           updatedAt:   serverTimestamp(),
         })
         batch.delete(doc(db, 'sekolah', kodLama))
@@ -193,9 +587,10 @@ function SekolahModal({ initial, onClose, onSaved, jenisList = KATEGORI_LIST_FAL
           bibFormat:   Number(form.bibFormat) || 3,
           updatedAt:   serverTimestamp(),
         }
-        // PIN berubah — simpan terus dalam Firestore
-        if (form.pin && form.pin !== initial?.pin) {
-          updateData.pin = form.pin
+        // PIN berubah — hash dan simpan, buang plain pin lama
+        if (form.pin) {
+          updateData.pinHash = await hashPin(form.pin)
+          updateData.pin     = deleteField()
         }
         await updateDoc(doc(db, 'sekolah', kodLama), updateData)
       }
@@ -600,11 +995,10 @@ export default function SekolahSetup() {
   const [jenisList, setJenisList] = useState(KATEGORI_LIST_FALLBACK)
 
   // Modals
-  const [modal,    setModal]    = useState(null)  // 'tambah' | 'edit' | 'resetPin' | 'toggleAktif' | 'padam'
-  const [selected, setSelected] = useState(null)
-  const [deleting, setDeleting] = useState(false)
-
-  const fileRef = useRef()
+  const [modal,      setModal]      = useState(null)  // 'tambah' | 'edit' | 'resetPin' | 'toggleAktif' | 'padam'
+  const [selected,   setSelected]   = useState(null)
+  const [deleting,   setDeleting]   = useState(false)
+  const [showImport, setShowImport] = useState(false)
 
   // ── Fetch ──
   async function fetchList() {
@@ -651,50 +1045,6 @@ export default function SekolahSetup() {
     } finally {
       setDeleting(false)
     }
-  }
-
-  // ── Import Excel ──
-  function handleImportExcel(e) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = async (ev) => {
-      const wb   = XLSX.read(ev.target.result, { type: 'array' })
-      const ws   = wb.Sheets[wb.SheetNames[0]]
-      const rows = XLSX.utils.sheet_to_json(ws)
-
-      // Langkah 1: Tulis semua dokumen sekolah ke Firestore
-      const validRows = []
-      const batch = writeBatch(db)
-      for (const r of rows) {
-        const kod = String(r.kodSekolah || '').trim().toUpperCase()
-        if (!kod) continue
-        const pin = String(r.pin || '').trim()
-        const nama = String(r.namaSekolah || '')
-        batch.set(doc(db, 'sekolah', kod), {
-          kodSekolah:  kod,
-          namaSekolah: nama,
-          kategori:    String(r.kategori || 'SR'),
-          negeri:      String(r.negeri || 'Terengganu'),
-          daerah:      String(r.daerah || ''),
-          email:       String(r.email || ''),
-          bibPrefix:   String(r.bibPrefix || '').toUpperCase(),
-          bibMula:     Number(r.bibMula) || 1,
-          bibFormat:   Number(r.bibFormat) || 3,
-          pin,
-          isAktif:     true,
-          createdAt:   serverTimestamp(),
-        }, { merge: true })
-        validRows.push({ kod, pin, nama })
-      }
-      await batch.commit()
-
-      // Login sekolah menggunakan Firestore PIN check — tiada Firebase Auth per sekolah
-      alert(`${validRows.length} sekolah diimport ke Firestore.`)
-      fetchList()
-    }
-    reader.readAsArrayBuffer(file)
-    e.target.value = ''
   }
 
   // ── Export PDF ──
@@ -774,6 +1124,7 @@ export default function SekolahSetup() {
         </div>
 
         <div className="flex gap-2 ml-auto">
+          {/* Export PDF */}
           <button onClick={exportPDF}
             className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50 transition-colors">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -781,13 +1132,25 @@ export default function SekolahSetup() {
             </svg>
             PDF
           </button>
-          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleImportExcel} />
-          <button onClick={() => fileRef.current?.click()}
-            className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50 transition-colors">
+
+          {/* Download Template */}
+          <button onClick={downloadTemplateSekolah}
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 hover:border-gray-400 bg-white text-gray-600 hover:text-gray-800 text-xs font-semibold rounded-lg transition-colors"
+            title="Muat turun template Excel">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
             </svg>
-            Import Excel
+            Template
+          </button>
+
+          {/* Import */}
+          <button onClick={() => setShowImport(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-green-300 hover:border-green-400 bg-green-50 hover:bg-green-100 text-green-700 text-xs font-semibold rounded-lg transition-colors"
+            title="Import sekolah dari Excel/CSV">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+            </svg>
+            Import
           </button>
         </div>
       </div>
@@ -879,6 +1242,14 @@ export default function SekolahSetup() {
 
       {/* ── BIB Bulk Update ── */}
       {isSuperAdmin && <BibBulkPanel list={list} onUpdated={fetchList} />}
+
+      {/* Import Modal */}
+      {showImport && (
+        <ImportSekolahModal
+          onClose={() => setShowImport(false)}
+          onDone={() => { setShowImport(false); fetchList() }}
+        />
+      )}
 
       {/* Modals */}
       {modal === 'tambah' && (

@@ -2,106 +2,152 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ─── NOTA KESELAMATAN ─────────────────────────────────────────────────────
+    // Sistem ini guna PIN custom (bukan Firebase Auth) untuk log masuk.
+    // Mitigasi R1(B): hadkan DELETE pada koleksi kritikal, buang wildcard catch-all.
+    // Upgrade penuh perlu migrate ke Firebase Auth pada masa hadapan.
+
     // ─── Kejohanan + sub-koleksi ──────────────────────────────────────────────
     match /kejohanan/{id} {
-      allow read:  if true;
-      allow write: if true; // admin/superadmin urus status kejohanan
+      allow read:   if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if false; // padam kejohanan melalui Firebase Console sahaja
 
       match /acara/{aceraId} {
-        allow read:  if true;
-        allow write: if true; // admin jana/urus acara
+        allow read:   if true;
+        allow create: if true;
+        allow update: if true;
+        allow delete: if true; // admin boleh padam acara
 
         match /heat/{heatId} {
-          allow read:  if true;
-          allow write: if true; // admin/pencatat jana & isi keputusan
+          allow read:   if true;
+          allow create: if true;
+          allow update: if true;
+          allow delete: if true; // StartList boleh redo heat
 
           match /keputusan/{kId} {
-            allow read:  if true;
-            allow write: if true; // pencatat input keputusan
+            allow read:   if true;
+            allow create: if true;
+            allow update: if true;
+            allow delete: if true;
           }
         }
       }
 
-      match /pendaftaran/{noBib} {
-        allow read:  if true;
-        allow write: if true; // pengurus pasukan & admin daftar/buang atlet
+      match /pendaftaran/{noKP} {
+        allow read:   if true;
+        allow create: if true;
+        allow update: if true;
+        allow delete: if true; // pengurus boleh buang atlet
       }
     }
 
-    // ─── Sekolah — login + setup ───────────────────────────────────────────────
+    // ─── Sekolah — PIN tersimpan: LARANG delete dari luar ────────────────────
     match /sekolah/{kodSekolah} {
-      allow read:  if true;
-      allow write: if true;
+      allow read:   if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if false; // sekolah tidak boleh dipadam dari UI
     }
 
-    // ─── Atlet — data peribadi tapi dalaman ───────────────────────────────────
+    // ─── Atlet ────────────────────────────────────────────────────────────────
     match /atlet/{noKP} {
-      allow read:  if true;
-      allow write: if true;
+      allow read:   if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true; // reset sistem perlu padam atlet
     }
 
-    // ─── Rekod — papan awam ───────────────────────────────────────────────────
+    // ─── Rekod — LARANG delete (rekod sukan kekal) ────────────────────────────
     match /rekod/{id} {
-      allow read:  if true;
-      allow write: if true;
+      allow read:   if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if false;
     }
 
     match /rekod_tuntutan/{id} {
-      allow read:  if true;
-      allow write: if true;
+      allow read:   if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if false;
     }
 
-    // ─── Medal Tally — papan awam ─────────────────────────────────────────────
+    // ─── Medal Tally — delete dibenar (ResetSistem admin perlu padam) ────────
     match /medal_tally/{id} {
-      allow read:  if true;
-      allow write: if true;
+      allow read:   if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true; // ResetSistem admin — upgrade ke Firebase Auth untuk hadkan
     }
 
     match /medal_tally_kat/{id} {
-      allow read:  if true;
-      allow write: if true;
+      allow read:   if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;
     }
 
-    // ─── Olahragawan — papan awam ─────────────────────────────────────────────
+    // ─── Mata Olahragawan — delete dibenar (ResetSistem admin perlu padam) ───
     match /mata_olahragawan/{id} {
-      allow read:  if true;
-      allow write: if true;
+      allow read:   if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true; // ResetSistem admin — upgrade ke Firebase Auth untuk hadkan
     }
 
     // ─── Tetapan sistem ───────────────────────────────────────────────────────
     match /tetapan/{id} {
-      allow read:  if true;
-      allow write: if true;
+      allow read:   if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if false;
     }
 
     // ─── Jadual Acara ─────────────────────────────────────────────────────────
     match /jadual_acara/{id} {
-      allow read:  if true;
-      allow write: if true;
+      allow read:   if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;
     }
 
     // ─── Pengguna sistem ──────────────────────────────────────────────────────
     match /users/{uid} {
-      allow read:  if true;
-      allow write: if true;
+      allow read:   if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if false;
     }
 
     // ─── Kategori ─────────────────────────────────────────────────────────────
     match /kategori/{id} {
-      allow read:  if true;
-      allow write: if true;
+      allow read:   if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;
     }
 
-    // ─── Bantahan ─────────────────────────────────────────────────────────────
+    // ─── Bantahan — LARANG delete (audit trail) ───────────────────────────────
     match /bantahan/{id} {
-      allow read:  if true;
-      allow write: if true;
+      allow read:   if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if false;
     }
 
-    // ─── Lain-lain ────────────────────────────────────────────────────────────
-    match /{document=**} {
-      allow read:  if true;
-      allow write: if true;
+    // ─── Login Attempts — rate limiting (R-NEW-3) ─────────────────────────────
+    match /login_attempts/{id} {
+      allow read:   if true;  // auth.js perlu baca sebelum semak
+      allow create: if true;  // rekod pertama
+      allow update: if true;  // kemas kini kiraan
+      allow delete: if false; // rekod kekal sebagai audit trail
     }
+
+    // ─── TIADA wildcard catch-all ─────────────────────────────────────────────
+    // Koleksi tidak tersenarai di atas = DITOLAK secara default.
+    // Ini mencegah koleksi luar dijana oleh pihak yang tidak diketahui.
   }
 }
+
