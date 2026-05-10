@@ -43,12 +43,12 @@ service cloud.firestore {
       }
     }
 
-    // ─── Sekolah — PIN tersimpan: LARANG delete dari luar ────────────────────
+    // ─── Sekolah ──────────────────────────────────────────────────────────────
     match /sekolah/{kodSekolah} {
       allow read:   if true;
       allow create: if true;
       allow update: if true;
-      allow delete: if false; // sekolah tidak boleh dipadam dari UI
+      allow delete: if true; // admin boleh padam sekolah dari UI
     }
 
     // ─── Atlet ────────────────────────────────────────────────────────────────
@@ -135,6 +135,14 @@ service cloud.firestore {
       allow create: if true;
       allow update: if true;
       allow delete: if false;
+    }
+
+    // ─── Pendaftaran Counter — noBib auto-increment per sekolah ─────────────────
+    match /pendaftaran_counter/{id} {
+      allow read:   if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if false; // counter kekal sebagai audit trail
     }
 
     // ─── Login Attempts — rate limiting (R-NEW-3) ─────────────────────────────

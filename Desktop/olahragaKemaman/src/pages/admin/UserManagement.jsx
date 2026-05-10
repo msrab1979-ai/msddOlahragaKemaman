@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  collection, getDocs, doc, addDoc, updateDoc, deleteDoc,
+  collection, getDocs, doc, addDoc, updateDoc, deleteDoc, deleteField,
   serverTimestamp, query, orderBy,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
 import PasswordInput from '../../components/ui/PasswordInput'
+import { hashPin } from '../../utils/hashPin'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -292,10 +293,13 @@ export default function UserManagement() {
 
   async function confirmResetPin() {
     if (!resetPin) return
+    const ph = await hashPin(resetPin.newPin)
     await updateDoc(doc(db, 'users', resetPin.uid), {
-      pin: resetPin.newPin, updatedAt: serverTimestamp(),
+      pinHash:   ph,
+      pin:       deleteField(),   // buang plain text jika ada
+      updatedAt: serverTimestamp(),
     })
-    setUsers(prev => prev.map(x => x.uid === resetPin.uid ? { ...x, pin: resetPin.newPin } : x))
+    setUsers(prev => prev.map(x => x.uid === resetPin.uid ? { ...x, pinHash: ph, pin: undefined } : x))
     setResetPin(null)
   }
 

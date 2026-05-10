@@ -502,18 +502,17 @@ function SekolahModal({ initial, onClose, onSaved, jenisList = KATEGORI_LIST_FAL
         }
       }
 
-      // Semak bibPrefix unik dalam sekolah sejenis (SR/SM/PPKI) — elak noBib clash dalam heat
+      // Semak bibPrefix unik seluruh sistem — elak noBib clash antara mana-mana sekolah
       const prefixBaru   = form.bibPrefix.trim().toUpperCase()
       const prefixBerubah = isEdit ? prefixBaru !== (initial?.bibPrefix || '').toUpperCase() : true
       if (prefixBerubah) {
         const prefixSnap = await getDocs(query(
           collection(db, 'sekolah'),
-          where('kategori',  '==', form.kategori),
           where('bibPrefix', '==', prefixBaru)
         ))
         const clash = prefixSnap.docs.find(d => d.id !== kodBaru && d.id !== kodLama)
         if (clash) {
-          setErr(`BIB Prefix "${prefixBaru}" sudah digunakan oleh ${clash.data().namaSekolah} (${clash.id}) dalam kategori ${form.kategori}. Sila guna prefix lain.`)
+          setErr(`BIB Prefix "${prefixBaru}" sudah digunakan oleh ${clash.data().namaSekolah} (${clash.id}) [${clash.data().kategori}]. Prefix mesti unik antara semua sekolah.`)
           setBusy(false)
           return
         }
@@ -787,8 +786,12 @@ function ResetPinModal({ sekolah, onClose, onSaved }) {
     setBusy(true)
     setErr('')
     try {
-      // Simpan PIN baru dalam Firestore sahaja — tiada Firebase Auth
-      await updateDoc(doc(db, 'sekolah', sekolah.kodSekolah), { pin, updatedAt: serverTimestamp() })
+      const ph = await hashPin(pin)
+      await updateDoc(doc(db, 'sekolah', sekolah.kodSekolah), {
+        pinHash:   ph,
+        pin:       deleteField(),   // buang plain text jika ada
+        updatedAt: serverTimestamp(),
+      })
       onSaved()
       onClose()
     } catch (e) {
@@ -821,8 +824,9 @@ function ResetPinModal({ sekolah, onClose, onSaved }) {
               maxLength={6}
             />
           </FormField>
-          <p className="text-[10px] text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-3 py-2">
-            PIN semasa: <strong className="font-mono">{sekolah.pin}</strong>. Selepas reset, pengurus pasukan perlu guna PIN baru.
+          <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+            Selepas reset, pengurus pasukan perlu guna PIN baru ini untuk log masuk.
+            PIN disimpan secara selamat (hashed) — tiada sesiapa boleh lihat PIN asal.
           </p>
           <div className="flex gap-3">
             <button type="button" onClick={onClose}

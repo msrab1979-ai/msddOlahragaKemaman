@@ -1208,7 +1208,9 @@ export default function Rekod() {
                             <th className="px-4 py-2 text-left">Acara</th>
                             <th className="px-3 py-2 text-center">Jan.</th>
                             <th className="px-4 py-2 text-left">Atlet</th>
-                            <th className="px-4 py-2 text-left">Sekolah</th>
+                            <th className="px-4 py-2 text-left">
+                              {selPeringkat === 'D' ? 'Sekolah' : selPeringkat === 'N' ? 'Daerah' : 'Negeri'}
+                            </th>
                             <th className="px-4 py-2 text-right font-bold">Prestasi</th>
                             <th className="px-3 py-2 text-center">Angin</th>
                             <th className="px-3 py-2 text-center">Tarikh</th>
@@ -1230,7 +1232,11 @@ export default function Rekod() {
                                 <p className="text-gray-800">{r.namaAtlet || '—'}</p>
                                 {r.noKP && <p className="text-[10px] text-gray-400 font-mono">{r.noKP}</p>}
                               </td>
-                              <td className="px-4 py-2.5 text-gray-600">{r.namaSekolah || r.kodSekolah || '—'}</td>
+                              <td className="px-4 py-2.5 text-gray-600">
+                                {selPeringkat === 'D' ? (r.namaSekolah || r.kodSekolah || '—')
+                                  : selPeringkat === 'N' ? (r.namaDaerah || '—')
+                                  : (r.namaNegeri || '—')}
+                              </td>
                               <td className="px-4 py-2.5 text-right">
                                 <span className="font-black text-[#003399] text-sm">
                                   {formatPrestasi(r.prestasi, r.unit)}

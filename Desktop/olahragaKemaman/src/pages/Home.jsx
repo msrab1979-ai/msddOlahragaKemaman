@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { doc, getDoc, collection, query, where, getDocs, orderBy } from 'firebase/firestore'
+import { doc, getDoc, updateDoc, deleteField, serverTimestamp, collection, query, where, getDocs, orderBy } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import { useAuth } from '../context/AuthContext'
 import PasswordInput from '../components/ui/PasswordInput'
+import { hashPin } from '../utils/hashPin'
 import { TETAPAN_DEFAULTS } from './admin/TetapanHome'
 
 // ─── Roles ────────────────────────────────────────────────────────────────────
@@ -92,10 +93,15 @@ function formatDayLabel(dateStr) {
 
 // ─── LupaPinModal ─────────────────────────────────────────────────────────────
 
+function genPin6() {
+  // Jana PIN 6 digit rawak (100000–999999)
+  return String(Math.floor(100000 + Math.random() * 900000))
+}
+
 function LupaPinModal({ onClose }) {
   const [kodSekolah, setKodSekolah] = useState('')
   const [email,      setEmail]      = useState('')
-  const [pin,        setPin]        = useState(null)   // null = belum semak, string = pin dijumpai
+  const [newPin,     setNewPin]     = useState(null)  // null = belum reset, string = PIN baru
   const [error,      setError]      = useState('')
   const [loading,    setLoading]    = useState(false)
 
@@ -122,7 +128,15 @@ function LupaPinModal({ onClose }) {
         setError('E-mel tidak sepadan dengan rekod sekolah ini.')
         return
       }
-      setPin(data.pin || '—')
+      // Jana PIN baru, hash & simpan — PIN lama digantikan
+      const pin6   = genPin6()
+      const ph     = await hashPin(pin6)
+      await updateDoc(doc(db, 'sekolah', kodSekolah.trim().toUpperCase()), {
+        pinHash:   ph,
+        pin:       deleteField(),   // buang plain text jika ada
+        updatedAt: serverTimestamp(),
+      })
+      setNewPin(pin6)
     } catch {
       setError('Ralat sistem. Cuba sebentar lagi.')
     } finally {
@@ -143,22 +157,31 @@ function LupaPinModal({ onClose }) {
           </button>
         </div>
         <div className="p-5">
-          {pin !== null ? (
+          {newPin !== null ? (
             <div className="text-center py-2 space-y-3">
-              <p className="text-3xl">🔑</p>
-              <p className="text-xs text-gray-500">PIN Sekolah anda:</p>
-              <p className="text-3xl font-black tracking-[0.3em] text-[#003399] font-mono bg-blue-50 rounded-xl py-4">
-                {pin}
+              <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto">
+                <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                </svg>
+              </div>
+              <p className="text-xs font-semibold text-gray-700">PIN baru untuk sekolah anda:</p>
+              <p className="text-3xl font-black tracking-[0.3em] text-[#003399] font-mono bg-blue-50 rounded-xl py-4 border border-blue-100">
+                {newPin}
               </p>
-              <p className="text-[10px] text-gray-400">Simpan PIN ini. Gunakan untuk log masuk.</p>
+              <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                Catat PIN ini sekarang. Ia <strong>tidak akan dipaparkan semula</strong> selepas ditutup.
+              </p>
               <button onClick={onClose}
-                className="w-full bg-[#003399] text-white font-bold py-2 rounded-lg text-xs">
-                TUTUP
+                className="w-full bg-[#003399] text-white font-bold py-2.5 rounded-lg text-xs">
+                SAYA SUDAH CATAT — TUTUP
               </button>
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-3">
-              <p className="text-xs text-gray-500">Masukkan Kod Sekolah dan E-mel untuk semak PIN.</p>
+              <p className="text-xs text-gray-500">
+                Masukkan Kod Sekolah dan E-mel untuk <strong>jana PIN baru</strong>.
+                PIN lama tidak lagi boleh digunakan selepas ini.
+              </p>
               {error && (
                 <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{error}</p>
               )}

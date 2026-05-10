@@ -900,6 +900,70 @@ function AddAcaraRow({ tarikhAcara, kejohananId, kategoriList, acaraList, onSave
   )
 }
 
+// ─── KatCell — inline dropdown untuk betulkan kategoriKod ────────────────────
+
+function KatCell({ acara, kejohananId, kategoriList, onUpdated }) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal]         = useState(acara.kategoriKod || '')
+  const [saving, setSaving]   = useState(false)
+  const selectRef             = React.useRef()
+
+  const isWrong = val && !kategoriList.find(k => k.kod === val)
+
+  function startEdit() { setVal(acara.kategoriKod || ''); setEditing(true) }
+  function cancel()    { setEditing(false) }
+
+  async function save(newVal) {
+    const kod = newVal ?? val
+    if (!kod || kod === acara.kategoriKod) return cancel()
+    setSaving(true)
+    try {
+      const aceraKey = String(acara.noAcara || acara.aceraId || acara.id)
+      const selectedKat = kategoriList.find(k => k.kod === kod)
+      const kelas = selectedKat?.label
+        || (selectedKat?.umurHad ? `${acara.jantina} Bwh ${selectedKat.umurHad}` : `${acara.jantina} ${kod}`)
+      const namaAcara = `${acara.namaAcaraPendek || ''} ${kelas}`.trim()
+      await updateDoc(doc(db, 'kejohanan', kejohananId, 'acara', aceraKey), {
+        kategoriKod: kod, kelas, namaAcara, updatedAt: serverTimestamp(),
+      })
+      onUpdated(aceraKey, kod, kelas, namaAcara)
+    } catch { /* kekal nilai lama */ } finally { setSaving(false); setEditing(false) }
+  }
+
+  useEffect(() => { if (editing && selectRef.current) selectRef.current.focus() }, [editing])
+
+  if (saving) return <span className="text-[10px] text-gray-400">…</span>
+
+  if (editing) return (
+    <select ref={selectRef} value={val}
+      onChange={e => { setVal(e.target.value); save(e.target.value) }}
+      onBlur={cancel}
+      onKeyDown={e => { if (e.key === 'Escape') cancel() }}
+      className="text-[10px] font-bold border border-[#003399] rounded-lg px-1 py-0.5 focus:outline-none focus:ring-2 focus:ring-[#003399]/30 bg-white min-w-[80px]">
+      <option value="">— Kat —</option>
+      {kategoriList.map(k => (
+        <option key={k.kod} value={k.kod}>{k.label || k.kod}</option>
+      ))}
+    </select>
+  )
+
+  const label = katLabel(val, kategoriList)
+  return (
+    <button onClick={startEdit} title="Klik untuk tukar kategori"
+      className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all group ${
+        isWrong
+          ? 'bg-red-50 text-red-700 border-red-300 hover:border-red-500'
+          : 'bg-blue-50 text-[#003399] border-blue-200 hover:border-[#003399]'
+      }`}>
+      {isWrong && <span className="text-red-500 mr-0.5">!</span>}
+      {label}
+      <svg className="w-2 h-2 text-blue-300 group-hover:text-[#003399] ml-0.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+      </svg>
+    </button>
+  )
+}
+
 // ─── HadCell — inline edit untuk hadAtletPerSekolah ──────────────────────────
 
 function HadCell({ acara, kejohananId, onUpdated }) {
@@ -1802,6 +1866,15 @@ export default function AcaraSetup() {
 
   useEffect(() => { fetchAcara() }, [fetchAcara])
 
+  // Kemaskini kategoriKod inline — tanpa reload penuh
+  function handleKatUpdated(aceraKey, newKod, newKelas, newNama) {
+    setAcaraList(l => l.map(a =>
+      (a.noAcara || a.aceraId || a.id) === String(aceraKey)
+        ? { ...a, kategoriKod: newKod, kelas: newKelas, namaAcara: newNama }
+        : a
+    ))
+  }
+
   // Kemaskini hadAtletPerSekolah inline — tanpa reload penuh
   function handleHadUpdated(aceraKey, newVal) {
     setAcaraList(l => l.map(a =>
@@ -2143,7 +2216,9 @@ export default function AcaraSetup() {
                                       <p className="text-[9px] text-purple-500 font-semibold">→ Final: #{finalMap[String(a.noAcara)]}</p>
                                     )}
                                   </td>
-                                  <td className="px-3 py-2 text-center font-black text-[#003399]">{katLabel(a.kategoriKod, kategoriList)}</td>
+                                  <td className="px-3 py-2 text-center">
+                                    <KatCell acara={a} kejohananId={selectedKej} kategoriList={kategoriList} onUpdated={handleKatUpdated} />
+                                  </td>
                                   <td className="px-3 py-2 text-center"><JantinaBadge jantina={a.jantina} /></td>
                                   <td className="px-3 py-2"><JenisBadge jenis={a.jenisAcara} /></td>
                                   <td className="px-3 py-2 text-gray-500 text-[10px]">{a.lokasi || '—'}</td>
@@ -2281,7 +2356,7 @@ export default function AcaraSetup() {
                           <p className="text-[9px] font-mono text-gray-400 mt-0.5">{a.aceraId}</p>
                         </td>
                         <td className="px-3 py-2.5 text-center">
-                          <span className="font-black text-[#003399]">{katLabel(a.kategoriKod, kategoriList)}</span>
+                          <KatCell acara={a} kejohananId={selectedKej} kategoriList={kategoriList} onUpdated={handleKatUpdated} />
                         </td>
                         <td className="px-3 py-2.5 text-center">
                           <JantinaBadge jantina={a.jantina} />

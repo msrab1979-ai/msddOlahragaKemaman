@@ -30,12 +30,15 @@ export function rekodKey(namaAcara, jantina, kategoriKod, peringkat) {
  * @returns {Promise<{ D: object|null, N: object|null, K: object|null }>}
  */
 export async function cariRekodUntukAcara(acara) {
-  const { namaAcara, jantina, kategoriKod } = acara
+  const { namaAcara, namaAcaraPendek, jantina, kategoriKod } = acara
+  // Guna namaAcaraPendek jika ada — match format import Excel dalam Rekod.jsx
+  // Fallback ke namaAcara jika namaAcaraPendek tiada
 
+  const nama = (namaAcaraPendek || namaAcara || '').trim()
   const [dSnap, nSnap, kSnap] = await Promise.all([
-    getDoc(doc(db, 'rekod', rekodKey(namaAcara, jantina, kategoriKod, 'D'))),
-    getDoc(doc(db, 'rekod', rekodKey(namaAcara, jantina, kategoriKod, 'N'))),
-    getDoc(doc(db, 'rekod', rekodKey(namaAcara, jantina, kategoriKod, 'K'))),
+    getDoc(doc(db, 'rekod', rekodKey(nama, jantina, kategoriKod, 'D'))),
+    getDoc(doc(db, 'rekod', rekodKey(nama, jantina, kategoriKod, 'N'))),
+    getDoc(doc(db, 'rekod', rekodKey(nama, jantina, kategoriKod, 'K'))),
   ])
 
   return {

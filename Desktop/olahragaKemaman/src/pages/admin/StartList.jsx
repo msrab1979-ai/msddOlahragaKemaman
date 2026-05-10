@@ -21,7 +21,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
-  collection, getDocs, doc, setDoc, deleteDoc,
+  collection, getDocs, getDoc, doc, setDoc, deleteDoc,
   serverTimestamp, query, orderBy, where, writeBatch,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
@@ -835,7 +835,7 @@ function JanaSemuaModal({ kejohananId, acaraList, onClose, onDone }) {
 
 // ─── Modal: Jana Final dari Heat ─────────────────────────────────────────────
 
-function JanaFinalModal({ acara, heatList, kejohananId, onClose, onGenerated, sekolahMap = {} }) {
+function JanaFinalModal({ acara, heatList, kejohananId, onClose, onGenerated, sekolahMap = {}, acaraList = [] }) {
   const isPadang = ['padang_lompat', 'padang_balin'].includes(acara.jenisAcara)
   const isMass   = acara.jenisAcara === 'mass_start'
 
@@ -910,6 +910,33 @@ function JanaFinalModal({ acara, heatList, kejohananId, onClose, onGenerated, se
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       })
+
+      // ── Auto-register finalis ke pendaftaran acara final ─────────────────────
+      // Cari acara final yang parentAcaraId = saringan ini
+      const saringanId = String(acara.noAcara || acara.aceraId || acara.id)
+      const finalAcara = acaraList.find(a =>
+        a.peringkat === 'akhir' &&
+        (String(a.parentAcaraId) === saringanId || String(a.parentAcaraId) === String(acara.aceraId))
+      )
+      if (finalAcara) {
+        const finalAcaraId = finalAcara.aceraId || finalAcara.id
+        const batch = writeBatch(db)
+        for (const p of finalis) {
+          if (!p.noKP) continue
+          const pendRef  = doc(db, 'kejohanan', kejohananId, 'pendaftaran', p.noKP)
+          const pendSnap = await getDoc(pendRef)
+          if (pendSnap.exists()) {
+            const ids = pendSnap.data().acaraIds || []
+            if (!ids.includes(finalAcaraId)) {
+              batch.update(pendRef, {
+                acaraIds:  [...ids, finalAcaraId],
+                updatedAt: serverTimestamp(),
+              })
+            }
+          }
+        }
+        await batch.commit()
+      }
 
       onGenerated()
       onClose()
@@ -1273,11 +1300,26 @@ export default function StartList() {
   const [sekolahList, setSekolahList]    = useState([])
   const [kategoriList, setKategoriList]  = useState([])
   const [pesertaCountMap, setPesertaCountMap] = useState({}) // aceraId → bilangan peserta
-  const [viewMode, setViewMode]          = useState('acara') // 'acara' | 'status'
+  const [viewMode, setViewMode]          = useState('acara') // 'acara' | 'status' | 'hari'
+  const [selectedHari, setSelectedHari]  = useState(null)   // tarikh string 'YYYY-MM-DD'
+  const [cetakHariLoading, setCetakHariLoading] = useState(null) // aceraId being printed
   const [quickJanaAcara, setQuickJanaAcara] = useState(null) // acara obj | null
   const [resetingAceraId, setResetingAceraId] = useState(null) // aceraId being reset
   const [resetingAll, setResetingAll]    = useState(false)
   const [resetAllConfirm, setResetAllConfirm] = useState(false)
+  const [jadualMap, setJadualMap]        = useState({}) // aceraId → {tarikhAcara, masaMula, lokasi}
+  const [cetakLoading, setCetakLoading]  = useState(false)
+  const [cetakDropdown, setCetakDropdown] = useState(false)
+  const [pengesahanMap, setPengesahanMap] = useState({}) // kodSekolah → { disahkan, tarikhSahkan }
+  const [sekolahDaftarSet, setSekolahDaftarSet] = useState(new Set()) // kodSekolah yang ada pendaftaran
+
+  // Tutup dropdown cetak bila klik luar
+  useEffect(() => {
+    if (!cetakDropdown) return
+    function handler(e) { if (!e.target.closest('[data-cetak-menu]')) setCetakDropdown(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [cetakDropdown])
 
   const namaSekolahMap = useMemo(() =>
     Object.fromEntries(sekolahList.map(s => [s.kodSekolah, s.namaSekolah || s.kodSekolah])),
@@ -1306,13 +1348,30 @@ export default function StartList() {
       }).catch(() => {})
   }, [])
 
-  // Fetch acara bila kejohanan berubah
+  // Fetch acara + jadual bila kejohanan berubah
   useEffect(() => {
-    if (!selectedKej) { setAcaraList([]); setSelectedAcara(null); setPesertaCountMap({}); return }
+    if (!selectedKej) { setAcaraList([]); setSelectedAcara(null); setPesertaCountMap({}); setJadualMap({}); return }
     getDocs(query(collection(db, 'kejohanan', selectedKej, 'acara'), orderBy('kategoriKod')))
       .then(snap => {
         setAcaraList(snap.docs.map(d => ({ id: d.id, ...d.data() })))
         setSelectedAcara(null)
+      }).catch(() => {})
+    getDocs(query(collection(db, 'jadual_acara'), where('kejohananId', '==', selectedKej)))
+      .then(snap => {
+        const map = {}
+        snap.docs.forEach(d => {
+          const j = d.data()
+          const aid = j.aceraId || j.acaraId
+          if (aid) map[aid] = { tarikhAcara: j.tarikhAcara || '', masaMula: j.masaMula || '', lokasi: j.lokasi || '' }
+        })
+        setJadualMap(map)
+      }).catch(() => {})
+    // Fetch pengesahan semua sekolah
+    getDocs(collection(db, 'kejohanan', selectedKej, 'pengesahan'))
+      .then(snap => {
+        const map = {}
+        snap.docs.forEach(d => { map[d.id] = d.data() })
+        setPengesahanMap(map)
       }).catch(() => {})
   }, [selectedKej])
 
@@ -1322,13 +1381,16 @@ export default function StartList() {
     getDocs(collection(db, 'kejohanan', selectedKej, 'pendaftaran'))
       .then(snap => {
         const map = {}
+        const sekolahSet = new Set()
         snap.docs.forEach(d => {
           const p = d.data()
+          if (p.kodSekolah) sekolahSet.add(p.kodSekolah)
           ;(p.acaraIds || []).forEach(aid => {
             map[aid] = (map[aid] || 0) + 1
           })
         })
         setPesertaCountMap(map)
+        setSekolahDaftarSet(sekolahSet)
       }).catch(() => {})
   }, [selectedKej, heatCountTick])
 
@@ -1434,6 +1496,585 @@ export default function StartList() {
     finally { setResetingAll(false) }
   }
 
+  // ── Cetak Start List by Hari ──────────────────────────────────────────────────
+  async function cetakStartListByHari(tarikh) {
+    if (!selectedKej) return
+    setCetakLoading(true); setCetakDropdown(false)
+    try {
+      // 1. Acara pada hari ini, sort ikut masa
+      const acaraHari = acaraList
+        .filter(a => {
+          const aid = a.aceraId || a.id
+          return (jadualMap[aid]?.tarikhAcara || '') === tarikh
+        })
+        .sort((a, b) => {
+          const mA = jadualMap[a.aceraId || a.id]?.masaMula || '99:99'
+          const mB = jadualMap[b.aceraId || b.id]?.masaMula || '99:99'
+          return mA.localeCompare(mB)
+        })
+
+      if (acaraHari.length === 0) { alert('Tiada acara berjadual pada tarikh ini.'); return }
+
+      // 2. Fetch heat data semua acara hari ini
+      const acaraWithHeats = await Promise.all(
+        acaraHari.map(async a => {
+          const aid = a.aceraId || a.id
+          const snap = await getDocs(
+            query(collection(db, 'kejohanan', selectedKej, 'acara', aid, 'heat'), orderBy('noHeat'))
+          )
+          return { ...a, heats: snap.docs.map(d => ({ id: d.id, ...d.data() })), jadual: jadualMap[aid] || {} }
+        })
+      )
+
+      // 3. Logo dari tetapan/home
+      const cfgSnap = await getDoc(doc(db, 'tetapan', 'home'))
+      const cfg = cfgSnap.exists() ? cfgSnap.data() : {}
+      function imgFmt(b64) {
+        if (!b64) return 'PNG'
+        if (b64.startsWith('data:image/jpeg') || b64.startsWith('data:image/jpg')) return 'JPEG'
+        return 'PNG'
+      }
+
+      // 4. Bina PDF
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const W = pdf.internal.pageSize.getWidth()
+      const M = 12
+
+      // Format tarikh paparan
+      const tarikhLabel = tarikh
+        ? new Date(tarikh + 'T00:00:00').toLocaleDateString('ms-MY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+        : tarikh
+
+      function buatHeader(isFirstPage) {
+        let y = 10
+        // Logo kiri
+        if (cfg.logoKiriBase64) {
+          try { pdf.addImage(cfg.logoKiriBase64, imgFmt(cfg.logoKiriBase64), M, y, 18, 18) } catch {}
+        }
+        // Logo kanan
+        if (cfg.logoKananBase64) {
+          try { pdf.addImage(cfg.logoKananBase64, imgFmt(cfg.logoKananBase64), W - M - 18, y, 18, 18) } catch {}
+        }
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(11)
+        pdf.text(namaKej || 'Kejohanan Olahraga Antara Murid', W / 2, y + 7, { align: 'center' })
+        pdf.setFontSize(9)
+        pdf.setFont('helvetica', 'normal')
+        pdf.text('START LIST', W / 2, y + 13, { align: 'center' })
+        pdf.setFontSize(8)
+        pdf.text(tarikhLabel, W / 2, y + 18, { align: 'center' })
+        pdf.setDrawColor(0, 51, 153)
+        pdf.setLineWidth(0.7)
+        pdf.line(M, y + 22, W - M, y + 22)
+        return y + 27
+      }
+
+      let curY = buatHeader(true)
+      let isFirst = true
+
+      for (const a of acaraWithHeats) {
+        const isPadangAcara = ['padang_lompat', 'padang_balin'].includes(a.jenisAcara)
+        const isRelayAcara  = a.jenisAcara === 'relay'
+        const katLbl = katLabel(a.kategoriKod, kategoriList)
+        const masa   = a.jadual?.masaMula || '—'
+        const lokasi = a.jadual?.lokasi   || '—'
+        const peringkatLabel = a.peringkat === 'saringan' ? 'Saringan'
+          : a.parentAcaraId ? `Final (← Acara #${a.parentAcaraId})`
+          : 'Terus Final'
+
+        // New page if near bottom
+        if (!isFirst && curY > 240) {
+          pdf.addPage()
+          curY = buatHeader(false)
+        }
+        isFirst = false
+
+        // Acara header bar
+        pdf.setFillColor(0, 51, 153)
+        pdf.roundedRect(M, curY, W - M * 2, 9, 1, 1, 'F')
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(9)
+        pdf.setTextColor(255, 255, 255)
+        pdf.text(`${masa}  |  ${a.namaAcara}`, M + 3, curY + 6)
+        pdf.setFontSize(7.5)
+        pdf.setFont('helvetica', 'normal')
+        pdf.text(`Kat: ${katLbl}   Peringkat: ${peringkatLabel}   Lokasi: ${lokasi}`, W - M - 3, curY + 6, { align: 'right' })
+        pdf.setTextColor(0, 0, 0)
+        curY += 11
+
+        if (a.heats.length === 0) {
+          // Tiada heat dijana
+          pdf.setFontSize(8)
+          pdf.setFont('helvetica', 'italic')
+          pdf.setTextColor(150, 150, 150)
+          pdf.text('Heat belum dijana', M + 3, curY + 5)
+          pdf.setTextColor(0, 0, 0)
+          curY += 10
+          continue
+        }
+
+        for (const heat of a.heats) {
+          const pesertaHeat = (heat.peserta || []).sort((x, y) =>
+            isPadangAcara ? (x.giliran ?? 99) - (y.giliran ?? 99) : (x.lorong ?? 99) - (y.lorong ?? 99)
+          )
+
+          // Check page break before each heat
+          const estHeight = 8 + pesertaHeat.length * 6 + 4
+          if (curY + estHeight > 275) {
+            pdf.addPage()
+            curY = buatHeader(false)
+          }
+
+          // Heat label
+          pdf.setFillColor(230, 235, 255)
+          pdf.rect(M, curY, W - M * 2, 6.5, 'F')
+          pdf.setFont('helvetica', 'bold')
+          pdf.setFontSize(8)
+          pdf.setTextColor(0, 51, 153)
+          const fasaStr = heat.fasa === 'final' ? 'FINAL' : heat.fasa === 'saringan' ? 'SARINGAN' : `HEAT ${heat.noHeat}`
+          pdf.text(fasaStr, M + 3, curY + 4.5)
+          pdf.setTextColor(0, 0, 0)
+          curY += 7
+
+          // Heat table
+          const head = isPadangAcara
+            ? [['#', 'Nama Atlet', 'Sekolah', 'No. Badan']]
+            : [['Lorong', 'Nama Atlet', 'Sekolah', 'No. Badan']]
+
+          const body = pesertaHeat.map(p => [
+            isPadangAcara ? (p.giliran ?? '—') : (p.lorong ?? '—'),
+            p.namaAtlet || p.nama || '—',
+            namaSekolahMap[p.kodSekolah] || p.kodSekolah || '—',
+            p.noBib || '—',
+          ])
+
+          autoTable(pdf, {
+            startY: curY,
+            head,
+            body,
+            styles:       { fontSize: 7.5, cellPadding: 1.5 },
+            headStyles:   { fillColor: [200, 210, 240], textColor: [0, 30, 100], fontStyle: 'bold', fontSize: 7.5 },
+            columnStyles: {
+              0: { halign: 'center', cellWidth: 16 },
+              3: { halign: 'center', cellWidth: 22 },
+            },
+            margin: { left: M, right: M },
+            tableLineColor: [200, 210, 240],
+            tableLineWidth: 0.2,
+          })
+          curY = pdf.lastAutoTable.finalY + 4
+        }
+        curY += 3 // gap antara acara
+      }
+
+      // Footer
+      pdf.setFontSize(7)
+      pdf.setFont('helvetica', 'normal')
+      pdf.setTextColor(150)
+      const dicetak = new Date().toLocaleString('ms-MY', { timeZone: 'Asia/Kuala_Lumpur', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      pdf.text(`Dicetak: ${dicetak}   |   ${acaraHari.length} acara`, M, pdf.internal.pageSize.getHeight() - 6)
+      pdf.setTextColor(0)
+
+      pdf.save(`StartList_${tarikh}.pdf`)
+    } catch (e) { alert('Gagal cetak: ' + e.message) }
+    finally { setCetakLoading(false) }
+  }
+
+  // ── Cetak Start List — Satu Acara ─────────────────────────────────────────────
+  async function cetakSatuAcara() {
+    if (!selectedAcara || heatList.length === 0) return
+    setCetakLoading(true)
+    try {
+      // Logo dari tetapan/home
+      const cfgSnap = await getDoc(doc(db, 'tetapan', 'home'))
+      const cfg = cfgSnap.exists() ? cfgSnap.data() : {}
+      function imgFmt(b64) {
+        if (!b64) return 'PNG'
+        if (b64.startsWith('data:image/jpeg') || b64.startsWith('data:image/jpg')) return 'JPEG'
+        return 'PNG'
+      }
+
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const W = pdf.internal.pageSize.getWidth()
+      const M = 12
+
+      const isPadangAcara = ['padang_lompat', 'padang_balin'].includes(selectedAcara.jenisAcara)
+      const katLbl = katLabel(selectedAcara.kategoriKod, kategoriList)
+      const jadual = jadualMap[selectedAcara.aceraId || selectedAcara.id] || {}
+      const masa   = jadual.masaMula || '—'
+      const lokasi = jadual.lokasi   || '—'
+      const tarikhLabel = jadual.tarikhAcara
+        ? new Date(jadual.tarikhAcara + 'T00:00:00').toLocaleDateString('ms-MY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+        : '—'
+      const peringkatLabel = selectedAcara.peringkat === 'saringan' ? 'Saringan'
+        : selectedAcara.parentAcaraId ? `Final (← #${selectedAcara.parentAcaraId})`
+        : 'Terus Final'
+
+      // ── Header ────────────────────────────────────────────────────────────────
+      function buatHeader() {
+        let y = 10
+        if (cfg.logoKiriBase64) {
+          try { pdf.addImage(cfg.logoKiriBase64, imgFmt(cfg.logoKiriBase64), M, y, 18, 18) } catch {}
+        }
+        if (cfg.logoKananBase64) {
+          try { pdf.addImage(cfg.logoKananBase64, imgFmt(cfg.logoKananBase64), W - M - 18, y, 18, 18) } catch {}
+        }
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(11)
+        pdf.text(namaKej || 'Kejohanan Olahraga Antara Murid', W / 2, y + 7, { align: 'center' })
+        pdf.setFontSize(9)
+        pdf.setFont('helvetica', 'normal')
+        pdf.text('START LIST', W / 2, y + 13, { align: 'center' })
+        pdf.setFontSize(8)
+        pdf.text(tarikhLabel, W / 2, y + 18, { align: 'center' })
+        pdf.setDrawColor(0, 51, 153)
+        pdf.setLineWidth(0.7)
+        pdf.line(M, y + 22, W - M, y + 22)
+        return y + 27
+      }
+
+      let curY = buatHeader()
+
+      // ── Bar nama acara ─────────────────────────────────────────────────────────
+      pdf.setFillColor(0, 51, 153)
+      pdf.roundedRect(M, curY, W - M * 2, 9, 1, 1, 'F')
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(9)
+      pdf.setTextColor(255, 255, 255)
+      pdf.text(`${masa}  |  ${selectedAcara.namaAcara}`, M + 3, curY + 6)
+      pdf.setFontSize(7.5)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(`Kat: ${katLbl}   Peringkat: ${peringkatLabel}   Lokasi: ${lokasi}`, W - M - 3, curY + 6, { align: 'right' })
+      pdf.setTextColor(0, 0, 0)
+      curY += 12
+
+      // ── Rekod acara ────────────────────────────────────────────────────────────
+      const PERINGKAT_LABEL = { D: 'Daerah', N: 'Negeri', K: 'Kebangsaan' }
+      const rekodRows = ['D', 'N', 'K'].map(p => {
+        const r = rekodAcara[p]
+        if (!r) return [PERINGKAT_LABEL[p], '—', '—', '—', '—']
+        return [
+          PERINGKAT_LABEL[p],
+          tahunRekod(r.tarikhRekod),
+          formatPrestasiRekod(r.prestasi, r.unit),
+          r.namaAtlet || '—',
+          lokasiRekod(r),
+        ]
+      })
+      autoTable(pdf, {
+        startY: curY,
+        head: [['Rekod', 'Tahun', 'Prestasi', 'Nama Atlet', 'Catatan']],
+        body: rekodRows,
+        styles: { fontSize: 7.5, cellPadding: 1.5 },
+        headStyles: { fillColor: [80, 80, 80], textColor: 255, fontStyle: 'bold', fontSize: 7.5 },
+        columnStyles: {
+          0: { fontStyle: 'bold', cellWidth: 24 },
+          1: { halign: 'center', cellWidth: 14 },
+          2: { halign: 'center', cellWidth: 22 },
+          3: { cellWidth: 48 },
+          4: { cellWidth: 'auto' },
+        },
+        margin: { left: M, right: M },
+        tableLineColor: [200, 200, 200],
+        tableLineWidth: 0.2,
+      })
+      curY = pdf.lastAutoTable.finalY + 5
+
+      // ── Heat-heat ──────────────────────────────────────────────────────────────
+      for (const heat of heatList) {
+        const pesertaHeat = [...(heat.peserta || [])].sort((a, b) =>
+          isPadangAcara ? (a.giliran ?? 99) - (b.giliran ?? 99) : (a.lorong ?? 99) - (b.lorong ?? 99)
+        )
+
+        const estHeight = 8 + pesertaHeat.length * 6 + 4
+        if (curY + estHeight > 275) {
+          pdf.addPage()
+          curY = buatHeader()
+          // Repeat acara bar on new page
+          pdf.setFillColor(0, 51, 153)
+          pdf.roundedRect(M, curY, W - M * 2, 9, 1, 1, 'F')
+          pdf.setFont('helvetica', 'bold'); pdf.setFontSize(9)
+          pdf.setTextColor(255, 255, 255)
+          pdf.text(`${masa}  |  ${selectedAcara.namaAcara} (sambungan)`, M + 3, curY + 6)
+          pdf.setTextColor(0, 0, 0)
+          curY += 12
+        }
+
+        // Heat label
+        pdf.setFillColor(230, 235, 255)
+        pdf.rect(M, curY, W - M * 2, 6.5, 'F')
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(8)
+        pdf.setTextColor(0, 51, 153)
+        const fasaStr = heat.fasa === 'final' ? 'FINAL' : heat.fasa === 'saringan' ? 'SARINGAN' : `HEAT ${heat.noHeat}`
+        pdf.text(fasaStr, M + 3, curY + 4.5)
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(7)
+        pdf.text(`${pesertaHeat.length} peserta`, W - M - 3, curY + 4.5, { align: 'right' })
+        pdf.setTextColor(0, 0, 0)
+        curY += 7
+
+        const head = isPadangAcara
+          ? [['#', 'Nama Atlet', 'Sekolah', 'No. Badan']]
+          : [['Lorong', 'Nama Atlet', 'Sekolah', 'No. Badan']]
+        const body = pesertaHeat.map(p => [
+          isPadangAcara ? (p.giliran ?? '—') : (p.lorong ?? '—'),
+          p.namaAtlet || '—',
+          namaSekolahMap[p.kodSekolah] || p.kodSekolah || '—',
+          p.noBib || '—',
+        ])
+
+        autoTable(pdf, {
+          startY: curY,
+          head,
+          body,
+          styles: { fontSize: 7.5, cellPadding: 1.5 },
+          headStyles: { fillColor: [200, 210, 240], textColor: [0, 30, 100], fontStyle: 'bold', fontSize: 7.5 },
+          columnStyles: {
+            0: { halign: 'center', cellWidth: 16 },
+            3: { halign: 'center', cellWidth: 22 },
+          },
+          margin: { left: M, right: M },
+          tableLineColor: [200, 210, 240],
+          tableLineWidth: 0.2,
+        })
+        curY = pdf.lastAutoTable.finalY + 4
+      }
+
+      // ── Footer ─────────────────────────────────────────────────────────────────
+      pdf.setFontSize(7)
+      pdf.setFont('helvetica', 'normal')
+      pdf.setTextColor(150)
+      const dicetak = new Date().toLocaleString('ms-MY', { timeZone: 'Asia/Kuala_Lumpur', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      pdf.text(`Dicetak: ${dicetak}   |   ${heatList.length} heat`, M, pdf.internal.pageSize.getHeight() - 6)
+      pdf.setTextColor(0)
+
+      pdf.save(`StartList_${selectedAcara.aceraId}_${Date.now()}.pdf`)
+    } catch (e) { alert('Gagal cetak: ' + e.message) }
+    finally { setCetakLoading(false) }
+  }
+
+  // ── Cetak Start List — Satu Acara dari tab Hari ───────────────────────────────
+  async function cetakAcaraDariHari(acara) {
+    const aid = acara.aceraId || acara.id
+    setCetakHariLoading(aid)
+    try {
+      // Fetch heat untuk acara ini
+      const heatSnap = await getDocs(
+        query(collection(db, 'kejohanan', selectedKej, 'acara', aid, 'heat'), orderBy('noHeat'))
+      )
+      const heats = heatSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+      if (heats.length === 0) { alert('Heat belum dijana untuk acara ini.'); return }
+
+      // Logo dari tetapan/home
+      const cfgSnap = await getDoc(doc(db, 'tetapan', 'home'))
+      const cfg = cfgSnap.exists() ? cfgSnap.data() : {}
+      function imgFmt(b64) {
+        if (!b64) return 'PNG'
+        if (b64.startsWith('data:image/jpeg') || b64.startsWith('data:image/jpg')) return 'JPEG'
+        return 'PNG'
+      }
+
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const W = pdf.internal.pageSize.getWidth()
+      const M = 12
+      const isPadangAcara = ['padang_lompat', 'padang_balin'].includes(acara.jenisAcara)
+      const katLbl = katLabel(acara.kategoriKod, kategoriList)
+      const jadual = jadualMap[aid] || {}
+      const masa   = jadual.masaMula || '—'
+      const lokasi = jadual.lokasi   || '—'
+      const tarikhLabel = jadual.tarikhAcara
+        ? new Date(jadual.tarikhAcara + 'T00:00:00').toLocaleDateString('ms-MY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+        : '—'
+      const peringkatLabel = acara.peringkat === 'saringan' ? 'Saringan'
+        : acara.parentAcaraId ? `Final (← #${acara.parentAcaraId})`
+        : 'Terus Final'
+
+      function buatHeader() {
+        let y = 10
+        if (cfg.logoKiriBase64) {
+          try { pdf.addImage(cfg.logoKiriBase64, imgFmt(cfg.logoKiriBase64), M, y, 18, 18) } catch {}
+        }
+        if (cfg.logoKananBase64) {
+          try { pdf.addImage(cfg.logoKananBase64, imgFmt(cfg.logoKananBase64), W - M - 18, y, 18, 18) } catch {}
+        }
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(11)
+        pdf.text(namaKej || 'Kejohanan Olahraga Antara Murid', W / 2, y + 7, { align: 'center' })
+        pdf.setFontSize(9)
+        pdf.setFont('helvetica', 'normal')
+        pdf.text('START LIST', W / 2, y + 13, { align: 'center' })
+        pdf.setFontSize(8)
+        pdf.text(tarikhLabel, W / 2, y + 18, { align: 'center' })
+        pdf.setDrawColor(0, 51, 153)
+        pdf.setLineWidth(0.7)
+        pdf.line(M, y + 22, W - M, y + 22)
+        return y + 27
+      }
+
+      let curY = buatHeader()
+
+      // Bar nama acara
+      pdf.setFillColor(0, 51, 153)
+      pdf.roundedRect(M, curY, W - M * 2, 9, 1, 1, 'F')
+      pdf.setFont('helvetica', 'bold'); pdf.setFontSize(9)
+      pdf.setTextColor(255, 255, 255)
+      pdf.text(`${masa}  |  ${acara.namaAcara}`, M + 3, curY + 6)
+      pdf.setFontSize(7.5); pdf.setFont('helvetica', 'normal')
+      pdf.text(`Kat: ${katLbl}   Peringkat: ${peringkatLabel}   Lokasi: ${lokasi}`, W - M - 3, curY + 6, { align: 'right' })
+      pdf.setTextColor(0, 0, 0)
+      curY += 12
+
+      // Heat-heat
+      for (const heat of heats) {
+        const pesertaHeat = [...(heat.peserta || [])].sort((a, b) =>
+          isPadangAcara ? (a.giliran ?? 99) - (b.giliran ?? 99) : (a.lorong ?? 99) - (b.lorong ?? 99)
+        )
+        const estHeight = 8 + pesertaHeat.length * 6 + 4
+        if (curY + estHeight > 275) {
+          pdf.addPage()
+          curY = buatHeader()
+          pdf.setFillColor(0, 51, 153)
+          pdf.roundedRect(M, curY, W - M * 2, 9, 1, 1, 'F')
+          pdf.setFont('helvetica', 'bold'); pdf.setFontSize(9)
+          pdf.setTextColor(255, 255, 255)
+          pdf.text(`${masa}  |  ${acara.namaAcara} (sambungan)`, M + 3, curY + 6)
+          pdf.setTextColor(0, 0, 0)
+          curY += 12
+        }
+
+        pdf.setFillColor(230, 235, 255)
+        pdf.rect(M, curY, W - M * 2, 6.5, 'F')
+        pdf.setFont('helvetica', 'bold'); pdf.setFontSize(8)
+        pdf.setTextColor(0, 51, 153)
+        const fasaStr = heat.fasa === 'final' ? 'FINAL' : heat.fasa === 'saringan' ? 'SARINGAN' : `HEAT ${heat.noHeat}`
+        pdf.text(fasaStr, M + 3, curY + 4.5)
+        pdf.setFont('helvetica', 'normal'); pdf.setFontSize(7)
+        pdf.text(`${pesertaHeat.length} peserta`, W - M - 3, curY + 4.5, { align: 'right' })
+        pdf.setTextColor(0, 0, 0)
+        curY += 7
+
+        const head = isPadangAcara
+          ? [['#', 'Nama Atlet', 'Sekolah', 'No. Badan']]
+          : [['Lorong', 'Nama Atlet', 'Sekolah', 'No. Badan']]
+        const body = pesertaHeat.map(p => [
+          isPadangAcara ? (p.giliran ?? '—') : (p.lorong ?? '—'),
+          p.namaAtlet || '—',
+          namaSekolahMap[p.kodSekolah] || p.kodSekolah || '—',
+          p.noBib || '—',
+        ])
+        autoTable(pdf, {
+          startY: curY, head, body,
+          styles: { fontSize: 7.5, cellPadding: 1.5 },
+          headStyles: { fillColor: [200, 210, 240], textColor: [0, 30, 100], fontStyle: 'bold', fontSize: 7.5 },
+          columnStyles: { 0: { halign: 'center', cellWidth: 16 }, 3: { halign: 'center', cellWidth: 22 } },
+          margin: { left: M, right: M },
+          tableLineColor: [200, 210, 240], tableLineWidth: 0.2,
+        })
+        curY = pdf.lastAutoTable.finalY + 4
+      }
+
+      pdf.setFontSize(7); pdf.setFont('helvetica', 'normal'); pdf.setTextColor(150)
+      const dicetak = new Date().toLocaleString('ms-MY', { timeZone: 'Asia/Kuala_Lumpur', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      pdf.text(`Dicetak: ${dicetak}   |   ${heats.length} heat`, M, pdf.internal.pageSize.getHeight() - 6)
+      pdf.setTextColor(0)
+
+      pdf.save(`StartList_${aid}_${Date.now()}.pdf`)
+    } catch (e) { alert('Gagal cetak: ' + e.message) }
+    finally { setCetakHariLoading(null) }
+  }
+
+  // ── Cetak Laporan Pengesahan ──────────────────────────────────────────────────
+  async function cetakLaporanPengesahan(sekolahRows, totalSahkan) {
+    try {
+      const cfgSnap = await getDoc(doc(db, 'tetapan', 'home'))
+      const cfg = cfgSnap.exists() ? cfgSnap.data() : {}
+      function imgFmt(b64) {
+        if (!b64) return 'PNG'
+        if (b64.startsWith('data:image/jpeg') || b64.startsWith('data:image/jpg')) return 'JPEG'
+        return 'PNG'
+      }
+
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const W = pdf.internal.pageSize.getWidth()
+      const M = 14
+
+      // Header
+      let y = 10
+      if (cfg.logoKiriBase64) { try { pdf.addImage(cfg.logoKiriBase64, imgFmt(cfg.logoKiriBase64), M, y, 18, 18) } catch {} }
+      if (cfg.logoKananBase64) { try { pdf.addImage(cfg.logoKananBase64, imgFmt(cfg.logoKananBase64), W - M - 18, y, 18, 18) } catch {} }
+      pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11)
+      pdf.text(namaKej || 'Kejohanan Olahraga', W / 2, y + 7, { align: 'center' })
+      pdf.setFontSize(9); pdf.setFont('helvetica', 'normal')
+      pdf.text('LAPORAN PENGESAHAN PENDAFTARAN SEKOLAH', W / 2, y + 14, { align: 'center' })
+      pdf.setDrawColor(0, 51, 153); pdf.setLineWidth(0.7)
+      pdf.line(M, y + 19, W - M, y + 19)
+      y += 24
+
+      // Summary bar
+      const dicetak = new Date().toLocaleString('ms-MY', { timeZone: 'Asia/Kuala_Lumpur', day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      pdf.setFontSize(8); pdf.setFont('helvetica', 'normal'); pdf.setTextColor(100)
+      pdf.text(`Dicetak: ${dicetak}`, M, y)
+      pdf.text(`${totalSahkan} / ${sekolahRows.length} sekolah telah mengesahkan pendaftaran`, W - M, y, { align: 'right' })
+      pdf.setTextColor(0)
+      y += 6
+
+      // Table
+      autoTable(pdf, {
+        startY: y,
+        head: [['Bil', 'Sekolah', 'Kod', 'Status', 'Tarikh Pengesahan']],
+        body: sekolahRows.map((r, i) => [
+          i + 1,
+          r.nama,
+          r.kod,
+          r.pg?.disahkan ? 'Disahkan' : 'Belum Sahkan',
+          r.pg?.disahkan && r.pg?.tarikhSahkan
+            ? new Date(r.pg.tarikhSahkan?.toDate?.() || r.pg.tarikhSahkan).toLocaleString('ms-MY', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+            : '—',
+        ]),
+        styles: { fontSize: 8.5, cellPadding: 2.5 },
+        headStyles: { fillColor: [0, 51, 153], textColor: 255, fontStyle: 'bold', fontSize: 8.5 },
+        alternateRowStyles: { fillColor: [245, 248, 255] },
+        columnStyles: {
+          0: { halign: 'center', cellWidth: 10 },
+          2: { halign: 'center', cellWidth: 24, font: 'courier', fontSize: 7.5 },
+          3: { halign: 'center', cellWidth: 28 },
+          4: { cellWidth: 40 },
+        },
+        didDrawCell: (data) => {
+          if (data.column.index === 3 && data.section === 'body') {
+            const val = data.cell.raw
+            if (val === 'Disahkan') {
+              pdf.setTextColor(0, 120, 50)
+            } else {
+              pdf.setTextColor(180, 100, 0)
+            }
+          }
+        },
+        willDrawCell: (data) => {
+          if (data.column.index === 3 && data.section === 'body') {
+            const val = data.cell.raw
+            data.cell.styles.textColor = val === 'Disahkan' ? [0, 120, 50] : [180, 100, 0]
+            data.cell.styles.fontStyle = 'bold'
+          }
+        },
+        margin: { left: M, right: M },
+        tableLineColor: [200, 210, 240],
+        tableLineWidth: 0.2,
+      })
+
+      const finalY = pdf.lastAutoTable.finalY + 10
+      // Summary box
+      pdf.setFillColor(0, 51, 153)
+      pdf.roundedRect(M, finalY, W - M * 2, 10, 1, 1, 'F')
+      pdf.setFont('helvetica', 'bold'); pdf.setFontSize(9); pdf.setTextColor(255)
+      pdf.text(`Jumlah: ${totalSahkan} Disahkan  |  ${sekolahRows.length - totalSahkan} Belum Sahkan  |  ${sekolahRows.length} Sekolah Berdaftar`, W / 2, finalY + 6.5, { align: 'center' })
+      pdf.setTextColor(0)
+
+      pdf.save(`Pengesahan_Pendaftaran_${Date.now()}.pdf`)
+    } catch (e) { alert('Gagal cetak: ' + e.message) }
+  }
+
   // Acara filtered
   const katList = [...new Set(acaraList.map(a => a.kategoriKod))].sort()
   const jenisShort = {lorong:'Lorong',mass_start:'Mass',padang_lompat:'Lompat',padang_balin:'Balin',relay:'Relay'}
@@ -1491,6 +2132,10 @@ export default function StartList() {
               <button onClick={() => setViewMode('acara')}
                 className={`px-3 py-2 text-[10px] font-bold transition-colors border-l border-gray-200 ${viewMode==='acara'?'bg-[#003399] text-white':'bg-white text-gray-600 hover:bg-gray-50'}`}>
                 Acara
+              </button>
+              <button onClick={() => setViewMode('hari')}
+                className={`px-3 py-2 text-[10px] font-bold transition-colors border-l border-gray-200 ${viewMode==='hari'?'bg-[#003399] text-white':'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                Hari
               </button>
             </div>
           )}
@@ -1616,6 +2261,129 @@ export default function StartList() {
               </div>
             </div>
 
+            {/* Cetak Start List by Hari */}
+            {(() => {
+              const tarikhUnik = [...new Set(
+                acaraList
+                  .filter(a => jadualMap[a.aceraId || a.id]?.tarikhAcara)
+                  .map(a => jadualMap[a.aceraId || a.id].tarikhAcara)
+              )].sort()
+              if (tarikhUnik.length === 0) return null
+              return (
+                <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    <div>
+                      <p className="text-xs font-bold text-gray-700">Cetak Start List</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">PDF ikut hari — hanya acara yang heat sudah dijana</p>
+                    </div>
+                    <div className="relative" data-cetak-menu>
+                      <button
+                        onClick={() => setCetakDropdown(v => !v)}
+                        disabled={cetakLoading}
+                        className="flex items-center gap-2 px-4 py-2 text-xs font-bold bg-[#003399] text-white rounded-xl hover:bg-[#002288] disabled:opacity-50 transition-colors shadow-sm">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                        </svg>
+                        {cetakLoading ? 'Menjana PDF…' : 'Cetak Start List'}
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+                      {cetakDropdown && (
+                        <div className="absolute right-0 mt-1 z-20 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden min-w-[200px]">
+                          {tarikhUnik.map(t => {
+                            const label = new Date(t + 'T00:00:00').toLocaleDateString('ms-MY', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
+                            const bilanganAcara = acaraList.filter(a => (jadualMap[a.aceraId || a.id]?.tarikhAcara || '') === t).length
+                            return (
+                              <button key={t} onClick={() => cetakStartListByHari(t)}
+                                className="w-full text-left px-4 py-2.5 text-xs hover:bg-blue-50 transition-colors border-b border-gray-50 last:border-0">
+                                <p className="font-bold text-gray-800">{label}</p>
+                                <p className="text-[10px] text-gray-400 mt-0.5">{bilanganAcara} acara</p>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
+
+            {/* ── Status Pengesahan Sekolah ── */}
+            {sekolahDaftarSet.size > 0 && (() => {
+              // Semua sekolah yang ada pendaftaran, sort: sudah sahkan dulu
+              const sekolahRows = [...sekolahDaftarSet]
+                .map(kod => ({
+                  kod,
+                  nama: sekolahList.find(s => s.kodSekolah === kod)?.namaSekolah || kod,
+                  pg: pengesahanMap[kod] || null,
+                }))
+                .sort((a, b) => {
+                  const aS = a.pg?.disahkan ? 1 : 0
+                  const bS = b.pg?.disahkan ? 1 : 0
+                  return bS - aS || a.nama.localeCompare(b.nama, 'ms')
+                })
+              const totalSahkan = sekolahRows.filter(r => r.pg?.disahkan).length
+              const total = sekolahRows.length
+              return (
+                <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                  <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-bold text-gray-800">Pengesahan Pendaftaran Sekolah</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">{totalSahkan} / {total} sekolah telah sahkan</p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {totalSahkan === total && total > 0
+                        ? <span className="text-[9px] font-bold px-2 py-1 bg-green-100 text-green-700 rounded-full">Semua disahkan ✓</span>
+                        : <span className="text-[9px] font-bold px-2 py-1 bg-amber-100 text-amber-700 rounded-full">{total - totalSahkan} belum sahkan</span>
+                      }
+                      <button
+                        onClick={() => cetakLaporanPengesahan(sekolahRows, totalSahkan)}
+                        title="Cetak laporan pengesahan"
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold border border-[#003399] text-[#003399] rounded-lg hover:bg-blue-50 transition-colors">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                        </svg>
+                        PDF
+                      </button>
+                    </div>
+                  </div>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-100">
+                        <th className="px-3 py-2 text-left text-[9px] font-bold text-gray-400 uppercase">Sekolah</th>
+                        <th className="px-3 py-2 text-center text-[9px] font-bold text-gray-400 uppercase w-28">Status</th>
+                        <th className="px-3 py-2 text-left text-[9px] font-bold text-gray-400 uppercase">Tarikh Sahkan</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {sekolahRows.map(({ kod, nama, pg }) => {
+                        const tarikhStr = pg?.tarikhSahkan
+                          ? new Date(pg.tarikhSahkan?.toDate?.() || pg.tarikhSahkan).toLocaleString('ms-MY', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                          : '—'
+                        return (
+                          <tr key={kod} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-3 py-2.5">
+                              <p className="font-semibold text-gray-800 text-[10px]">{nama}</p>
+                              <p className="font-mono text-gray-400 text-[9px]">{kod}</p>
+                            </td>
+                            <td className="px-3 py-2.5 text-center">
+                              {pg?.disahkan
+                                ? <span className="text-[9px] font-bold px-2 py-0.5 bg-green-100 text-green-700 rounded-full">✓ Disahkan</span>
+                                : <span className="text-[9px] font-bold px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full">Belum Sahkan</span>
+                              }
+                            </td>
+                            <td className="px-3 py-2.5 text-[10px] text-gray-500">{pg?.disahkan ? tarikhStr : '—'}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            })()}
+
             {/* Table per kategori */}
             {katKeys.map(kat => (
               <div key={kat} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
@@ -1643,7 +2411,22 @@ export default function StartList() {
                       return (
                         <tr key={aid} className="border-t border-gray-50 hover:bg-blue-50/30 transition-colors">
                           <td className="px-3 py-2.5 font-mono text-gray-400 text-[10px]">{a.noAcara || '—'}</td>
-                          <td className="px-3 py-2.5 font-semibold text-gray-800">{a.namaAcara}</td>
+                          <td className="px-3 py-2.5">
+                            <p className="font-semibold text-gray-800">{a.namaAcara}</p>
+                            {a.peringkat === 'saringan' ? (
+                              <span className="inline-block mt-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 border border-amber-200">
+                                Saringan{a.noAcara && ` · #${a.noAcara}`}
+                              </span>
+                            ) : a.peringkat === 'akhir' && a.parentAcaraId ? (
+                              <span className="inline-block mt-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 border border-purple-200">
+                                Final ← #{a.parentAcaraId}
+                              </span>
+                            ) : a.peringkat === 'akhir' ? (
+                              <span className="inline-block mt-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded bg-green-100 text-green-700 border border-green-200">
+                                Terus Final
+                              </span>
+                            ) : null}
+                          </td>
                           <td className="px-3 py-2.5 text-center font-black text-[10px]">
                             <span className={a.jantina==='L'?'text-blue-600':'text-pink-600'}>{a.jantina}</span>
                           </td>
@@ -1691,6 +2474,168 @@ export default function StartList() {
                 </table>
               </div>
             ))}
+          </div>
+        )
+      })()}
+
+      {/* ── Tab Hari ──────────────────────────────────────────────────────────── */}
+      {selectedKej && viewMode === 'hari' && (() => {
+        // Kumpul semua tarikh unik dari jadualMap, sort
+        const tarikhSet = new Set()
+        Object.values(jadualMap).forEach(j => { if (j.tarikhAcara) tarikhSet.add(j.tarikhAcara) })
+        const tarikhList = [...tarikhSet].sort()
+
+        // Auto-pilih hari pertama jika belum ada pilihan
+        const hariAktif = selectedHari && tarikhList.includes(selectedHari)
+          ? selectedHari
+          : tarikhList[0] || null
+
+        // Acara untuk hari yang dipilih, sort by masaMula
+        const acaraHari = acaraList
+          .filter(a => a.isAktif !== false && (jadualMap[a.aceraId || a.id]?.tarikhAcara || '') === hariAktif)
+          .sort((a, b) => {
+            const mA = jadualMap[a.aceraId || a.id]?.masaMula || '99:99'
+            const mB = jadualMap[b.aceraId || b.id]?.masaMula || '99:99'
+            return mA.localeCompare(mB)
+          })
+
+        return (
+          <div className="space-y-4">
+            {tarikhList.length === 0 ? (
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm py-12 text-center">
+                <p className="text-sm text-gray-400">Tiada jadual ditetapkan. Tetapkan tarikh acara dalam Jadual Setup.</p>
+              </div>
+            ) : (
+              <>
+                {/* Sub-tab hari */}
+                <div className="flex flex-wrap gap-2">
+                  {tarikhList.map((t, idx) => {
+                    const label = new Date(t + 'T00:00:00').toLocaleDateString('ms-MY', { weekday: 'short', day: 'numeric', month: 'short' })
+                    const isActive = t === hariAktif
+                    return (
+                      <button key={t} onClick={() => setSelectedHari(t)}
+                        className={`px-3 py-1.5 text-[10px] font-bold rounded-lg border transition-colors ${
+                          isActive ? 'bg-[#003399] text-white border-[#003399]' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                        }`}>
+                        Hari {idx + 1} — {label}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {/* Jadual acara hari dipilih */}
+                {hariAktif && (() => {
+                  const tarikhPapar = new Date(hariAktif + 'T00:00:00').toLocaleDateString('ms-MY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+                  return (
+                    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                      <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                        <div>
+                          <p className="text-xs font-bold text-gray-800">{tarikhPapar}</p>
+                          <p className="text-[10px] text-gray-400 mt-0.5">{acaraHari.length} acara dijadualkan</p>
+                        </div>
+                        <button
+                          onClick={() => cetakStartListByHari(hariAktif)}
+                          disabled={cetakLoading}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold border border-[#003399] text-[#003399] rounded-lg hover:bg-blue-50 disabled:opacity-50 transition-colors">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                          </svg>
+                          {cetakLoading ? 'Mencetak…' : 'Cetak Semua Hari Ini'}
+                        </button>
+                      </div>
+
+                      {acaraHari.length === 0 ? (
+                        <div className="py-10 text-center">
+                          <p className="text-xs text-gray-400">Tiada acara dijadualkan pada hari ini.</p>
+                        </div>
+                      ) : (
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="bg-gray-50 border-b border-gray-100">
+                              <th className="px-3 py-2.5 text-left font-bold text-gray-500 text-[10px] uppercase tracking-wide w-12">No.</th>
+                              <th className="px-3 py-2.5 text-left font-bold text-gray-500 text-[10px] uppercase tracking-wide">Acara</th>
+                              <th className="px-3 py-2.5 text-center font-bold text-gray-500 text-[10px] uppercase tracking-wide w-10">J</th>
+                              <th className="px-3 py-2.5 text-center font-bold text-gray-500 text-[10px] uppercase tracking-wide w-16">Peserta</th>
+                              <th className="px-3 py-2.5 text-center font-bold text-gray-500 text-[10px] uppercase tracking-wide w-24">Status</th>
+                              <th className="px-3 py-2.5 text-center font-bold text-gray-500 text-[10px] uppercase tracking-wide w-14">Cetak</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-50">
+                            {acaraHari.map(a => {
+                              const aid = a.aceraId || a.id
+                              const heat = heatCountMap[aid] || 0
+                              const peserta = pesertaCountMap[aid] || 0
+                              const masa = jadualMap[aid]?.masaMula || '—'
+                              const peringkatBadge = a.peringkat === 'saringan'
+                                ? <span className="ml-1 text-[8px] font-bold px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full">Saringan</span>
+                                : a.parentAcaraId
+                                ? <span className="ml-1 text-[8px] font-bold px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded-full">Final</span>
+                                : <span className="ml-1 text-[8px] font-bold px-1.5 py-0.5 bg-green-100 text-green-700 rounded-full">T.Final</span>
+
+                              // Status
+                              let statusEl
+                              if (heat > 0) {
+                                statusEl = (
+                                  <span className="inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 bg-green-100 text-green-700 rounded-full">
+                                    <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                                    Dijana ({heat})
+                                  </span>
+                                )
+                              } else if (peserta > 0) {
+                                statusEl = <span className="text-[9px] font-bold px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full">Belum Jana</span>
+                              } else {
+                                statusEl = <span className="text-[9px] font-bold px-2 py-0.5 bg-gray-100 text-gray-400 rounded-full">Tiada Peserta</span>
+                              }
+
+                              const isPrinting = cetakHariLoading === aid
+
+                              return (
+                                <tr key={aid} className="hover:bg-gray-50 transition-colors">
+                                  <td className="px-3 py-2.5">
+                                    <div className="font-black text-[#003399] text-xs">{a.noAcara || '—'}</div>
+                                    <div className="text-[9px] text-gray-400 font-mono mt-0.5">{masa}</div>
+                                  </td>
+                                  <td className="px-3 py-2.5">
+                                    <div className="flex items-center flex-wrap gap-0.5">
+                                      <span className="font-semibold text-gray-800">{a.namaAcara}</span>
+                                      {peringkatBadge}
+                                    </div>
+                                    <div className="text-[9px] text-gray-400 mt-0.5">{katLabel(a.kategoriKod, kategoriList)}</div>
+                                  </td>
+                                  <td className="px-3 py-2.5 text-center">
+                                    <span className={`text-[10px] font-black ${a.jantina === 'L' ? 'text-blue-600' : 'text-pink-600'}`}>{a.jantina}</span>
+                                  </td>
+                                  <td className="px-3 py-2.5 text-center">
+                                    <span className="text-xs font-bold text-gray-700">{peserta > 0 ? peserta : <span className="text-gray-300">—</span>}</span>
+                                  </td>
+                                  <td className="px-3 py-2.5 text-center">{statusEl}</td>
+                                  <td className="px-3 py-2.5 text-center">
+                                    {heat > 0 ? (
+                                      <button
+                                        onClick={() => cetakAcaraDariHari(a)}
+                                        disabled={isPrinting}
+                                        title={`Cetak start list ${a.namaAcara}`}
+                                        className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-[#003399] text-[#003399] hover:bg-blue-50 disabled:opacity-40 transition-colors">
+                                        {isPrinting
+                                          ? <svg className="w-3.5 h-3.5 animate-spin" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                          : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                                        }
+                                      </button>
+                                    ) : (
+                                      <span className="text-gray-200">—</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  )
+                })()}
+              </>
+            )}
           </div>
         )
       })()}
@@ -1809,13 +2754,14 @@ export default function StartList() {
                           Paparan Sahaja
                         </span>
                       )}
-                      {/* PDF — semua boleh export */}
+                      {/* Cetak Start List — satu acara */}
                       {heatList.length > 0 && (
                         <button
-                          onClick={() => exportStartListPDF(selectedAcara, heatList, namaKej, namaSekolahMap, rekodAcara, kategoriList)}
-                          className="flex items-center gap-1.5 px-3 py-2 text-[10px] font-bold border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors">
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                          PDF
+                          onClick={cetakSatuAcara}
+                          disabled={cetakLoading}
+                          className="flex items-center gap-1.5 px-3 py-2 text-[10px] font-bold border border-[#003399] text-[#003399] rounded-lg hover:bg-blue-50 disabled:opacity-50 transition-colors">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                          {cetakLoading ? 'Mencetak…' : 'Cetak PDF'}
                         </button>
                       )}
                       {/* Jana/Reset — admin sahaja */}
@@ -2049,6 +2995,7 @@ export default function StartList() {
           onClose={() => setModal(null)}
           onGenerated={fetchAcaraData}
           sekolahMap={namaSekolahMap}
+          acaraList={acaraList}
         />
       )}
 

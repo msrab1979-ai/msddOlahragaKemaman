@@ -38,6 +38,7 @@ const JENIS_BADGE_COLORS = {
 const EMPTY_FORM = {
   kod: '', label: '', nama: '', jenisSekolah: 'SR',
   umurHad: '', umurMin: '',
+  isTerbuka: false,
   hadAtletL: 15, hadAtletP: 15,
   hadAcaraIndividu: 3, hadAcaraBeregu: 2,
   hadPasukanL: 1, hadPasukanP: 1, saizPasukan: 4,
@@ -144,11 +145,15 @@ function KategoriCard({ k, tahun, onEdit, onDelete, onToggle }) {
                 <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
                   JENIS_BADGE_COLORS[k.jenisSekolah] || 'bg-gray-100 text-gray-600'
                 }`}>{k.jenisSekolah}</span>
-                {k.umurHad && (
+                {k.isTerbuka ? (
+                  <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full border border-amber-300">
+                    Terbuka {k.umurMin && k.umurHad ? `${k.umurMin}–${k.umurHad} Thn` : k.umurHad ? `≤${k.umurHad} Thn` : ''}
+                  </span>
+                ) : k.umurHad ? (
                   <span className="text-[9px] font-semibold text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded-full">
                     Bawah {k.umurHad} Thn
                   </span>
-                )}
+                ) : null}
                 {!k.isAktif && <span className="text-[9px] text-gray-400">• Tidak Aktif</span>}
               </div>
             </div>
@@ -285,6 +290,7 @@ function KategoriModal({ mode, initial, onClose, onSaved, allKod, tahun, jenisVa
         jenisSekolah: form.jenisSekolah,
         umurHad:  form.umurHad  === '' ? null : Number(form.umurHad),
         umurMin:  form.umurMin  === '' ? null : Number(form.umurMin),
+        isTerbuka: form.isTerbuka === true,
         hadAtletL: Number(form.hadAtletL) || 0,
         hadAtletP: Number(form.hadAtletP) || 0,
         hadAcaraIndividu: Number(form.hadAcaraIndividu) || 3,
@@ -415,24 +421,56 @@ function KategoriModal({ mode, initial, onClose, onSaved, allKod, tahun, jenisVa
             <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-3 pb-1 border-b border-gray-100">
               2 — Had Umur & Kelayakan
             </p>
+
+            {/* Toggle Terbuka */}
+            <label className="flex items-start gap-3 px-3 py-3 mb-3 rounded-lg border cursor-pointer transition-colors select-none
+              bg-amber-50 border-amber-200 hover:border-amber-400">
+              <input type="checkbox" checked={!!form.isTerbuka}
+                onChange={e => set('isTerbuka', e.target.checked)}
+                className="mt-0.5 w-4 h-4 accent-amber-500 shrink-0" />
+              <div>
+                <p className="text-xs font-bold text-amber-800">Kategori Terbuka</p>
+                <p className="text-[10px] text-amber-600 mt-0.5">
+                  Atlet dari <strong>pelbagai umur</strong> dalam julat yang ditetapkan boleh menyertai acara ini.
+                  Contoh: semua atlet umur 8–12 thn boleh sertai "100m Terbuka L-SR".
+                </p>
+              </div>
+            </label>
+
             <div className="grid grid-cols-2 gap-3">
-              <FormField label="Umur Min" hint="Tahun. Kosong = tiada had bawah">
+              <FormField
+                label={form.isTerbuka ? 'Umur Minimum (Terbuka)' : 'Umur Min'}
+                hint={form.isTerbuka ? 'Umur paling muda boleh sertai. Cth: 8' : 'Tahun. Kosong = tiada had bawah'}>
                 <input type="number" min={1} max={25} value={form.umurMin}
-                  onChange={e => set('umurMin', e.target.value)} placeholder="9" className={inputCls} />
+                  onChange={e => set('umurMin', e.target.value)} placeholder={form.isTerbuka ? '8' : '9'} className={inputCls} />
               </FormField>
-              <FormField label='Umur Had ("Bawah X Thn")' required>
+              <FormField
+                label={form.isTerbuka ? 'Umur Maksimum (Terbuka)' : 'Umur Had ("Bawah X Thn")'}
+                required={!form.isTerbuka}
+                hint={form.isTerbuka ? 'Umur paling tua boleh sertai. Cth: 12' : undefined}>
                 <input type="number" min={1} max={25} value={form.umurHad}
-                  onChange={e => set('umurHad', e.target.value)} placeholder="10" className={inputCls} />
+                  onChange={e => set('umurHad', e.target.value)} placeholder={form.isTerbuka ? '12' : '10'} className={inputCls} />
               </FormField>
             </div>
             {form.umurHad && (
-              <div className="mt-2 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2 flex items-center gap-2">
-                <svg className="w-4 h-4 text-indigo-400 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <div className={`mt-2 rounded-lg px-3 py-2 flex items-center gap-2 border ${
+                form.isTerbuka
+                  ? 'bg-amber-50 border-amber-100'
+                  : 'bg-indigo-50 border-indigo-100'
+              }`}>
+                <svg className={`w-4 h-4 shrink-0 ${form.isTerbuka ? 'text-amber-400' : 'text-indigo-400'}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <div>
-                  <p className="text-[9px] text-indigo-400 font-bold">KELAYAKAN TAHUN {tahun}</p>
-                  <p className="text-xs font-bold text-indigo-700">{previewTahun}</p>
+                  <p className={`text-[9px] font-bold ${form.isTerbuka ? 'text-amber-400' : 'text-indigo-400'}`}>
+                    {form.isTerbuka ? 'JULAT TERBUKA — TAHUN' : 'KELAYAKAN TAHUN'} {tahun}
+                  </p>
+                  <p className={`text-xs font-bold ${form.isTerbuka ? 'text-amber-700' : 'text-indigo-700'}`}>
+                    {form.isTerbuka
+                      ? `Umur ${form.umurMin || '?'} – ${form.umurHad} tahun (lahir ${tahun - Number(form.umurHad)} – ${form.umurMin ? tahun - Number(form.umurMin) : '...'})`
+                      : previewTahun
+                    }
+                  </p>
                 </div>
               </div>
             )}

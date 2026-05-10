@@ -93,6 +93,9 @@ async function gate1_hadAcaraAtlet(noKP, kejohananId, kategoriId, jenisAcaraBaru
   let bilanganBeregu   = 0
   acaraDocs.forEach(d => {
     if (!d.exists()) return
+    // Kira hanya acara dalam KATEGORI yang sama — atlet Open boleh daftar
+    // walaupun sudah penuh kuota individu dalam kategori lain (cth: Kat A).
+    if (d.data().kategoriKod !== kategoriId) return
     d.data().jenisAcara === 'relay' ? bilanganBeregu++ : bilanganIndividu++
   })
 
@@ -130,9 +133,23 @@ async function gate1_hadAcaraAtlet(noKP, kejohananId, kategoriId, jenisAcaraBaru
 // ─── GATE 2 — Had Atlet Per Sekolah Per Acara ─────────────────────────────────
 
 async function gate2_hadAtletSekolah(kodSekolah, aceraId, kejohananId) {
-  // Baca had LIVE dari Firestore — acara/{aceraId}.hadAtletPerSekolah
+  // Baca had LIVE dari Firestore — acara/{aceraId}
   const acaraDoc = await getDoc(doc(db, 'kejohanan', kejohananId, 'acara', aceraId))
-  const hadPerSekolah = acaraDoc.exists() ? (acaraDoc.data().hadAtletPerSekolah ?? 2) : 2
+  const aData = acaraDoc.exists() ? acaraDoc.data() : {}
+
+  // Relay: had = saizPasukan × hadPasukan (dari kategori) — bukan hadAtletPerSekolah
+  let hadPerSekolah = aData.hadAtletPerSekolah ?? 2
+  if (aData.jenisAcara === 'relay' && aData.kategoriKod) {
+    const katDoc = await getDoc(doc(db, 'kategori', aData.kategoriKod))
+    if (katDoc.exists()) {
+      const kat = katDoc.data()
+      const saizPasukan = Number(kat.saizPasukan) || 4
+      const hadPasukan  = aData.jantina === 'P'
+        ? (Number(kat.hadPasukanP) || 1)
+        : (Number(kat.hadPasukanL) || 1)
+      hadPerSekolah = saizPasukan * hadPasukan
+    }
+  }
 
   // Semak bilangan atlet sekolah yang sudah daftar acara ini
   const pendSnap = await getDocs(
