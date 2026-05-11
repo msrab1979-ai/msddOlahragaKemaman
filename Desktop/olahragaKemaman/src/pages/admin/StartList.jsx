@@ -1608,6 +1608,9 @@ export default function StartList() {
   const [cetakLoading, setCetakLoading]  = useState(false)
   const [cetakHeatId, setCetakHeatId]    = useState(null)  // heatId sedang dicetak
   const [cetakDropdown, setCetakDropdown] = useState(false)
+  const [expandedHariAid, setExpandedHariAid] = useState(null) // aceraId expand Tab Hari
+  const [hariHeatMap, setHariHeatMap]    = useState({})   // aceraId → heats[]
+  const [hariHeatLoading, setHariHeatLoading] = useState(null) // aceraId sedang load
   const [pengesahanMap, setPengesahanMap] = useState({}) // kodSekolah → { disahkan, tarikhSahkan }
   const [sekolahDaftarSet, setSekolahDaftarSet] = useState(new Set()) // kodSekolah yang ada pendaftaran
 
@@ -1840,6 +1843,77 @@ export default function StartList() {
       setResetAllConfirm(false)
     } catch (e) { alert(e.message) }
     finally { setResetingAll(false) }
+  }
+
+  // ── Tab Hari: expand acara → tunjuk heat + per-heat cetak ───────────────────
+  async function toggleExpandHari(a) {
+    const aid = a.aceraId || a.id
+    if (expandedHariAid === aid) { setExpandedHariAid(null); return }
+    setExpandedHariAid(aid)
+    if (hariHeatMap[aid]) return // sudah dimuatkan
+    setHariHeatLoading(aid)
+    try {
+      const snap = await getDocs(
+        query(collection(db, 'kejohanan', selectedKej, 'acara', aid, 'heat'), orderBy('noHeat'))
+      )
+      setHariHeatMap(prev => ({
+        ...prev,
+        [aid]: snap.docs.map(d => ({ id: d.id, ...d.data() })),
+      }))
+    } catch {}
+    finally { setHariHeatLoading(null) }
+  }
+
+  async function cetakHeatDariHari(a, heat) {
+    const aid  = a.aceraId || a.id
+    const cKey = `${aid}:${heat.heatId}`
+    setCetakHeatId(cKey)
+    try {
+      const cfgSnap = await getDoc(doc(db, 'tetapan', 'home'))
+      const cfg = cfgSnap.exists() ? cfgSnap.data() : {}
+      const pdf = buatStartListPDFUnified({
+        acara:     a,
+        heats:     [heat],
+        namaKej,
+        jadual:    jadualMap[aid] || {},
+        rekodDNK:  {},
+        namaSekolahMap,
+        kategoriList,
+        logoKiri:  cfg.logoKiriBase64  || null,
+        logoKanan: cfg.logoKananBase64 || null,
+      })
+      pdf.save(`StartList_${aid}_${heat.heatId}_${Date.now()}.pdf`)
+      const bil = (heat.bilanganCetak || 0) + 1
+      await updateDoc(
+        doc(db, 'kejohanan', selectedKej, 'acara', aid, 'heat', heat.heatId),
+        { bilanganCetak: bil, tarikhCetak: serverTimestamp() }
+      )
+      setHariHeatMap(prev => ({
+        ...prev,
+        [aid]: (prev[aid] || []).map(h =>
+          h.heatId === heat.heatId ? { ...h, bilanganCetak: bil, tarikhCetak: new Date() } : h
+        ),
+      }))
+    } catch (e) { alert('Gagal cetak: ' + e.message) }
+    finally { setCetakHeatId(null) }
+  }
+
+  async function resetKiraanHariHeat(a, heat) {
+    if (userRole !== 'superadmin') return
+    if (!window.confirm(`Reset kiraan cetak ${FASA_LABEL[heat.fasa]||heat.fasa} ${heat.noHeat}?`)) return
+    const aid = a.aceraId || a.id
+    try {
+      await updateDoc(
+        doc(db, 'kejohanan', selectedKej, 'acara', aid, 'heat', heat.heatId),
+        { bilanganCetak: 0, tarikhCetak: null }
+      )
+      setHariHeatMap(prev => ({
+        ...prev,
+        [aid]: (prev[aid] || []).map(h =>
+          h.heatId === heat.heatId ? { ...h, bilanganCetak: 0, tarikhCetak: null } : h
+        ),
+      }))
+    } catch (e) { alert('Gagal reset: ' + e.message) }
   }
 
   // ── Cetak Start List by Hari ──────────────────────────────────────────────────
@@ -2904,10 +2978,13 @@ export default function StartList() {
                                 statusEl = <span className="text-[9px] font-bold px-2 py-0.5 bg-gray-100 text-gray-400 rounded-full">Tiada Peserta</span>
                               }
 
-                              const isPrinting = cetakHariLoading === aid
+                              const isExpanded = expandedHariAid === aid
+                              const hariHeats  = hariHeatMap[aid] || []
+                              const isLoadingH = hariHeatLoading === aid
 
                               return (
-                                <tr key={aid} className="hover:bg-gray-50 transition-colors">
+                                <>
+                                <tr key={aid} className={`hover:bg-gray-50 transition-colors ${isExpanded ? 'bg-blue-50/40' : ''}`}>
                                   <td className="px-3 py-2.5">
                                     <div className="font-black text-[#003399] text-xs">{a.noAcara || '—'}</div>
                                     <div className="text-[9px] text-gray-400 font-mono mt-0.5">{masa}</div>
@@ -2929,13 +3006,17 @@ export default function StartList() {
                                   <td className="px-3 py-2.5 text-center">
                                     {heat > 0 ? (
                                       <button
-                                        onClick={() => cetakAcaraDariHari(a)}
-                                        disabled={isPrinting}
-                                        title={`Cetak start list ${a.namaAcara}`}
-                                        className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-[#003399] text-[#003399] hover:bg-blue-50 disabled:opacity-40 transition-colors">
-                                        {isPrinting
-                                          ? <svg className="w-3.5 h-3.5 animate-spin" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                                          : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                                        onClick={() => toggleExpandHari(a)}
+                                        title={isExpanded ? 'Tutup' : 'Tunjuk heat & cetak'}
+                                        className={`inline-flex items-center gap-1 px-2.5 py-1 text-[9px] font-bold rounded-lg border transition-colors ${
+                                          isExpanded
+                                            ? 'bg-[#003399] text-white border-[#003399]'
+                                            : 'border-[#003399] text-[#003399] hover:bg-blue-50'
+                                        }`}>
+                                        {isLoadingH
+                                          ? '…'
+                                          : <><svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                                          {heat} Heat {isExpanded ? '▲' : '▼'}</>
                                         }
                                       </button>
                                     ) : (
@@ -2943,6 +3024,55 @@ export default function StartList() {
                                     )}
                                   </td>
                                 </tr>
+                                {/* Expand: senarai heat dengan per-heat cetak */}
+                                {isExpanded && (
+                                  <tr key={`${aid}_expand`}>
+                                    <td colSpan={6} className="px-4 pb-3 pt-0 bg-blue-50/30">
+                                      {isLoadingH ? (
+                                        <p className="text-[10px] text-gray-400 py-2">Memuatkan heat…</p>
+                                      ) : hariHeats.length === 0 ? (
+                                        <p className="text-[10px] text-gray-400 py-2">Tiada heat.</p>
+                                      ) : (
+                                        <div className="space-y-1.5 pt-1">
+                                          {hariHeats.map(heat => (
+                                            <div key={heat.heatId} className="flex items-center justify-between gap-3 bg-white rounded-lg border border-gray-100 px-3 py-2">
+                                              <div className="flex items-center gap-2">
+                                                <FasaBadge fasa={heat.fasa} />
+                                                <span className="text-[10px] font-bold text-gray-700">{FASA_LABEL[heat.fasa]||heat.fasa} {heat.noHeat}</span>
+                                                <span className="text-[9px] text-gray-400">{(heat.peserta||[]).length} peserta</span>
+                                              </div>
+                                              <div className="flex items-center gap-2">
+                                                {(heat.bilanganCetak || 0) > 0 ? (
+                                                  <span className="text-[9px] font-bold text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">
+                                                    ✓ {heat.bilanganCetak}× — {formatTarikhCetak(heat.tarikhCetak) || '—'}
+                                                  </span>
+                                                ) : (
+                                                  <span className="text-[9px] text-gray-400">○ Belum dicetak</span>
+                                                )}
+                                                {userRole === 'superadmin' && (heat.bilanganCetak || 0) > 0 && (
+                                                  <button
+                                                    onClick={() => resetKiraanHariHeat(a, heat)}
+                                                    title="Reset kiraan cetak"
+                                                    className="text-[10px] text-gray-400 hover:text-red-500 font-bold transition-colors">
+                                                    ↺
+                                                  </button>
+                                                )}
+                                                <button
+                                                  onClick={() => cetakHeatDariHari(a, heat)}
+                                                  disabled={cetakHeatId === `${aid}:${heat.heatId}`}
+                                                  className="flex items-center gap-1 px-2.5 py-1 text-[9px] font-bold border border-[#003399] text-[#003399] rounded-lg hover:bg-blue-50 disabled:opacity-50 transition-colors">
+                                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                                                  {cetakHeatId === `${aid}:${heat.heatId}` ? 'Mencetak…' : 'Cetak'}
+                                                </button>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </td>
+                                  </tr>
+                                )}
+                                </>
                               )
                             })}
                           </tbody>
