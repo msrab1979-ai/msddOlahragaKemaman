@@ -1869,14 +1869,17 @@ export default function StartList() {
     const cKey = `${aid}:${heat.heatId}`
     setCetakHeatId(cKey)
     try {
-      const cfgSnap = await getDoc(doc(db, 'tetapan', 'home'))
+      const [cfgSnap, rekodDNK] = await Promise.all([
+        getDoc(doc(db, 'tetapan', 'home')),
+        cariRekodUntukAcara(a),
+      ])
       const cfg = cfgSnap.exists() ? cfgSnap.data() : {}
       const pdf = buatStartListPDFUnified({
         acara:     a,
         heats:     [heat],
         namaKej,
         jadual:    jadualMap[aid] || {},
-        rekodDNK:  {},
+        rekodDNK,
         namaSekolahMap,
         kategoriList,
         logoKiri:  cfg.logoKiriBase64  || null,
