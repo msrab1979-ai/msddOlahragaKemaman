@@ -21,7 +21,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
-  collection, getDocs, getDoc, doc, setDoc, deleteDoc,
+  collection, getDocs, getDoc, doc, setDoc, deleteDoc, updateDoc,
   serverTimestamp, query, orderBy, where, writeBatch,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
