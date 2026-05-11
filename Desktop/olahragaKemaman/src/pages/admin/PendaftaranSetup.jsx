@@ -1048,8 +1048,9 @@ function TukarAtletModal({ pRec, aceraId, acaraObj, atletSekolah, pendaftaranLis
       const umur = tahunKej - tLahir
       return umur >= (katObj.umurMin ? Number(katObj.umurMin) : 0) && umur <= (katObj.umurHad ? Number(katObj.umurHad) : 99)
     }
-    // Utamakan kategoriKod yang disimpan (manual override) — jika tiada, kira auto
-    const kat = a.kategoriKod || kiraKategori(a.tarikhLahir, a.jantina, tahunKej, kategoriList)
+    // Utamakan kiraKategori (format baru) — atlet lama tersimpan kod lama (D→L15)
+    const katKira = kiraKategori(a.tarikhLahir, a.jantina, tahunKej, kategoriList)
+    const kat = katKira || a.kategoriKod
     return kat === acaraObj.kategoriKod
   })
 
@@ -3736,20 +3737,27 @@ function PPPendaftaranView({ sekolahList }) {
   const kategoriSekolah = sekolahData?.kategori || null
   const KAT_BY_JENIS = kategoriList.length > 0
     ? kategoriList.reduce((acc, k) => {
-        const jenis = k.jenisSekolah || 'SR'
-        if (!acc[jenis]) acc[jenis] = []
-        if (k.kod && !acc[jenis].includes(k.kod)) acc[jenis].push(k.kod)
+        if (!k.kod) return acc
+        if (k.isTerbuka) {
+          ;['SR','SM','PPKI'].forEach(j => {
+            if (!acc[j]) acc[j] = []
+            if (!acc[j].includes(k.kod)) acc[j].push(k.kod)
+          })
+        } else {
+          const jenis = k.jenisSekolah || 'SR'
+          if (!acc[jenis]) acc[jenis] = []
+          if (!acc[jenis].includes(k.kod)) acc[jenis].push(k.kod)
+        }
         return acc
       }, {})
-    : { SR: ['A', 'B'], SM: ['C', 'D', 'E'], PPKI: ['PPKI'] }
+    : {} // kosong semasa load — katDibenar → null → tunjuk semua
   const katDibenar = kategoriSekolah ? (KAT_BY_JENIS[kategoriSekolah] || null) : null
   const isDikunci  = pengesahan?.disahkan === true
 
-  // Buang final yang ada saringan (parentAcaraId) — peserta final ditentukan sistem
-  // Terus Final (peringkat=akhir TANPA parentAcaraId) masih boleh daftar
+  // Buang SEMUA acara yang ada parentAcaraId — itu final yang ditentukan sistem
   const acaraIkutSekolah = katDibenar
-    ? acaraList.filter(a => katDibenar.includes(a.kategoriKod) && !(a.peringkat === 'akhir' && a.parentAcaraId))
-    : acaraList.filter(a => !(a.peringkat === 'akhir' && a.parentAcaraId))
+    ? acaraList.filter(a => katDibenar.includes(a.kategoriKod) && !a.parentAcaraId)
+    : acaraList.filter(a => !a.parentAcaraId)
   const katList = [...new Set(acaraIkutSekolah.map(a => a.kategoriKod))].sort()
   const jenisOptions = ['lorong', 'mass_start', 'padang_lompat', 'padang_balin', 'relay']
   const jenisShort = { lorong: 'Lorong', mass_start: 'Mass', padang_lompat: 'Lompat', padang_balin: 'Balin', relay: 'Relay' }
