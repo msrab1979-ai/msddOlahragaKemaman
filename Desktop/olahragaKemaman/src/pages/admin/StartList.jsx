@@ -1606,6 +1606,7 @@ export default function StartList() {
   const [resetAllConfirm, setResetAllConfirm] = useState(false)
   const [jadualMap, setJadualMap]        = useState({}) // aceraId → {tarikhAcara, masaMula, lokasi}
   const [cetakLoading, setCetakLoading]  = useState(false)
+  const [cetakHeatId, setCetakHeatId]    = useState(null)  // heatId sedang dicetak
   const [cetakDropdown, setCetakDropdown] = useState(false)
   const [pengesahanMap, setPengesahanMap] = useState({}) // kodSekolah → { disahkan, tarikhSahkan }
   const [sekolahDaftarSet, setSekolahDaftarSet] = useState(new Set()) // kodSekolah yang ada pendaftaran
@@ -2025,8 +2026,50 @@ export default function StartList() {
     finally { setCetakLoading(false) }
   }
 
-  // ── Cetak Start List — Satu Acara (4 Salinan) ────────────────────────────────
-  async function cetakSatuAcara() {
+  // ── Helper: format tarikh cetak ──────────────────────────────────────────────
+  function formatTarikhCetak(ts) {
+    if (!ts) return null
+    try {
+      const d = ts.toDate ? ts.toDate() : new Date(ts)
+      return d.toLocaleDateString('ms-MY', { day: 'numeric', month: 'short', year: 'numeric' })
+    } catch { return null }
+  }
+
+  // ── Cetak Satu Heat (4 Salinan) ───────────────────────────────────────────────
+  async function cetakSatuHeat(heat) {
+    if (!selectedAcara || !selectedKej) return
+    setCetakHeatId(heat.heatId)
+    try {
+      const cfgSnap = await getDoc(doc(db, 'tetapan', 'home'))
+      const cfg = cfgSnap.exists() ? cfgSnap.data() : {}
+      const jadual = jadualMap[selectedAcara.aceraId || selectedAcara.id] || {}
+      const pdf = buatStartListPDFUnified({
+        acara:     selectedAcara,
+        heats:     [heat],
+        namaKej,
+        jadual,
+        rekodDNK:  rekodAcara,
+        namaSekolahMap,
+        kategoriList,
+        logoKiri:  cfg.logoKiriBase64  || null,
+        logoKanan: cfg.logoKananBase64 || null,
+      })
+      pdf.save(`StartList_${selectedAcara.aceraId}_${heat.heatId}_${Date.now()}.pdf`)
+      // Rekod dalam Firestore
+      const bil = (heat.bilanganCetak || 0) + 1
+      await updateDoc(
+        doc(db, 'kejohanan', selectedKej, 'acara', selectedAcara.aceraId, 'heat', heat.heatId),
+        { bilanganCetak: bil, tarikhCetak: serverTimestamp() }
+      )
+      setHeatList(prev => prev.map(h =>
+        h.heatId === heat.heatId ? { ...h, bilanganCetak: bil, tarikhCetak: new Date() } : h
+      ))
+    } catch (e) { alert('Gagal cetak: ' + e.message) }
+    finally { setCetakHeatId(null) }
+  }
+
+  // ── Cetak Semua Heat (4 Salinan × semua heat) ─────────────────────────────────
+  async function cetakSemuaHeat() {
     if (!selectedAcara || heatList.length === 0) return
     setCetakLoading(true)
     try {
@@ -2034,19 +2077,49 @@ export default function StartList() {
       const cfg = cfgSnap.exists() ? cfgSnap.data() : {}
       const jadual = jadualMap[selectedAcara.aceraId || selectedAcara.id] || {}
       const pdf = buatStartListPDFUnified({
-        acara:        selectedAcara,
-        heats:        heatList,
+        acara:     selectedAcara,
+        heats:     heatList,
         namaKej,
         jadual,
-        rekodDNK:     rekodAcara,
+        rekodDNK:  rekodAcara,
         namaSekolahMap,
         kategoriList,
-        logoKiri:     cfg.logoKiriBase64  || null,
-        logoKanan:    cfg.logoKananBase64 || null,
+        logoKiri:  cfg.logoKiriBase64  || null,
+        logoKanan: cfg.logoKananBase64 || null,
       })
       pdf.save(`StartList_${selectedAcara.aceraId}_${Date.now()}.pdf`)
+      // Rekod semua heat dalam Firestore
+      const batch = writeBatch(db)
+      heatList.forEach(h => {
+        batch.update(
+          doc(db, 'kejohanan', selectedKej, 'acara', selectedAcara.aceraId, 'heat', h.heatId),
+          { bilanganCetak: (h.bilanganCetak || 0) + 1, tarikhCetak: serverTimestamp() }
+        )
+      })
+      await batch.commit()
+      const now = new Date()
+      setHeatList(prev => prev.map(h => ({
+        ...h, bilanganCetak: (h.bilanganCetak || 0) + 1, tarikhCetak: now,
+      })))
     } catch (e) { alert('Gagal cetak: ' + e.message) }
     finally { setCetakLoading(false) }
+  }
+
+  // ── Reset Kiraan Cetak — satu heat (superadmin sahaja) ────────────────────────
+  async function resetKiraanHeat(heat) {
+    if (userRole !== 'superadmin') return
+    if (!window.confirm(
+      `Reset kiraan cetak untuk ${FASA_LABEL[heat.fasa] || heat.fasa} ${heat.noHeat}?\n\nIni akan set semula kiraan kepada 0.`
+    )) return
+    try {
+      await updateDoc(
+        doc(db, 'kejohanan', selectedKej, 'acara', selectedAcara.aceraId, 'heat', heat.heatId),
+        { bilanganCetak: 0, tarikhCetak: null }
+      )
+      setHeatList(prev => prev.map(h =>
+        h.heatId === heat.heatId ? { ...h, bilanganCetak: 0, tarikhCetak: null } : h
+      ))
+    } catch (e) { alert('Gagal reset: ' + e.message) }
   }
 
   // ── Cetak Start List — Satu Acara dari tab Hari ───────────────────────────────
@@ -3026,14 +3099,14 @@ export default function StartList() {
                           Paparan Sahaja
                         </span>
                       )}
-                      {/* Cetak Start List — satu acara */}
+                      {/* Cetak Semua Heat */}
                       {heatList.length > 0 && (
                         <button
-                          onClick={cetakSatuAcara}
-                          disabled={cetakLoading}
+                          onClick={cetakSemuaHeat}
+                          disabled={cetakLoading || cetakHeatId !== null}
                           className="flex items-center gap-1.5 px-3 py-2 text-[10px] font-bold border border-[#003399] text-[#003399] rounded-lg hover:bg-blue-50 disabled:opacity-50 transition-colors">
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
-                          {cetakLoading ? 'Mencetak…' : 'Cetak PDF'}
+                          {cetakLoading ? 'Mencetak…' : 'Cetak Semua Heat'}
                         </button>
                       )}
                       {/* Jana/Reset — admin sahaja */}
@@ -3154,20 +3227,48 @@ export default function StartList() {
                   return (
                     <div key={heat.heatId} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
                       {/* Heat header */}
-                      <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
+                      <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <FasaBadge fasa={heat.fasa} />
                           <span className="text-xs font-bold text-gray-700">{FASA_LABEL[heat.fasa]||heat.fasa} {heat.noHeat}</span>
                           <StatusBadge status={heat.status} />
                           <span className="text-[9px] font-mono text-gray-400">{heat.heatId}</span>
                         </div>
-                      {canEdit && (
-                        <button
-                          onClick={() => setModal({ type: 'editlorong', heat })}
-                          className="text-[10px] font-semibold text-[#003399] hover:underline">
-                          Edit {isPadang||isMass?'Giliran':'Lorong'}
-                        </button>
-                      )}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {/* Badge kiraan cetak */}
+                          {(heat.bilanganCetak || 0) > 0 ? (
+                            <span className="flex items-center gap-1 text-[9px] font-bold text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">
+                              ✓ {heat.bilanganCetak}× — {formatTarikhCetak(heat.tarikhCetak) || '—'}
+                            </span>
+                          ) : (
+                            <span className="text-[9px] text-gray-400">○ Belum dicetak</span>
+                          )}
+                          {/* Reset kiraan — superadmin sahaja */}
+                          {userRole === 'superadmin' && (heat.bilanganCetak || 0) > 0 && (
+                            <button
+                              onClick={() => resetKiraanHeat(heat)}
+                              title="Reset kiraan cetak"
+                              className="text-[10px] text-gray-400 hover:text-red-500 transition-colors font-bold">
+                              ↺
+                            </button>
+                          )}
+                          {/* Cetak heat ini */}
+                          <button
+                            onClick={() => cetakSatuHeat(heat)}
+                            disabled={cetakHeatId === heat.heatId || cetakLoading}
+                            className="flex items-center gap-1 px-2.5 py-1 text-[9px] font-bold border border-[#003399] text-[#003399] rounded-lg hover:bg-blue-50 disabled:opacity-50 transition-colors">
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                            {cetakHeatId === heat.heatId ? 'Mencetak…' : 'Cetak'}
+                          </button>
+                          {/* Edit lorong */}
+                          {canEdit && (
+                            <button
+                              onClick={() => setModal({ type: 'editlorong', heat })}
+                              className="text-[10px] font-semibold text-[#003399] hover:underline">
+                              Edit {isPadang||isMass?'Giliran':'Lorong'}
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       {/* Peserta table */}
