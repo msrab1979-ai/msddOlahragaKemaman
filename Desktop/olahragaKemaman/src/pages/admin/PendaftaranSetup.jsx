@@ -58,10 +58,11 @@ function kiraKategori(tarikhLahir, jantina, tahunKejohanan, kategoriList = []) {
   const umur = tahunKejohanan - tahunLahir
   if (kategoriList.length > 0) {
     const filtered = kategoriList.filter(k => {
-      const label = (k.label || '').toUpperCase()
-      if (label.includes('OPEN')) return false        // OPEN: handle berasingan
-      if (jantina === 'L' && !label.startsWith('L')) return false
-      if (jantina === 'P' && !label.startsWith('P')) return false
+      // Guna label → nama → kod sebagai fallback untuk kesan jantina
+      const checkStr = (k.label || k.nama || k.kod || k.id || '').toUpperCase()
+      if (checkStr.includes('OPEN')) return false     // OPEN: handle berasingan
+      if (jantina === 'L' && !checkStr.startsWith('L')) return false
+      if (jantina === 'P' && !checkStr.startsWith('P')) return false
       return true
     })
     const candidates = filtered.filter(k => umur >= (k.umurMin || 0) && umur <= k.umurHad)
@@ -138,11 +139,14 @@ const FormField = ({ label, hint, required, children }) => (
 const KAT_UMUR_LABEL = {A:'B10',B:'B12',C:'B14',D:'B16',E:'B18',PPKI:'PPKI'}
 const KAT_UMUR_FULL  = {A:'Bawah 10 Tahun',B:'Bawah 12 Tahun',C:'Bawah 14 Tahun',D:'Bawah 16 Tahun',E:'Bawah 18 Tahun',PPKI:'PPKI'}
 
-function KategoriBadge({ kat, full = false }) {
+function KategoriBadge({ kat, full = false, firestoreLabel }) {
   const colors = {A:'bg-blue-100 text-blue-700',B:'bg-cyan-100 text-cyan-700',C:'bg-green-100 text-green-700',D:'bg-yellow-100 text-yellow-700',E:'bg-orange-100 text-orange-700',PPKI:'bg-purple-100 text-purple-700'}
+  // Guna firestoreLabel jika ada, fallback ke hardcode (untuk backward-compat)
+  const displayLabel = firestoreLabel || KAT_UMUR_LABEL[kat] || kat
+  const displayFull  = firestoreLabel || KAT_UMUR_FULL[kat] || kat
   const label  = full
-    ? `Kat ${kat} — ${KAT_UMUR_FULL[kat] || kat}`
-    : `Kat ${kat} (${KAT_UMUR_LABEL[kat] || kat})`
+    ? `Kat ${kat} — ${displayFull}`
+    : `Kat ${kat} (${displayLabel})`
   return <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${colors[kat]||'bg-gray-100 text-gray-500'}`}>{kat ? label : '?'}</span>
 }
 
@@ -151,7 +155,10 @@ function JantinaBadge({ j }) {
 }
 
 // Dropdown inline untuk tukar kategori atlet — simpan ke Firestore
-function KatDropdown({ noKP, value, kategoriList, disabled, onSaved }) {
+// Gate: hanya tunjuk kategori yang jantina & umur atlet layak (dari KategoriSetup)
+// Jika kategori bertukar & atlet ada pendaftaran acara → padam rekod pendaftaran lama
+function KatDropdown({ noKP, value, kategoriList, disabled, onSaved,
+                       jantina, tarikhLahir, tahunKej, kejohananId, pRec }) {
   const [saving, setSaving] = useState(false)
 
   async function handleChange(e) {
@@ -163,6 +170,11 @@ function KatDropdown({ noKP, value, kategoriList, disabled, onSaved }) {
         kategoriKod: newKat || null,
         updatedAt: serverTimestamp(),
       })
+      // Buang pendaftaran acara lama — kategori bertukar, acara lama tidak lagi sah
+      // deleteDoc idempoten — selamat walaupun dokumen tiada
+      if (kejohananId) {
+        await deleteDoc(doc(db, 'kejohanan', kejohananId, 'pendaftaran', noKP))
+      }
       onSaved(newKat)
     } catch (err) {
       alert('Gagal kemaskini kategori: ' + err.message)
@@ -171,9 +183,22 @@ function KatDropdown({ noKP, value, kategoriList, disabled, onSaved }) {
     }
   }
 
-  const sorted = [...(kategoriList || [])].sort((a, b) =>
-    (a.kod || a.id || '').localeCompare(b.kod || b.id || '')
-  )
+  // Tapis: hanya kategori yang jantina & umur atlet layak (refer KategoriSetup)
+  const umurAtlet = (tahunKej && tarikhLahir)
+    ? tahunKej - new Date(tarikhLahir).getFullYear()
+    : null
+
+  const valid = [...(kategoriList || [])].filter(k => {
+    const label = (k.label || '').toUpperCase()
+    if (jantina === 'L' && !label.startsWith('L')) return false
+    if (jantina === 'P' && !label.startsWith('P')) return false
+    if (umurAtlet !== null) {
+      const min = k.umurMin ?? 0
+      const max = k.umurHad ?? 99
+      if (umurAtlet < min || umurAtlet > max) return false
+    }
+    return true
+  }).sort((a, b) => (a.kod || a.id || '').localeCompare(b.kod || b.id || ''))
 
   return (
     <select
@@ -187,7 +212,7 @@ function KatDropdown({ noKP, value, kategoriList, disabled, onSaved }) {
       } ${saving ? 'opacity-50' : ''}`}
     >
       <option value="">— pilih —</option>
-      {sorted.map(k => {
+      {valid.map(k => {
         const kod = k.kod || k.id
         const lbl = k.label || k.nama || kod
         return <option key={kod} value={kod}>{kod} — {lbl}</option>
@@ -233,7 +258,7 @@ function AtletModal({ mode, initial, sekolahList, isAdmin, kodSekolahAdmin, seko
   // Nombor sahaja (tanpa prefix) untuk input BIB
   const bibNumStr = form.noBib?.startsWith(bibPrefix) ? form.noBib.slice(bibPrefix.length) : ''
 
-  // Auto-format NoKP + auto-kesan tarikh lahir
+  // Auto-format NoKP + auto-kesan tarikh lahir + auto-kesan jantina
   function handleNoKPChange(raw) {
     const digits = raw.replace(/\D/g, '').slice(0, 12)
     // Format: YYMMDD-BB-XXXX
@@ -253,7 +278,12 @@ function AtletModal({ mode, initial, sekolahList, isAdmin, kodSekolahAdmin, seko
         tarikhLahir = `${year}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`
       }
     }
-    setForm(f => ({ ...f, noKP: fmt, tarikhLahir }))
+    // Auto-detect jantina dari digit terakhir No. KP (ganjil=Lelaki, genap=Perempuan)
+    let jantina = form.jantina
+    if (digits.length === 12) {
+      jantina = parseInt(digits[11], 10) % 2 === 1 ? 'L' : 'P'
+    }
+    setForm(f => ({ ...f, noKP: fmt, tarikhLahir, jantina }))
   }
 
   const set = (k, v) => setForm(f => {
@@ -505,16 +535,23 @@ function DaftarModal({ acara, kejohanan, atletSekolah, pendaftaranList, jadualLi
   const bilanganAtletDlmAcara = sudahDaftar.length
 
   // Atlet layak: jantina match + kategori match + belum daftar
+  // Kategori OPEN: semak julat umur sahaja (isTerbuka=true)
+  // Kategori biasa: utamakan kategoriKod tersimpan, fallback kiraKategori
+  const _modalKatObj = kategoriList.find(k => (k.kod || k.id) === acara.kategoriKod)
   const atletLayak = atletSekolah.filter(a => {
     if (a.isAktif === false) return false
     if (a.jantina !== acara.jantina) return false
-    const kat = kiraKategori(a.tarikhLahir, a.jantina, tahunKej, kategoriList)
-    if (kat !== acara.kategoriKod) return false
     if (sudahDaftar.includes(a.noKP)) return false
-    return true
+    if (_modalKatObj?.isTerbuka) {
+      const tLahir = a.tarikhLahir ? parseInt(a.tarikhLahir.substring(0, 4)) : 0
+      if (!tLahir) return false
+      const umur = tahunKej - tLahir
+      return umur >= (_modalKatObj.umurMin ? Number(_modalKatObj.umurMin) : 0) &&
+             umur <= (_modalKatObj.umurHad ? Number(_modalKatObj.umurHad) : 99)
+    }
+    const kat = a.kategoriKod || kiraKategori(a.tarikhLahir, a.jantina, tahunKej, kategoriList)
+    return kat === acara.kategoriKod
   })
-
-  const _modalKatObj = kategoriList.find(k => k.kod === acara.kategoriKod)
   const hadAcara = (() => {
     if (acara.jenisAcara === 'relay' && _modalKatObj) {
       const saizPasukan = Number(_modalKatObj.saizPasukan) || 4
@@ -974,7 +1011,9 @@ function TukarAtletModal({ pRec, aceraId, acaraObj, atletSekolah, pendaftaranLis
       const umur = tahunKej - tLahir
       return umur >= (katObj.umurMin ? Number(katObj.umurMin) : 0) && umur <= (katObj.umurHad ? Number(katObj.umurHad) : 99)
     }
-    return kiraKategori(a.tarikhLahir, a.jantina, tahunKej, kategoriList) === acaraObj.kategoriKod
+    // Utamakan kategoriKod yang disimpan (manual override) — jika tiada, kira auto
+    const kat = a.kategoriKod || kiraKategori(a.tarikhLahir, a.jantina, tahunKej, kategoriList)
+    return kat === acaraObj.kategoriKod
   })
 
   async function doTukar() {
@@ -1987,6 +2026,7 @@ function TabAtlet({ userRole: userRoleProp, userData: userDataProp, sekolahList 
   const [countdownStr, setCountdownStr]           = useState('')
   const [kategoriList, setKategoriList]           = useState([])
   const [tahunKej, setTahunKej]                   = useState(null)
+  const [activeKejId, setActiveKejId]             = useState(null)
 
   const namaSekolahMap = useMemo(() =>
     Object.fromEntries(sekolahList.map(s => [s.kodSekolah, s.namaSekolah || s.kodSekolah])),
@@ -2002,6 +2042,7 @@ function TabAtlet({ userRole: userRoleProp, userData: userDataProp, sekolahList 
     getDocs(query(collection(db, 'kejohanan'), where('statusKejohanan', 'in', ['aktif', 'persediaan'])))
       .then(snap => {
         if (!snap.empty) {
+          setActiveKejId(snap.docs[0].id)
           const kej = snap.docs[0].data()
           setTarikhTamatDaftar(kej.tarikhTamatDaftar || null)
           if (kej.tarikhMula) {
@@ -2292,6 +2333,11 @@ function TabAtlet({ userRole: userRoleProp, userData: userDataProp, sekolahList 
                         kategoriList={kategoriList}
                         disabled={pendaftaranTutup}
                         onSaved={(newKat) => setAtletList(l => l.map(x => x.noKP === a.noKP ? { ...x, kategoriKod: newKat } : x))}
+                        jantina={a.jantina}
+                        tarikhLahir={a.tarikhLahir}
+                        tahunKej={tahunKej}
+                        kejohananId={activeKejId}
+                        pRec={true}
                       />
                     </td>
                     <td className="px-3 py-2.5 text-center">
@@ -2983,7 +3029,12 @@ function PPAtletModal({ mode, initial, sekolahData, existingBibs, myPendaftaran,
         tarikhLahir = `${year}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`
       }
     }
-    setForm(f => ({ ...f, noKP: fmt, tarikhLahir }))
+    // Auto-detect jantina dari digit terakhir No. KP (ganjil=Lelaki, genap=Perempuan)
+    let jantina = form.jantina
+    if (digits.length === 12) {
+      jantina = parseInt(digits[11], 10) % 2 === 1 ? 'L' : 'P'
+    }
+    setForm(f => ({ ...f, noKP: fmt, tarikhLahir, jantina }))
   }
 
   const fullNoBib   = bibPrefix && bibNum ? bibPrefix + String(bibNum).padStart(bibFormat, '0') : bibNum
@@ -3155,7 +3206,7 @@ function PPAtletModal({ mode, initial, sekolahData, existingBibs, myPendaftaran,
               <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg border border-gray-100">
                 <span className="text-[10px] text-gray-500">Kategori MSSM:</span>
                 {kategori
-                  ? <KategoriBadge kat={kategori} />
+                  ? <KategoriBadge kat={kategori} firestoreLabel={kategoriList.find(k=>(k.kod||k.id)===kategori)?.label || undefined} />
                   : <span className="text-[10px] text-red-500 font-semibold">Di luar julat kategori</span>}
               </div>
             )}
@@ -3841,6 +3892,11 @@ function PPPendaftaranView({ sekolahList }) {
                             kategoriList={kategoriList}
                             disabled={pendaftaranTutup}
                             onSaved={(newKat) => setAtletSekolah(prev => prev.map(x => x.noKP === a.noKP ? { ...x, kategoriKod: newKat } : x))}
+                            jantina={a.jantina}
+                            tarikhLahir={a.tarikhLahir}
+                            tahunKej={tahunKej}
+                            kejohananId={kejohanan?.id}
+                            pRec={myPendaftaran.find(p => p.noKP === a.noKP)}
                           />
                         </td>
                         <td className="px-3 py-2.5 text-center">
@@ -3933,7 +3989,9 @@ function PPPendaftaranView({ sekolahList }) {
             const umurMin = acaraKatObj.umurMin ? Number(acaraKatObj.umurMin) : 0
             return umur >= umurMin && umur <= umurMax
           }
-          return kiraKategori(a.tarikhLahir, a.jantina, tahunKej, kategoriList) === acaraObj.kategoriKod
+          // Utamakan kategoriKod yang disimpan (manual override) — jika tiada, kira auto
+          const kat = a.kategoriKod || kiraKategori(a.tarikhLahir, a.jantina, tahunKej, kategoriList)
+          return kat === acaraObj.kategoriKod
         })
       : []
     // Kira bilangan acara individu atlet dalam kategori ini (dari cache)
@@ -4265,22 +4323,24 @@ function PPPendaftaranView({ sekolahList }) {
                             <span className="text-[9px] font-black font-mono text-[#003399] bg-blue-50 px-1.5 py-0.5 rounded shrink-0">{p.noBib || '—'}</span>
                             <span className="text-xs font-semibold text-gray-800 flex-1 truncate">{p.namaAtlet}</span>
                             {!heatAda && !pendaftaranTutup && !isDikunci && pRec && (
-                              <div className="flex items-center gap-1 shrink-0">
+                              <div className="flex items-center gap-1.5 shrink-0">
                                 <button
                                   onClick={() => setTukarModal({ pRec, aceraId, acaraObj: acara })}
                                   title="Tukar atlet"
-                                  className="p-1 text-gray-300 hover:text-amber-500 hover:bg-amber-50 rounded transition-colors">
-                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                  className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold bg-amber-400 hover:bg-amber-500 text-white rounded-md transition-colors shadow-sm">
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
                                   </svg>
+                                  Tukar
                                 </button>
                                 <button
                                   onClick={() => handleBuangDaftar(pRec, aceraId)}
                                   title="Buang dari acara ini"
-                                  className="p-1 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors">
-                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                  className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold bg-red-500 hover:bg-red-600 text-white rounded-md transition-colors shadow-sm">
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                                   </svg>
+                                  Buang
                                 </button>
                               </div>
                             )}
