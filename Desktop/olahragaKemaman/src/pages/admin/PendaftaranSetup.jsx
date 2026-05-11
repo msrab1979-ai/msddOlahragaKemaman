@@ -67,7 +67,14 @@ function kiraKategori(tarikhLahir, jantina, tahunKejohanan, kategoriList = []) {
     })
     const candidates = filtered.filter(k => umur >= (k.umurMin || 0) && umur <= k.umurHad)
     if (candidates.length === 0) return null
-    candidates.sort((a, b) => a.umurHad - b.umurHad)  // paling spesifik dahulu
+    // Utamakan format baru (L10, L15 dll) berbanding format lama (A-H)
+    // kemudian paling spesifik (umurHad terkecil)
+    candidates.sort((a, b) => {
+      const aNew = !/^[A-H]$/.test(a.kod)
+      const bNew = !/^[A-H]$/.test(b.kod)
+      if (aNew !== bNew) return aNew ? -1 : 1
+      return a.umurHad - b.umurHad
+    })
     return candidates[0].kod
   }
   // kategoriList kosong (belum load) — jangan return kod salah format lama
@@ -575,7 +582,9 @@ function DaftarModal({ acara, kejohanan, atletSekolah, pendaftaranList, jadualLi
       return umur >= (_modalKatObj.umurMin ? Number(_modalKatObj.umurMin) : 0) &&
              umur <= (_modalKatObj.umurHad ? Number(_modalKatObj.umurHad) : 99)
     }
-    const kat = a.kategoriKod || kiraKategori(a.tarikhLahir, a.jantina, tahunKej, kategoriList)
+    // Utamakan kiraKategori (format baru) — atlet lama tersimpan kod lama (D→L15)
+    const katKira = kiraKategori(a.tarikhLahir, a.jantina, tahunKej, kategoriList)
+    const kat = katKira || a.kategoriKod
     return kat === acara.kategoriKod
   })
   const hadAcara = (() => {
@@ -787,7 +796,8 @@ function DaftarModal({ acara, kejohanan, atletSekolah, pendaftaranList, jadualLi
             <div className="space-y-1.5">
               <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold mb-2">Pilih Atlet ({atletLayak.length} layak)</p>
               {atletLayak.map(a => {
-                const kat = a.kategoriKod || kiraKategori(a.tarikhLahir, a.jantina, tahunKej, kategoriList)
+                const katKira = kiraKategori(a.tarikhLahir, a.jantina, tahunKej, kategoriList)
+                const kat = katKira || a.kategoriKod
                 const katObj = kategoriList.find(k => (k.kod || k.id) === kat)
                 const isSelected = selected.includes(a.noKP)
                 // Semak jika memilih ini akan melebihi had
@@ -2487,14 +2497,24 @@ function TabPendaftaran({ userRole: userRoleProp, userData: userDataProp, sekola
   const [kategoriList, setKategoriList] = useState([])
 
   // Peta jenis sekolah → kategoriKod acara yang dibenarkan (dinamik dari Firestore)
+  // Kategori OPEN (isTerbuka=true) dimasukkan dalam SEMUA jenis sekolah
   const KAT_BY_JENIS = kategoriList.length > 0
     ? kategoriList.reduce((acc, k) => {
-        const jenis = k.jenisSekolah || 'SR'
-        if (!acc[jenis]) acc[jenis] = []
-        if (k.kod && !acc[jenis].includes(k.kod)) acc[jenis].push(k.kod)
+        if (!k.kod) return acc
+        if (k.isTerbuka) {
+          // OPEN — relevan untuk semua jenis sekolah
+          ;['SR','SM','PPKI'].forEach(j => {
+            if (!acc[j]) acc[j] = []
+            if (!acc[j].includes(k.kod)) acc[j].push(k.kod)
+          })
+        } else {
+          const jenis = k.jenisSekolah || 'SR'
+          if (!acc[jenis]) acc[jenis] = []
+          if (!acc[jenis].includes(k.kod)) acc[jenis].push(k.kod)
+        }
         return acc
       }, {})
-    : { SR: ['A','B'], SM: ['C','D','E'], PPKI: ['PPKI'] }
+    : {} // kosong semasa load — katDibenar → null → tunjuk semua
   // Hanya tapis jika pengurus_pasukan/admin dengan sekolah — superadmin lihat semua
   const katDibenar = (isAdmin && kodSekolah && kategoriSekolah)
     ? (KAT_BY_JENIS[kategoriSekolah]?.length > 0 ? KAT_BY_JENIS[kategoriSekolah] : null)
@@ -2647,11 +2667,11 @@ function TabPendaftaran({ userRole: userRoleProp, userData: userDataProp, sekola
   const jenisShort = {lorong:'Lorong',mass_start:'Mass',padang_lompat:'Lompat',padang_balin:'Balin',relay:'Relay'}
 
   // Hanya tunjuk kategori yang berkaitan dengan jenis sekolah
-  // Buang final yang ada saringan (parentAcaraId) — peserta final ditentukan sistem
-  // Terus Final (peringkat=akhir TANPA parentAcaraId) masih boleh daftar
+  // Buang SEMUA acara yang ada parentAcaraId — itu final yang ditentukan sistem
+  // Terus Final (tiada parentAcaraId) masih boleh daftar terus
   const acaraIkutSekolah = katDibenar
-    ? acaraList.filter(a => katDibenar.includes(a.kategoriKod) && !(a.peringkat === 'akhir' && a.parentAcaraId))
-    : acaraList.filter(a => !(a.peringkat === 'akhir' && a.parentAcaraId))
+    ? acaraList.filter(a => katDibenar.includes(a.kategoriKod) && !a.parentAcaraId)
+    : acaraList.filter(a => !a.parentAcaraId)
 
   const katList = [...new Set(acaraIkutSekolah.map(a => a.kategoriKod))].sort()
 
