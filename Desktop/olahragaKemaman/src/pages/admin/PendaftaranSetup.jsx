@@ -3728,19 +3728,14 @@ function PPPendaftaranView({ sekolahList }) {
 
   // Jenis sekolah → kategori dibenar (dinamik dari Firestore)
   const kategoriSekolah = sekolahData?.kategori || null
+  // Semua kategori (termasuk OPEN) ikut jenisSekolah yang ditetapkan dalam KategoriSetup
+  // Tambah kategori baru → automatik aktif dalam Pendaftaran tanpa ubah kod
   const KAT_BY_JENIS = kategoriList.length > 0
     ? kategoriList.reduce((acc, k) => {
         if (!k.kod) return acc
-        if (k.isTerbuka) {
-          ;['SR','SM','PPKI'].forEach(j => {
-            if (!acc[j]) acc[j] = []
-            if (!acc[j].includes(k.kod)) acc[j].push(k.kod)
-          })
-        } else {
-          const jenis = k.jenisSekolah || 'SR'
-          if (!acc[jenis]) acc[jenis] = []
-          if (!acc[jenis].includes(k.kod)) acc[jenis].push(k.kod)
-        }
+        const jenis = k.jenisSekolah || 'SR'
+        if (!acc[jenis]) acc[jenis] = []
+        if (!acc[jenis].includes(k.kod)) acc[jenis].push(k.kod)
         return acc
       }, {})
     : {} // kosong semasa load — katDibenar → null → tunjuk semua
