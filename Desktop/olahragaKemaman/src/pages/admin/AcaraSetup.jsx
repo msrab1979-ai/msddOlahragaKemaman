@@ -1793,24 +1793,21 @@ function SemakAcara({ acaraList, kategoriList, kejohananId, onHadUpdated }) {
   const [editVal,    setEditVal]    = useState('')
   const [saving,     setSaving]     = useState(false)
 
-  // Bina set aceraId yg menjadi parent (ada final linked padanya)
-  const parentIds = new Set(
-    acaraList.filter(a => a.parentAcaraId).map(a => String(a.parentAcaraId))
-  )
-
+  // Peringkat — guna field `peringkat` terus dari Firestore:
+  //   'saringan' → Saringan
+  //   'akhir' + parentAcaraId → Final (perlawanan akhir linked ke saringan)
+  //   'akhir' + tiada parentAcaraId → Akhir (standalone, tiada final)
   function getPeringkat(a) {
-    const key = String(a.noAcara || a.aceraId || a.id)
-    if (a.parentAcaraId) return 'final'
-    if (parentIds.has(key)) return 'saringan'
-    return 'biasa'
+    if (a.peringkat === 'saringan') return 'saringan'
+    if (a.parentAcaraId)           return 'final'
+    return 'akhir'
   }
 
   // Filter
   const listed = acaraList.filter(a => {
     if (fJantina !== 'semua' && a.jantina !== fJantina) return false
     if (fKat     !== 'semua' && a.kategoriKod !== fKat) return false
-    if (fPeringkat === 'final'    && getPeringkat(a) !== 'final')                     return false
-    if (fPeringkat === 'saringan' && !['saringan','biasa'].includes(getPeringkat(a))) return false
+    if (fPeringkat !== 'semua' && getPeringkat(a) !== fPeringkat) return false
     return true
   })
 
@@ -1844,8 +1841,8 @@ function SemakAcara({ acaraList, kategoriList, kejohananId, onHadUpdated }) {
   }
 
   const JENIS_SHORT = { lorong:'Lorong', mass_start:'Mass', padang_lompat:'Lompat', padang_balin:'Balin', relay:'Relay' }
-  const P_BADGE     = { saringan:'bg-blue-100 text-blue-700', final:'bg-amber-100 text-amber-700', biasa:'bg-gray-100 text-gray-400' }
-  const P_LABEL     = { saringan:'Saringan', final:'Final', biasa:'—' }
+  const P_BADGE     = { saringan:'bg-blue-100 text-blue-700', final:'bg-amber-100 text-amber-700', akhir:'bg-green-100 text-green-700' }
+  const P_LABEL     = { saringan:'Saringan', final:'Final', akhir:'Akhir' }
 
   return (
     <div className="space-y-4">
@@ -1856,7 +1853,7 @@ function SemakAcara({ acaraList, kategoriList, kejohananId, onHadUpdated }) {
           { l:'Jumlah Acara',    v: acaraList.length,                              c:'text-[#003399]', bg:'bg-blue-50' },
           { l:'Lelaki',          v: acaraList.filter(a=>a.jantina==='L').length,   c:'text-blue-600',  bg:'bg-blue-50' },
           { l:'Perempuan',       v: acaraList.filter(a=>a.jantina==='P').length,   c:'text-pink-600',  bg:'bg-pink-50' },
-          { l:'Final Dirancang', v: acaraList.filter(a=>a.parentAcaraId).length,   c:'text-amber-600', bg:'bg-amber-50' },
+          { l:'Saringan',        v: acaraList.filter(a=>a.peringkat==='saringan').length, c:'text-blue-600',  bg:'bg-blue-50' },
         ].map(s => (
           <div key={s.l} className={`${s.bg} rounded-xl px-3 py-2.5 text-center`}>
             <p className={`text-xl font-black ${s.c}`}>{s.v}</p>
@@ -1877,9 +1874,9 @@ function SemakAcara({ acaraList, kategoriList, kejohananId, onHadUpdated }) {
         </div>
 
         <div className="flex rounded-lg border border-gray-200 overflow-hidden text-[10px] bg-white">
-          {[['semua','Semua'],['saringan','Saringan'],['final','Final']].map(([v,l]) => (
+          {[['semua','Semua'],['saringan','Saringan'],['akhir','Akhir'],['final','Final']].map(([v,l]) => (
             <button key={v} onClick={() => setFPeringkat(v)}
-              className={`px-3 py-1.5 font-bold transition-colors ${fPeringkat===v?'bg-[#003399] text-white':'text-gray-500 hover:bg-gray-50'}`}>
+              className={`px-3 py-1.5 font-bold transition-colors border-r border-gray-100 last:border-r-0 ${fPeringkat===v?'bg-[#003399] text-white':'text-gray-500 hover:bg-gray-50'}`}>
               {l}
             </button>
           ))}
@@ -2060,15 +2057,15 @@ function SemakAcara({ acaraList, kategoriList, kejohananId, onHadUpdated }) {
       <div className="flex flex-wrap gap-3 items-center pt-1">
         <span className="flex gap-1.5 items-center">
           <span className="bg-blue-100 text-blue-700 font-bold text-[9px] px-1.5 py-0.5 rounded-full">Saringan</span>
-          <span className="text-[9px] text-gray-400">= ada final dirancang</span>
+          <span className="text-[9px] text-gray-400">= ada perlawanan final</span>
         </span>
         <span className="flex gap-1.5 items-center">
           <span className="bg-amber-100 text-amber-700 font-bold text-[9px] px-1.5 py-0.5 rounded-full">Final</span>
           <span className="text-[9px] text-gray-400">= perlawanan akhir</span>
         </span>
         <span className="flex gap-1.5 items-center">
-          <span className="bg-gray-100 text-gray-400 font-bold text-[9px] px-1.5 py-0.5 rounded-full">—</span>
-          <span className="text-[9px] text-gray-400">= tiada struktur final</span>
+          <span className="bg-green-100 text-green-700 font-bold text-[9px] px-1.5 py-0.5 rounded-full">Akhir</span>
+          <span className="text-[9px] text-gray-400">= terus ke akhir (tiada saringan)</span>
         </span>
       </div>
     </div>
