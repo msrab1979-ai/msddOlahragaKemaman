@@ -133,23 +133,54 @@ const FormField = ({ label, hint, required, children }) => (
 )
 
 const KAT_UMUR_LABEL = {A:'B10',B:'B12',C:'B14',D:'B16',E:'B18',PPKI:'PPKI'}
-const KAT_UMUR_FULL  = {A:'Bawah 10 Tahun',B:'Bawah 12 Tahun',C:'Bawah 14 Tahun',D:'Bawah 16 Tahun',E:'Bawah 18 Tahun',PPKI:'PPKI'}
+const OLD_KAT_UMUR   = {A:10,B:12,C:14,D:16,E:18}
 
-function KategoriBadge({ kat, full = false, firestoreLabel }) {
-  const colors = {A:'bg-blue-100 text-blue-700',B:'bg-cyan-100 text-cyan-700',C:'bg-green-100 text-green-700',D:'bg-yellow-100 text-yellow-700',E:'bg-orange-100 text-orange-700',PPKI:'bg-purple-100 text-purple-700'}
-  // Format lama: huruf tunggal A-H atau PPKI → "Kat C (B14)"
-  // Format baru: L10, L12, OPEN-SK-L, dll → tunjuk label terus
-  const isOldFormat = /^[A-H]$/.test(kat) || kat === 'PPKI'
+// Selesaikan label kategori: format baru (L15/P15) diutamakan, format lama (A-H) di-resolve
+// jika kategoriList dihantar. Tunjuk label ringkas tanpa 'Kat E (B18)'.
+function KategoriBadge({ kat, full = false, firestoreLabel, kategoriList = [], jantina }) {
   let label
-  if (isOldFormat) {
-    const displayLabel = firestoreLabel || KAT_UMUR_LABEL[kat] || kat
-    const displayFull  = firestoreLabel || KAT_UMUR_FULL[kat] || kat
-    label = full ? `Kat ${kat} — ${displayFull}` : `Kat ${kat} (${displayLabel})`
-  } else {
-    // Format baru — tunjuk firestoreLabel atau kod terus (L10, P12, OPEN-SK-L...)
-    label = firestoreLabel || kat
+  if (!kat) {
+    return <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">?</span>
   }
-  return <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${colors[kat]||'bg-gray-100 text-gray-500'}`}>{kat ? label : '?'}</span>
+  const isOldSingleLetter = /^[A-H]$/.test(kat)
+
+  if (firestoreLabel) {
+    label = firestoreLabel
+  } else if (kategoriList.length > 0) {
+    // Cuba padankan terus dengan kod dalam kategoriList
+    const found = kategoriList.find(k => (k.kod || k.id) === kat)
+    if (found) {
+      label = found.label || found.nama || kat
+    } else if (isOldSingleLetter) {
+      // Format lama tanpa padanan terus → cuba cari melalui umurHad + jantina
+      const umur = OLD_KAT_UMUR[kat]
+      if (umur && jantina) {
+        const match = kategoriList.find(k => {
+          const lbl = (k.label || k.nama || k.kod || '').toUpperCase()
+          return k.umurHad === umur && (jantina === 'L' ? lbl.startsWith('L') : lbl.startsWith('P'))
+        })
+        label = match?.label || match?.nama || `${jantina}${umur}`
+      } else {
+        label = KAT_UMUR_LABEL[kat] || kat
+      }
+    } else {
+      label = kat // format baru tanpa padanan — tunjuk kod terus
+    }
+  } else {
+    // Tiada kategoriList: format lama → B18 dll, format baru → tunjuk terus
+    label = isOldSingleLetter ? (KAT_UMUR_LABEL[kat] || kat) : kat
+  }
+
+  // Warna: turunkan daripada label yang dah diselesaikan
+  const lbl = (label || kat).toUpperCase()
+  let colorClass
+  if (kat === 'PPKI') colorClass = 'bg-purple-100 text-purple-700'
+  else if (lbl.startsWith('L')) colorClass = 'bg-blue-100 text-blue-700'
+  else if (lbl.startsWith('P')) colorClass = 'bg-pink-100 text-pink-700'
+  else if (lbl.includes('OPEN')) colorClass = 'bg-violet-100 text-violet-700'
+  else colorClass = 'bg-gray-100 text-gray-500'
+
+  return <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${colorClass}`}>{label}</span>
 }
 
 function JantinaBadge({ j }) {
@@ -2893,7 +2924,7 @@ function TabPendaftaran({ userRole: userRoleProp, userData: userDataProp, sekola
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <p className="text-sm font-bold text-gray-800">{acara.namaAcara}</p>
-                            <KategoriBadge kat={acara.kategoriKod} full={!!isAdmin} />
+                            <KategoriBadge kat={acara.kategoriKod} full={!!isAdmin} kategoriList={kategoriList} jantina={acara.jantina} />
                             <JantinaBadge j={acara.jantina} />
                             <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
                               {lorong:'bg-blue-50 border-blue-200 text-blue-700',mass_start:'bg-cyan-50 border-cyan-200 text-cyan-700',padang_lompat:'bg-green-50 border-green-200 text-green-700',padang_balin:'bg-orange-50 border-orange-200 text-orange-700',relay:'bg-purple-50 border-purple-200 text-purple-700'}[acara.jenisAcara]||''
@@ -2983,7 +3014,7 @@ function TabPendaftaran({ userRole: userRoleProp, userData: userDataProp, sekola
                                       </div>
                                     </div>
                                     <div className="flex items-center gap-1.5 shrink-0">
-                                      <KategoriBadge kat={kat} />
+                                      <KategoriBadge kat={kat} kategoriList={kategoriList} jantina={p.jantina} />
                                       <JantinaBadge j={p.jantina} />
                                       {(isAdmin ? p.kodSekolah === kodSekolah : true) && (
                                         <button onClick={() => setModal({ type:'buang', atlet:p, acara })}
@@ -4220,7 +4251,7 @@ function PPPendaftaranView({ sekolahList }) {
                   {/* Acara info + slot */}
                   <div className="flex items-center gap-2 flex-wrap px-3 py-2 bg-gray-50 rounded-lg border border-gray-100">
                     <span className="text-xs font-bold text-gray-700">{acaraObj.namaAcara}</span>
-                    <KategoriBadge kat={acaraObj.kategoriKod} />
+                    <KategoriBadge kat={acaraObj.kategoriKod} kategoriList={kategoriList} jantina={acaraObj.jantina} />
                     <JantinaBadge j={acaraObj.jantina} />
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ml-auto ${
                       slotBaki > 0 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'
@@ -4352,7 +4383,7 @@ function PPPendaftaranView({ sekolahList }) {
                   <div key={aceraId} className="px-4 py-3">
                     <div className="flex items-center gap-2 mb-2">
                       <p className="text-xs font-bold text-gray-800">{acara.namaAcara}</p>
-                      <KategoriBadge kat={acara.kategoriKod} />
+                      <KategoriBadge kat={acara.kategoriKod} kategoriList={kategoriList} jantina={acara.jantina} />
                       <JantinaBadge j={acara.jantina} />
                       <span className="text-[9px] text-gray-400 ml-auto">{peserta.length}/{had}</span>
                       {heatAda && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-600">Heat Dijana</span>}
@@ -4461,7 +4492,7 @@ function PPPendaftaranView({ sekolahList }) {
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
-                      {kat && <KategoriBadge kat={kat} />}
+                      {kat && <KategoriBadge kat={kat} kategoriList={kategoriList} jantina={a.jantina} />}
                       <JantinaBadge j={a.jantina} />
                       {acaraIds.length > 0
                         ? <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">{acaraIds.length} acara</span>
@@ -4477,7 +4508,7 @@ function PPPendaftaranView({ sekolahList }) {
                           <div key={id} className="flex items-center gap-2 text-[10px] text-gray-600">
                             <span className="font-mono text-gray-400 text-[9px]">{id}</span>
                             <span className="font-semibold">{ac?.namaAcara || id}</span>
-                            {ac && <KategoriBadge kat={ac.kategoriKod} />}
+                            {ac && <KategoriBadge kat={ac.kategoriKod} kategoriList={kategoriList} jantina={ac.jantina} />}
                           </div>
                         )
                       })}
