@@ -23,7 +23,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   collection, getDocs, doc, setDoc, updateDoc, deleteDoc,
-  serverTimestamp, query, orderBy, writeBatch, getDoc,
+  serverTimestamp, query, orderBy, writeBatch, getDoc, where,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 
@@ -634,8 +634,14 @@ const JENIS_ACARA_TABS = [
   { key: 'padang', label: 'Padang', hint: 'Lompat & balin/lempar' },
 ]
 
-const numCls = 'w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-center ' +
+const numCls = 'w-14 border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-center ' +
   'focus:outline-none focus:ring-2 focus:ring-[#003399]/25 focus:border-[#003399] bg-gray-50'
+
+function getJenisTab(a) {
+  if (a.jenisAcara === 'relay') return 'relay'
+  if (a.jenisAcara === 'padang_lompat' || a.jenisAcara === 'padang_balin') return 'padang'
+  return 'larian'
+}
 
 function TetapanFinal({ kategoriList }) {
   const [subTab,   setSubTab]   = useState('larian')
@@ -645,18 +651,24 @@ function TetapanFinal({ kategoriList }) {
   const [saved,    setSaved]    = useState(false)
   const [dirty,    setDirty]    = useState(false)
 
-  // Load dari Firestore
+  // Live acara + heat data
+  const [kejId,           setKejId]           = useState(null)
+  const [acaraSaringan,   setAcaraSaringan]   = useState([])
+  const [heatCountMap,    setHeatCountMap]    = useState({})   // aceraId → bilangan heat
+  const [pesertaCountMap, setPesertaCountMap] = useState({})   // aceraId → bilangan atlet
+  const [overrides,       setOverrides]       = useState({})   // aceraId → { bestHeat, bestTime }
+  const [loadingAcara,    setLoadingAcara]    = useState(false)
+  const [expandedKat,     setExpandedKat]     = useState({})
+
+  // ── Load tetapan dari Firestore ──────────────────────────────────────────────
   const fetchSetup = useCallback(async () => {
     setLoading(true)
     try {
       const snap = await getDoc(doc(db, 'tetapan', 'finalSetup'))
       if (snap.exists()) {
         const d = snap.data()
-        setSetup({
-          larian: d.larian || {},
-          relay:  d.relay  || {},
-          padang: d.padang || {},
-        })
+        setSetup({ larian: d.larian || {}, relay: d.relay || {}, padang: d.padang || {} })
+        setOverrides(d.overrideByAcara || {})
       }
     } catch (e) { console.error(e) }
     finally { setLoading(false) }
@@ -664,20 +676,55 @@ function TetapanFinal({ kategoriList }) {
 
   useEffect(() => { fetchSetup() }, [fetchSetup])
 
-  // Helper ubah nilai
+  // ── Fetch kejohanan aktif + acara saringan + heat counts + peserta ───────────
+  useEffect(() => {
+    async function fetchAcara() {
+      setLoadingAcara(true)
+      try {
+        const kejSnap = await getDocs(query(
+          collection(db, 'kejohanan'),
+          where('statusKejohanan', 'in', ['aktif', 'persediaan'])
+        ))
+        if (kejSnap.empty) return
+        const kej = kejSnap.docs[0]
+        setKejId(kej.id)
+
+        // Semua acara — simpan yang saringan sahaja
+        const acaraSnap = await getDocs(collection(db, 'kejohanan', kej.id, 'acara'))
+        const saringan = acaraSnap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .filter(a => a.peringkat === 'saringan' || (!a.peringkat && !a.parentAcaraId))
+        setAcaraSaringan(saringan)
+
+        // Bilangan heat per acara — parallel fetch
+        const heatResults = await Promise.all(
+          saringan.map(a =>
+            getDocs(collection(db, 'kejohanan', kej.id, 'acara', a.id, 'heat'))
+              .then(s => [a.id, s.size])
+          )
+        )
+        setHeatCountMap(Object.fromEntries(heatResults))
+
+        // Bilangan peserta per acara dari pendaftaran
+        const pendSnap = await getDocs(collection(db, 'kejohanan', kej.id, 'pendaftaran'))
+        const cMap = {}
+        pendSnap.docs.forEach(d => {
+          ;(d.data().acaraIds || []).forEach(id => { cMap[id] = (cMap[id] || 0) + 1 })
+        })
+        setPesertaCountMap(cMap)
+      } catch (e) { console.error(e) }
+      finally { setLoadingAcara(false) }
+    }
+    fetchAcara()
+  }, [])
+
+  // ── Helpers ──────────────────────────────────────────────────────────────────
   function setVal(jenis, kod, field, val) {
     setSetup(prev => ({
       ...prev,
-      [jenis]: {
-        ...prev[jenis],
-        [kod]: {
-          ...(prev[jenis]?.[kod] || {}),
-          [field]: val === '' ? '' : Number(val),
-        },
-      },
+      [jenis]: { ...prev[jenis], [kod]: { ...(prev[jenis]?.[kod] || {}), [field]: val === '' ? '' : Number(val) } },
     }))
-    setDirty(true)
-    setSaved(false)
+    setDirty(true); setSaved(false)
   }
 
   function getVal(jenis, kod, field, def) {
@@ -685,36 +732,50 @@ function TetapanFinal({ kategoriList }) {
     return v === undefined ? def : v
   }
 
-  // Simpan
+  function activateOverride(aceraId, kat) {
+    setOverrides(prev => ({
+      ...prev,
+      [aceraId]: { bestHeat: getVal(subTab, kat, 'bestHeat', 1), bestTime: getVal(subTab, kat, 'bestTime', 3) }
+    }))
+    setDirty(true)
+  }
+
+  function setOverrideVal(aceraId, field, val) {
+    setOverrides(prev => ({
+      ...prev,
+      [aceraId]: { ...(prev[aceraId] || {}), [field]: val === '' ? '' : Number(val) }
+    }))
+    setDirty(true); setSaved(false)
+  }
+
+  function clearOverride(aceraId) {
+    setOverrides(prev => { const n = { ...prev }; delete n[aceraId]; return n })
+    setDirty(true)
+  }
+
+  // ── Simpan ───────────────────────────────────────────────────────────────────
   async function handleSave() {
-    setSaving(true)
-    setSaved(false)
+    setSaving(true); setSaved(false)
     try {
-      // Normalise — tukar string kosong ke 0
-      const normalise = (obj) => {
+      const normalise = obj => {
         const out = {}
-        Object.entries(obj).forEach(([kod, vals]) => {
-          out[kod] = {}
-          Object.entries(vals).forEach(([k, v]) => {
-            out[kod][k] = v === '' ? 0 : Number(v) || 0
-          })
+        Object.entries(obj).forEach(([k, vals]) => {
+          out[k] = {}
+          Object.entries(vals).forEach(([f, v]) => { out[k][f] = v === '' ? 0 : Number(v) || 0 })
         })
         return out
       }
       await setDoc(doc(db, 'tetapan', 'finalSetup'), {
-        larian:    normalise(setup.larian),
-        relay:     normalise(setup.relay),
-        padang:    normalise(setup.padang),
-        updatedAt: serverTimestamp(),
+        larian:          normalise(setup.larian),
+        relay:           normalise(setup.relay),
+        padang:          normalise(setup.padang),
+        overrideByAcara: overrides,
+        updatedAt:       serverTimestamp(),
       })
-      setDirty(false)
-      setSaved(true)
+      setDirty(false); setSaved(true)
       setTimeout(() => setSaved(false), 3000)
-    } catch (e) {
-      alert('Ralat simpan: ' + e.message)
-    } finally {
-      setSaving(false)
-    }
+    } catch (e) { alert('Ralat simpan: ' + e.message) }
+    finally { setSaving(false) }
   }
 
   if (loading) return <div className="py-16 text-center text-sm text-gray-400">Memuatkan tetapan…</div>
@@ -722,19 +783,19 @@ function TetapanFinal({ kategoriList }) {
   const kods = kategoriList.map(k => k.kod).filter(Boolean)
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
 
-      {/* Info */}
+      {/* Info bar */}
       <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 text-xs text-blue-700 space-y-1">
         <p className="font-bold">Tetapan ini menentukan cara atlet dipilih untuk perlawanan final</p>
         <p className="text-[11px] text-blue-500">
-          Best Heat = tempat untuk pemenang heat terpantas ·
-          Best Time = tempat dari masa terbaik keseluruhan ·
-          Total = Best Heat + Best Time (auto-kira)
+          <strong>Best Heat</strong> = berapa pemenang diambil dari <em>setiap</em> heat ·
+          <strong> Best Time</strong> = tempat tambahan dari masa terbaik keseluruhan ·
+          <strong> Total</strong> = (bilangan heat × BH) + BT — dikira automatik apabila heat dijana
         </p>
       </div>
 
-      {/* Sub-tab: Larian / Relay / Padang */}
+      {/* Sub-tab */}
       <div className="flex rounded-xl border border-gray-200 overflow-hidden text-xs bg-white w-fit shadow-sm">
         {JENIS_ACARA_TABS.map(t => (
           <button key={t.key} onClick={() => setSubTab(t.key)}
@@ -745,164 +806,321 @@ function TetapanFinal({ kategoriList }) {
           </button>
         ))}
       </div>
+      <p className="text-[11px] text-gray-400 -mt-2">{JENIS_ACARA_TABS.find(t => t.key === subTab)?.hint}</p>
 
-      {/* Hint jenis */}
-      <p className="text-[11px] text-gray-400">
-        {JENIS_ACARA_TABS.find(t => t.key === subTab)?.hint}
-      </p>
+      {/* ── SECTION 1: Default by Kategori ────────────────────────────────────── */}
+      <div>
+        <p className="text-xs font-bold text-gray-600 mb-2">
+          Default — berlaku pada semua acara dalam kategori (melainkan ada override)
+        </p>
 
-      {/* Table Larian & Relay */}
-      {(subTab === 'larian' || subTab === 'relay') && (
-        <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-wide">
-                <th className="px-4 py-3 text-left">Kategori</th>
-                <th className="px-4 py-3 text-center">
-                  Best Heat
-                  <p className="text-[9px] font-normal normal-case text-gray-300 mt-0.5">pemenang heat terpantas</p>
-                </th>
-                <th className="px-4 py-3 text-center">
-                  Best Time
-                  <p className="text-[9px] font-normal normal-case text-gray-300 mt-0.5">masa terbaik keseluruhan</p>
-                </th>
-                <th className="px-4 py-3 text-center">
-                  Total
-                  <p className="text-[9px] font-normal normal-case text-gray-300 mt-0.5">masuk final (auto)</p>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {kods.length === 0 && (
-                <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-400 text-xs">Tiada kategori. Tambah kategori dahulu.</td></tr>
-              )}
-              {kods.map((kod, i) => {
-                const kat       = kategoriList.find(k => k.kod === kod)
-                const bestHeat  = getVal(subTab, kod, 'bestHeat', 0)
-                const bestTime  = getVal(subTab, kod, 'bestTime', 8)
-                const total     = (Number(bestHeat) || 0) + (Number(bestTime) || 0)
-                const isErr     = Number(bestHeat) < 0 || Number(bestTime) < 0
-                return (
-                  <tr key={kod} className={`border-b border-gray-50 last:border-0 ${i % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-[10px] font-black shrink-0"
-                          style={{ backgroundColor: kat?.warna || '#6366f1' }}>
-                          {kod}
-                        </span>
-                        <div>
-                          <p className="font-semibold text-gray-700">{kat?.label || kod}</p>
-                          <p className="text-[9px] text-gray-400">{kat?.nama || ''}</p>
+        {/* Larian & Relay table */}
+        {(subTab === 'larian' || subTab === 'relay') && (
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-wide">
+                  <th className="px-4 py-3 text-left">Kategori</th>
+                  <th className="px-4 py-3 text-center">
+                    Best Heat
+                    <p className="text-[9px] font-normal normal-case text-gray-300 mt-0.5">pemenang per heat</p>
+                  </th>
+                  <th className="px-4 py-3 text-center">
+                    Best Time
+                    <p className="text-[9px] font-normal normal-case text-gray-300 mt-0.5">masa terbaik tambahan</p>
+                  </th>
+                  <th className="px-4 py-3 text-center">
+                    Formula
+                    <p className="text-[9px] font-normal normal-case text-gray-300 mt-0.5">N heat × BH + BT</p>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {kods.length === 0 && (
+                  <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-400 text-xs">Tiada kategori.</td></tr>
+                )}
+                {kods.map((kod, i) => {
+                  const kat      = kategoriList.find(k => k.kod === kod)
+                  const bestHeat = getVal(subTab, kod, 'bestHeat', 1)
+                  const bestTime = getVal(subTab, kod, 'bestTime', 3)
+                  const isErr    = Number(bestHeat) < 0 || Number(bestTime) < 0
+                  return (
+                    <tr key={kod} className={`border-b border-gray-50 last:border-0 ${i%2===0?'':'bg-gray-50/40'}`}>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <span className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-[10px] font-black shrink-0"
+                            style={{ backgroundColor: kat?.warna || '#6366f1' }}>{kod}</span>
+                          <div>
+                            <p className="font-semibold text-gray-700">{kat?.label || kod}</p>
+                            <p className="text-[9px] text-gray-400">{kat?.nama || ''}</p>
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <input
-                        type="number" min={0} max={99}
-                        value={bestHeat}
-                        onChange={e => setVal(subTab, kod, 'bestHeat', e.target.value)}
-                        className={numCls + (isErr ? ' border-red-300' : '')}
-                      />
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <input
-                        type="number" min={0} max={99}
-                        value={bestTime}
-                        onChange={e => setVal(subTab, kod, 'bestTime', e.target.value)}
-                        className={numCls + (isErr ? ' border-red-300' : '')}
-                      />
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={`font-black text-base ${total === 0 ? 'text-gray-300' : 'text-[#003399]'}`}>
-                        {total}
-                      </span>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Table Padang */}
-      {subTab === 'padang' && (
-        <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-4 py-3 bg-amber-50 border-b border-amber-100 text-[11px] text-amber-700">
-            ⚠️ Padang tiada konsep heat — semua peserta bertanding dalam 1 sesi. Pilihan ke final = jarak/ketinggian terbaik sahaja.
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <input type="number" min={0} max={99} value={bestHeat}
+                          onChange={e => setVal(subTab, kod, 'bestHeat', e.target.value)}
+                          className={numCls + (isErr ? ' border-red-300' : '')} />
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <input type="number" min={0} max={99} value={bestTime}
+                          onChange={e => setVal(subTab, kod, 'bestTime', e.target.value)}
+                          className={numCls + (isErr ? ' border-red-300' : '')} />
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="text-[11px] text-gray-400 font-mono">
+                          N×{Number(bestHeat)||0} + {Number(bestTime)||0}
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-wide">
-                <th className="px-4 py-3 text-left">Kategori</th>
-                <th className="px-4 py-3 text-center">
-                  Total Final
-                  <p className="text-[9px] font-normal normal-case text-gray-300 mt-0.5">berapa masuk peringkat akhir</p>
-                </th>
-                <th className="px-4 py-3 text-center">
-                  Cubaan Awal
-                  <p className="text-[9px] font-normal normal-case text-gray-300 mt-0.5">semua peserta</p>
-                </th>
-                <th className="px-4 py-3 text-center">
-                  Cubaan Akhir
-                  <p className="text-[9px] font-normal normal-case text-gray-300 mt-0.5">top N sahaja</p>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {kods.length === 0 && (
-                <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-400 text-xs">Tiada kategori. Tambah kategori dahulu.</td></tr>
-              )}
-              {kods.map((kod, i) => {
-                const kat        = kategoriList.find(k => k.kod === kod)
-                const total      = getVal('padang', kod, 'total',       8)
-                const cubaanAwal = getVal('padang', kod, 'cubaanAwal',  3)
-                const cubaanAkhr = getVal('padang', kod, 'cubaanAkhir', 3)
-                return (
-                  <tr key={kod} className={`border-b border-gray-50 last:border-0 ${i % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-[10px] font-black shrink-0"
-                          style={{ backgroundColor: kat?.warna || '#6366f1' }}>
-                          {kod}
-                        </span>
-                        <div>
-                          <p className="font-semibold text-gray-700">{kat?.label || kod}</p>
-                          <p className="text-[9px] text-gray-400">{kat?.nama || ''}</p>
+        )}
+
+        {/* Padang table */}
+        {subTab === 'padang' && (
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="px-4 py-3 bg-amber-50 border-b border-amber-100 text-[11px] text-amber-700">
+              ⚠️ Padang tiada konsep heat — semua peserta bertanding dalam 1 sesi. Pilihan ke final = jarak/ketinggian terbaik sahaja.
+            </div>
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-wide">
+                  <th className="px-4 py-3 text-left">Kategori</th>
+                  <th className="px-4 py-3 text-center">Total Final<p className="text-[9px] font-normal normal-case text-gray-300 mt-0.5">masuk peringkat akhir</p></th>
+                  <th className="px-4 py-3 text-center">Cubaan Awal<p className="text-[9px] font-normal normal-case text-gray-300 mt-0.5">semua peserta</p></th>
+                  <th className="px-4 py-3 text-center">Cubaan Akhir<p className="text-[9px] font-normal normal-case text-gray-300 mt-0.5">top N sahaja</p></th>
+                </tr>
+              </thead>
+              <tbody>
+                {kods.length === 0 && (
+                  <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-400 text-xs">Tiada kategori.</td></tr>
+                )}
+                {kods.map((kod, i) => {
+                  const kat        = kategoriList.find(k => k.kod === kod)
+                  const total      = getVal('padang', kod, 'total',       8)
+                  const cubaanAwal = getVal('padang', kod, 'cubaanAwal',  3)
+                  const cubaanAkhr = getVal('padang', kod, 'cubaanAkhir', 3)
+                  return (
+                    <tr key={kod} className={`border-b border-gray-50 last:border-0 ${i%2===0?'':'bg-gray-50/40'}`}>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <span className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-[10px] font-black shrink-0"
+                            style={{ backgroundColor: kat?.warna || '#6366f1' }}>{kod}</span>
+                          <div>
+                            <p className="font-semibold text-gray-700">{kat?.label || kod}</p>
+                            <p className="text-[9px] text-gray-400">{kat?.nama || ''}</p>
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <input type="number" min={1} max={99} value={total}
-                        onChange={e => setVal('padang', kod, 'total', e.target.value)}
-                        className={numCls} />
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <input type="number" min={1} max={10} value={cubaanAwal}
-                        onChange={e => setVal('padang', kod, 'cubaanAwal', e.target.value)}
-                        className={numCls} />
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <input type="number" min={1} max={10} value={cubaanAkhr}
-                        onChange={e => setVal('padang', kod, 'cubaanAkhir', e.target.value)}
-                        className={numCls} />
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                      </td>
+                      <td className="px-4 py-3 text-center"><input type="number" min={1} max={99} value={total} onChange={e => setVal('padang', kod, 'total', e.target.value)} className={numCls} /></td>
+                      <td className="px-4 py-3 text-center"><input type="number" min={1} max={10} value={cubaanAwal} onChange={e => setVal('padang', kod, 'cubaanAwal', e.target.value)} className={numCls} /></td>
+                      <td className="px-4 py-3 text-center"><input type="number" min={1} max={10} value={cubaanAkhr} onChange={e => setVal('padang', kod, 'cubaanAkhir', e.target.value)} className={numCls} /></td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ── SECTION 2: Semak & Override Per Acara (Larian & Relay sahaja) ─────── */}
+      {(subTab === 'larian' || subTab === 'relay') && (
+        <div className="space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold text-gray-600">Semak Heat & Override Per Acara</p>
+              <p className="text-[11px] text-gray-400 mt-0.5">
+                Sistem baca heat yang dijana secara langsung dari Firestore.
+                Override hanya perlu jika acara tertentu berbeza dari default kategori.
+              </p>
+            </div>
+            {loadingAcara && (
+              <span className="text-[10px] text-[#003399] font-semibold animate-pulse shrink-0">Memuatkan heat…</span>
+            )}
+          </div>
+
+          {/* Tiada kejohanan aktif */}
+          {!kejId && !loadingAcara && (
+            <div className="bg-gray-50 rounded-xl border border-dashed border-gray-200 px-4 py-8 text-center">
+              <p className="text-xs text-gray-400">Tiada kejohanan aktif atau dalam persediaan.</p>
+              <p className="text-[11px] text-gray-300 mt-1">Override per acara tidak tersedia.</p>
+            </div>
+          )}
+
+          {/* Per kategori — collapsible */}
+          {kejId && kods.map(kod => {
+            const kat       = kategoriList.find(k => k.kod === kod)
+            const acaraKat  = acaraSaringan.filter(a => a.kategoriKod === kod && getJenisTab(a) === subTab)
+            if (acaraKat.length === 0) return null
+            const isOpen    = expandedKat[kod] !== false  // default terbuka
+            const defBH     = getVal(subTab, kod, 'bestHeat', 1)
+            const defBT     = getVal(subTab, kod, 'bestTime', 3)
+            const ovCount   = acaraKat.filter(a => overrides[a.id]).length
+
+            return (
+              <div key={kod} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+
+                {/* Kat header */}
+                <button
+                  onClick={() => setExpandedKat(p => ({ ...p, [kod]: !isOpen }))}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left">
+                  <span className="w-6 h-6 rounded-lg flex items-center justify-center text-white text-[9px] font-black shrink-0"
+                    style={{ backgroundColor: kat?.warna || '#6366f1' }}>{kod}</span>
+                  <span className="text-xs font-bold text-gray-700 flex-1">{kat?.label || kod}</span>
+                  <span className="text-[10px] text-gray-400 font-mono">default: {defBH}/heat + {defBT}</span>
+                  {ovCount > 0 && (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 ml-2">
+                      {ovCount} override
+                    </span>
+                  )}
+                  <span className="text-[10px] text-gray-300 ml-2">{acaraKat.length} acara</span>
+                  <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform ml-1 ${isOpen ? 'rotate-180' : ''}`}
+                    fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {isOpen && (
+                  <div className="border-t border-gray-100 overflow-x-auto">
+                    <table className="w-full text-xs min-w-[560px]">
+                      <thead>
+                        <tr className="bg-gray-50 text-[10px] font-bold text-gray-400 uppercase tracking-wide">
+                          <th className="px-4 py-2 text-left">Acara</th>
+                          <th className="px-3 py-2 text-center">Heat</th>
+                          <th className="px-3 py-2 text-center">Atlet</th>
+                          <th className="px-3 py-2 text-center">BH /heat</th>
+                          <th className="px-3 py-2 text-center">BT</th>
+                          <th className="px-3 py-2 text-center">Total Final</th>
+                          <th className="px-3 py-2 text-center"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {acaraKat.map((acara, i) => {
+                          const heatCount    = heatCountMap[acara.id] ?? null
+                          const pesertaCount = pesertaCountMap[acara.id] ?? 0
+                          const hasOverride  = !!overrides[acara.id]
+                          const effBH = hasOverride ? (overrides[acara.id]?.bestHeat ?? defBH) : defBH
+                          const effBT = hasOverride ? (overrides[acara.id]?.bestTime ?? defBT) : defBT
+                          const heatReady    = heatCount !== null && heatCount > 0
+                          const total        = heatReady ? (heatCount * Number(effBH)) + Number(effBT) : null
+                          const warn         = total !== null && pesertaCount > 0 && total >= Math.round(pesertaCount * 0.8)
+
+                          return (
+                            <tr key={acara.id}
+                              className={`border-b border-gray-50 last:border-0 ${i%2===0?'':'bg-gray-50/30'}`}>
+
+                              {/* Nama acara */}
+                              <td className="px-4 py-2.5">
+                                <p className="font-semibold text-gray-700 text-[11px] leading-tight">{acara.namaAcara}</p>
+                                {hasOverride && (
+                                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">Override</span>
+                                )}
+                              </td>
+
+                              {/* Heat badge */}
+                              <td className="px-3 py-2.5 text-center">
+                                {loadingAcara ? (
+                                  <span className="text-[10px] text-gray-300">…</span>
+                                ) : heatReady ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span>
+                                    {heatCount}
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-400">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block"></span>
+                                    —
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* Atlet */}
+                              <td className="px-3 py-2.5 text-center text-[11px] text-gray-500">
+                                {pesertaCount > 0 ? pesertaCount : '—'}
+                              </td>
+
+                              {/* BH */}
+                              <td className="px-3 py-2.5 text-center">
+                                {hasOverride ? (
+                                  <input type="number" min={0} max={99}
+                                    value={overrides[acara.id]?.bestHeat ?? defBH}
+                                    onChange={e => setOverrideVal(acara.id, 'bestHeat', e.target.value)}
+                                    className={numCls} />
+                                ) : (
+                                  <span className="text-[11px] text-gray-400">{defBH}</span>
+                                )}
+                              </td>
+
+                              {/* BT */}
+                              <td className="px-3 py-2.5 text-center">
+                                {hasOverride ? (
+                                  <input type="number" min={0} max={99}
+                                    value={overrides[acara.id]?.bestTime ?? defBT}
+                                    onChange={e => setOverrideVal(acara.id, 'bestTime', e.target.value)}
+                                    className={numCls} />
+                                ) : (
+                                  <span className="text-[11px] text-gray-400">{defBT}</span>
+                                )}
+                              </td>
+
+                              {/* Total Final */}
+                              <td className="px-3 py-2.5 text-center">
+                                {total !== null ? (
+                                  <div>
+                                    <span className={`font-black text-sm ${warn ? 'text-amber-500' : 'text-[#003399]'}`}>
+                                      {total}
+                                    </span>
+                                    {warn && (
+                                      <p className="text-[9px] text-amber-400 leading-tight mt-0.5">⚠ semak</p>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-[11px] text-gray-300">
+                                    {heatReady ? `${heatCount}×${effBH}+${effBT}` : 'belum jana'}
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* Override / Padam override */}
+                              <td className="px-3 py-2.5 text-center">
+                                {hasOverride ? (
+                                  <button onClick={() => clearOverride(acara.id)}
+                                    className="text-[10px] font-bold text-red-400 hover:text-red-600 px-2 py-1 hover:bg-red-50 rounded-lg transition-colors">
+                                    Padam
+                                  </button>
+                                ) : (
+                                  <button onClick={() => activateOverride(acara.id, kod)}
+                                    className="text-[10px] font-bold text-[#003399] hover:text-[#002288] px-2 py-1 hover:bg-blue-50 rounded-lg transition-colors">
+                                    Override
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
 
       {/* Panduan */}
       <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 text-[10px] text-gray-500 space-y-1.5">
         <p className="font-bold text-gray-600 text-xs mb-2">Panduan</p>
-        <p><span className="font-bold text-gray-700">Best Heat</span> — Ambil pemenang heat mengikut masa terpantas. Contoh: Best Heat=4 → ambil 4 pemenang heat terpantas.</p>
-        <p><span className="font-bold text-gray-700">Best Time</span> — Baki tempat diisi dari atlet dengan masa terbaik yang belum dipilih.</p>
-        <p><span className="font-bold text-gray-700">Total</span> — Dikira automatik (Best Heat + Best Time). Ini bilangan atlet yang berlari dalam final.</p>
-        <p><span className="font-bold text-gray-700">Cubaan Awal</span> — Semua peserta padang dapat N cubaan pada peringkat pertama.</p>
-        <p><span className="font-bold text-gray-700">Cubaan Akhir</span> — Hanya top N peserta terbaik yang dapat cubaan tambahan.</p>
+        <p><span className="font-bold text-gray-700">Best Heat (BH)</span> — Berapa pemenang diambil dari <strong>setiap</strong> heat. Contoh: 1 = 1 pemenang per heat. 6 heat → 6 pemenang layak final.</p>
+        <p><span className="font-bold text-gray-700">Best Time (BT)</span> — Tempat tambahan dari atlet dengan masa terbaik yang belum dipilih sebagai pemenang heat.</p>
+        <p><span className="font-bold text-gray-700">Total Final</span> — Dikira automatik apabila heat dijana: (bilangan heat × BH) + BT.</p>
+        <p><span className="font-bold text-gray-700">Override</span> — Tetapan khusus untuk satu acara sahaja. Jika tiada override, sistem guna default kategori di atas.</p>
+        <p><span className="font-bold text-gray-700">⚠ Amaran</span> — Muncul jika Total Final ≥ 80% peserta. Bermakna final hampir sama saiz dengan saringan.</p>
+        <p><span className="font-bold text-gray-700">Cubaan Awal/Akhir</span> — Untuk acara padang sahaja.</p>
       </div>
 
       {/* Simpan */}
