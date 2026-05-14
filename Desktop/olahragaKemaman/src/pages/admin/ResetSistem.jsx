@@ -43,6 +43,14 @@ const TOGGLES = [
     icon: '🏁',
   },
   {
+    id: 'rekod_baru',
+    label: 'Rekod Pecah Kejohanan',
+    desc: 'Padam semua rekod baru yang dipecahkan semasa kejohanan ini (paparan "Rekod Baru" dalam Home)',
+    collections: ['rekod (filter kejohananId)'],
+    level: 'sederhana',
+    icon: '📊',
+  },
+  {
     id: 'medal',
     label: 'Medal Tally',
     desc: 'Padam semua rekod kiraan pingat sekolah',
@@ -180,6 +188,10 @@ export default function ResetSistem() {
       const bantSnap = await getDocs(query(collection(db, 'bantahan'), where('kejohananId', '==', kId)))
       c.keputusan = heatCount + bantSnap.size
 
+      // Rekod Baru Kejohanan
+      const rekodBaruSnap = await getDocs(query(collection(db, 'rekod'), where('kejohananId', '==', kId)))
+      c.rekod_baru = rekodBaruSnap.size
+
       // Medal
       const medalSnap = await getDocs(query(collection(db, 'medal_tally'), where('kejohananId', '==', kId)))
       c.medal = medalSnap.size
@@ -307,6 +319,14 @@ export default function ResetSistem() {
         const bantSnap = await getDocs(query(collection(db, 'bantahan'), where('kejohananId', '==', kejId)))
         await batchDelete(bantSnap.docs.map(d => d.ref))
         log(`✓ Keputusan & Heat — ${heatTotal} heat dipadam, ${bantSnap.size} bantahan dipadam`, true)
+      }
+
+      // ── Rekod Baru Kejohanan ──
+      if (selected.has('rekod_baru')) {
+        log('Memadam rekod pecah kejohanan…')
+        const snap = await getDocs(query(collection(db, 'rekod'), where('kejohananId', '==', kejId)))
+        await batchDelete(snap.docs.map(d => d.ref))
+        log(`✓ Rekod Pecah Kejohanan — ${snap.size} rekod dipadam`, true)
       }
 
       // ── Medal ──

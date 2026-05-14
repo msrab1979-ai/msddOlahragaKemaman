@@ -7,11 +7,13 @@
  * Model A: Pencatat & Superadmin boleh edit. Admin = baca sahaja.
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
-  collection, getDocs, doc, updateDoc, setDoc,
-  query, orderBy, where, serverTimestamp,
+  collection, getDocs, getDoc, doc, updateDoc, setDoc, deleteField,
+  query, orderBy, where, serverTimestamp, Timestamp, onSnapshot, runTransaction, increment,
 } from 'firebase/firestore'
+import { selectFinalists as _selectFinalists, assignLorong as _assignLorong } from '../../utils/finalistUtils'
+import { runPostRasmi } from '../../utils/postRasmiUtils'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
 
@@ -34,71 +36,7 @@ const LANE_ORDER = [4, 5, 3, 6, 2, 7, 1, 8]
 
 // ─── Select Finalists ─────────────────────────────────────────────────────────
 
-function selectFinalists(heats, acara) {
-  const cara             = acara.caraPilihFinal || 'hybrid'
-  const bilanganFinalis  = acara.bilanganFinalis || 8
-  const wildcardSlot     = acara.wildcardSlot    || 2
-  const isPadang         = ['padang_lompat', 'padang_balin'].includes(acara.jenisAcara)
-
-  const nonFinalHeats = heats.filter(h => h.peringkat !== 'final' && h.statusKeputusan === 'rasmi')
-
-  // Collect all valid athletes from rasmi heats
-  const athletes = []
-  nonFinalHeats.forEach(heat => {
-    ;(heat.peserta || []).forEach(p => {
-      if (['DNS', 'DNF', 'DQ'].includes(p.status)) return
-      const result = Number(p.keputusan)
-      if (!result || isNaN(result)) return
-      athletes.push({
-        noBib:      p.noBib      || '',
-        namaAtlet:  p.namaAtlet  || '',
-        kodSekolah: p.kodSekolah || '',
-        keputusan:  result,
-        heatId:     heat.heatId,
-        noHeat:     heat.noHeat,
-      })
-    })
-  })
-
-  // Global sort — padang: higher = better; masa: lower = better
-  const sorted = [...athletes].sort((a, b) =>
-    isPadang ? b.keputusan - a.keputusan : a.keputusan - b.keputusan
-  )
-
-  if (cara === 'best_time') {
-    return sorted.slice(0, bilanganFinalis)
-  }
-
-  // Helper: pick top N from one heat
-  const topFromHeat = (heatId, n) =>
-    sorted.filter(a => a.heatId === heatId).slice(0, n)
-
-  const selected   = new Map() // noBib → athlete
-  const addBatch   = arr => arr.forEach(a => { if (!selected.has(a.noBib)) selected.set(a.noBib, a) })
-
-  if (cara === 'best_heat') {
-    const perHeat = Math.floor(bilanganFinalis / Math.max(1, nonFinalHeats.length))
-    nonFinalHeats.forEach(h => addBatch(topFromHeat(h.heatId, perHeat)))
-  } else {
-    // hybrid: perHeat from direct, remainder as wildcard
-    const perHeat = Math.max(1, Math.floor((bilanganFinalis - wildcardSlot) / Math.max(1, nonFinalHeats.length)))
-    nonFinalHeats.forEach(h => addBatch(topFromHeat(h.heatId, perHeat)))
-  }
-
-  // Fill remaining slots with best-time wildcards
-  sorted.forEach(a => { if (selected.size < bilanganFinalis && !selected.has(a.noBib)) selected.set(a.noBib, a) })
-
-  return [...selected.values()].slice(0, bilanganFinalis)
-}
-
-// Assign lane: sorted by perf → lane 4,5,3,6,2,7,1,8
-function assignLorong(finalists, acara) {
-  const isPadang = ['padang_lompat', 'padang_balin'].includes(acara?.jenisAcara)
-  const ranked = [...finalists].sort((a, b) =>
-    isPadang ? b.keputusan - a.keputusan : a.keputusan - b.keputusan
-  )
-  return ranked.map((f, i) => ({ ...f, lorong: LANE_ORDER[i] || (i + 1) }))
-}
+// selectFinalists + assignLorong diimport dari finalistUtils — guna finalSetup dari state
 
 // ─── Heat status dots ─────────────────────────────────────────────────────────
 
@@ -191,6 +129,68 @@ function AcaraCard({ acara, masa, nowMs, onClick }) {
               <HeatDots total={total} rasmi={acara._rasmiHeat || 0} draf={acara._drafHeat || 0} />
             </div>
           </div>
+        </div>
+      </div>
+    </button>
+  )
+}
+
+// ─── Acara row (flat table row for home screen) ───────────────────────────────
+
+function AcaraRow({ acara, masa, nowMs, isLast, onClick }) {
+  const masaInfo = masa ? jadualMasaInfo(masa, nowMs || Date.now()) : null
+
+  const hasRasmi = (acara._rasmiHeat || 0) > 0
+  const hasDraf  = (acara._drafHeat  || 0) > 0
+  const total    = acara._totalHeat  || 0
+
+  // Left border colour
+  const borderCls = hasRasmi ? 'border-l-green-500'
+    : hasDraf ? 'border-l-amber-400'
+    : total > 0 ? 'border-l-gray-200'
+    : 'border-l-transparent'
+
+  // Status badge
+  const badge = hasRasmi
+    ? { text: `✓ Rasmi${hasDraf ? `+${acara._drafHeat}` : ''}`, cls: 'bg-green-100 text-green-700' }
+    : hasDraf
+    ? { text: '⏳ Draf', cls: 'bg-amber-100 text-amber-700' }
+    : total > 0
+    ? { text: `${total}H Belum`, cls: 'bg-gray-100 text-gray-400' }
+    : { text: 'Tiada Heat', cls: 'bg-gray-50 text-gray-300' }
+
+  return (
+    <button onClick={onClick}
+      className={`w-full text-left border-l-4 ${borderCls} ${!isLast ? 'border-b border-gray-50' : ''} hover:bg-blue-50/30 active:bg-blue-50/60 transition-colors`}>
+      <div className="grid px-3 py-2.5 items-center gap-2"
+        style={{ gridTemplateColumns: '40px 48px 1fr 72px' }}>
+
+        {/* No. Acara */}
+        <div className="flex items-center justify-center">
+          <span className="text-xs font-black text-[#003399]">{acara.noAcara ?? '—'}</span>
+        </div>
+
+        {/* Masa */}
+        <div className="flex items-center">
+          {masaInfo
+            ? <span className={`text-[10px] font-semibold leading-tight ${masaInfo.cls}`}>{masaInfo.label}</span>
+            : <span className="text-[10px] text-gray-300">—</span>}
+        </div>
+
+        {/* Nama + subtitle */}
+        <div className="min-w-0">
+          <p className="text-[11px] font-bold text-gray-800 leading-tight truncate">{acara.namaAcara}</p>
+          <p className="text-[9px] text-gray-400 leading-tight mt-0.5 truncate">
+            {acara.jantina === 'L' ? 'Lelaki' : acara.jantina === 'P' ? 'Perempuan' : (acara.jantina || '')}
+            {(acara.kategoriKod || acara.kategori) ? ` · ${acara.kategoriKod || acara.kategori}` : ''}
+          </p>
+        </div>
+
+        {/* Status badge */}
+        <div className="flex items-center justify-end">
+          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap ${badge.cls}`}>
+            {badge.text}
+          </span>
         </div>
       </div>
     </button>
@@ -302,7 +302,7 @@ function formatMasa(val) {
   return m > 0 ? `${m}:${s}` : `${Number(s).toFixed(2)}`
 }
 
-function InputLorong({ heat, acara, keputusan, onChange, onWind, windSpeed, sekolahMap = {} }) {
+function InputLorong({ heat, acara, keputusan, onChange, onWind, windSpeed, sekolahMap = {}, finalisBibs = new Set() }) {
   const bilLorong   = acara.bilanganLorong || heat.bilanganLorong || 8
   const isWind      = acara.isWindReading || false
   const slots       = Array.from({ length: bilLorong }, (_, i) => i + 1)
@@ -382,9 +382,13 @@ function InputLorong({ heat, acara, keputusan, onChange, onWind, windSpeed, seko
 
               {/* Atlet + Sekolah */}
               <div className="px-2 py-1.5 flex flex-col justify-center min-w-0">
-                <p className="text-[11px] font-semibold text-gray-700 truncate leading-tight">
-                  {kp.namaAtlet || '—'}
-                </p>
+                <div className="flex items-center gap-1 min-w-0">
+                  <p className="text-[11px] font-semibold text-gray-700 truncate leading-tight">
+                    {kp.namaAtlet || '—'}</p>
+                  {kp.noBib && finalisBibs.has(kp.noBib) && (
+                    <span className="shrink-0 text-[8px] font-black px-1 py-0.5 rounded bg-[#003399] text-white leading-none">FINAL</span>
+                  )}
+                </div>
                 <p className="text-[9px] text-gray-400 truncate leading-tight">
                   {(kp.kodSekolah && (sekolahMap[kp.kodSekolah] || kp.kodSekolah)) || ''}
                 </p>
@@ -446,7 +450,7 @@ function InputLorong({ heat, acara, keputusan, onChange, onWind, windSpeed, seko
   )
 }
 
-function InputMassStart({ heat, keputusan, onChange, sekolahMap = {} }) {
+function InputMassStart({ heat, keputusan, onChange, sekolahMap = {}, finalisBibs = new Set() }) {
   const pesertaArr = heat.peserta || []
   const bilAtlet   = pesertaArr.length || 10
   const slots      = Array.from({ length: bilAtlet }, (_, i) => i + 1)
@@ -498,9 +502,14 @@ function InputMassStart({ heat, keputusan, onChange, sekolahMap = {} }) {
             </div>
 
             <div className="px-2 py-1.5 flex flex-col justify-center min-w-0">
-              <p className="text-[11px] font-semibold text-gray-700 truncate leading-tight">
-                {kp.namaAtlet || p.namaAtlet || '—'}
-              </p>
+              <div className="flex items-center gap-1 min-w-0">
+                <p className="text-[11px] font-semibold text-gray-700 truncate leading-tight">
+                  {kp.namaAtlet || p.namaAtlet || '—'}
+                </p>
+                {(kp.noBib || p.noBib) && finalisBibs.has(kp.noBib || p.noBib) && (
+                  <span className="shrink-0 text-[8px] font-black px-1 py-0.5 rounded bg-[#003399] text-white leading-none">FINAL</span>
+                )}
+              </div>
               <p className="text-[9px] text-gray-400 truncate leading-tight">
                 {(kp.kodSekolah && (sekolahMap[kp.kodSekolah] || kp.kodSekolah)) ||
                  (p.kodSekolah  && (sekolahMap[p.kodSekolah]  || p.kodSekolah)) || ''}
@@ -599,7 +608,7 @@ function RankBadge({ rank }) {
 }
 
 function InputPadang({ acara, peserta, keputusan, onChange, sekolahMap = {} }) {
-  const bil     = acara.bilanganCubaan || 3
+  const bil     = acara.bilanganCubaan || 6
   const rankMap = kiraPadangRank(peserta, keputusan)
   const bilPes  = peserta.length
 
@@ -964,17 +973,17 @@ export default function InputKeputusan() {
 
   // Data
   const [kejohananId,   setKejohananId]   = useState(null)
-  const [kejohananData, setKejohananData] = useState(null) // untuk timerAutoRasmi default
+  const [kejohananData, setKejohananData] = useState(null)
   const [acaraList,     setAcaraList]     = useState([])
-  const [jadualHariIni, setJadualHariIni] = useState([])
-  const [sekolahMap,    setSekolahMap]    = useState({}) // kodSekolah → namaSekolah
+  const [jadualAll,     setJadualAll]     = useState([]) // semua jadual semua hari
+  const [selectedHari,  setSelectedHari]  = useState(null)
+  const [sekolahMap,    setSekolahMap]    = useState({})
+  const [finalSetup,    setFinalSetup]    = useState(null) // tetapan/finalSetup
   const [loading,       setLoading]       = useState(true)
 
-  // Accordion open state — terbuka semua by default, dikemas bila data load
-  const [openKat, setOpenKat] = useState({})
-
-  // Filter tab untuk accordion
-  const [filterTab, setFilterTab] = useState('semua') // semua | belum | draf | rasmi
+  // Filter tab
+  const [filterTab, setFilterTab] = useState('semua')
+  const [tanpaJadualOpen, setTanpaJadualOpen] = useState(false)
 
   // Selection
   const [selectedAcara, setSelectedAcara] = useState(null)
@@ -1013,6 +1022,11 @@ export default function InputKeputusan() {
           setSekolahMap(map)
         }).catch(err => console.warn('[InputKeputusan] gagal load sekolah map:', err))
 
+        // Load tetapan finalSetup untuk pilih finalis
+        getDoc(doc(db, 'tetapan', 'finalSetup')).then(snap => {
+          if (snap.exists()) setFinalSetup(snap.data())
+        }).catch(() => {})
+
         // Semua acara — tanpa orderBy untuk elak index error, sort client-side
         const acaraSnap = await getDocs(
           collection(db, 'kejohanan', kejId, 'acara')
@@ -1042,30 +1056,29 @@ export default function InputKeputusan() {
           _drafHeat:  countMap[a.acaraId]?.draf  || 0,
         }))
         setAcaraList(acaraWithCounts)
-        // Buka semua accordion secara default
-        const allKat = [...new Set(acaraWithCounts.map(a => a.kategoriKod || a.kategori || 'Lain'))]
-        setOpenKat(Object.fromEntries(allKat.map(k => [k, true])))
 
-        // Jadual hari ini — tanpa orderBy (composite index), sort client-side
-        const today = new Date().toISOString().slice(0, 10)
-        const jadualSnap = await getDocs(query(
-          collection(db, 'jadual_acara'),
-          where('tarikhAcara', '==', today)
-        )).catch(() => ({ docs: [] }))
+        // Jadual semua hari — load sekaligus, sort client-side
+        const jadualSnap = await getDocs(
+          collection(db, 'jadual_acara')
+        ).catch(() => ({ docs: [] }))
 
-        // acaraMap — index by both aceraId field AND document id untuk cover semua kes
+        // acaraMap — index by both aceraId field AND document id
         const acaraMap = {}
         acaraWithCounts.forEach(a => {
           acaraMap[a.acaraId] = a
           if (a.aceraId) acaraMap[a.aceraId] = a
         })
-        setJadualHariIni(
-          jadualSnap.docs
-            .map(d => ({ ...d.data(), jadualId: d.id }))
-            .filter(j => j.statusJadual !== 'batal' && (acaraMap[j.aceraId] || acaraMap[j.acaraId]))
-            .map(j => ({ ...j, acara: acaraMap[j.aceraId] || acaraMap[j.acaraId] }))
-            .sort((a, b) => (a.masaMula || '').localeCompare(b.masaMula || ''))
-        )
+
+        const allJadual = jadualSnap.docs
+          .map(d => ({ ...d.data(), jadualId: d.id }))
+          .filter(j => j.statusJadual !== 'batal' && (acaraMap[j.aceraId] || acaraMap[j.acaraId]))
+          .map(j => ({ ...j, acara: acaraMap[j.aceraId] || acaraMap[j.acaraId] }))
+        setJadualAll(allJadual)
+
+        // Default pilih hari ini, kalau tiada pilih hari pertama
+        const today = new Date().toISOString().slice(0, 10)
+        const allDates = [...new Set(allJadual.map(j => j.tarikhAcara).filter(Boolean))].sort()
+        setSelectedHari(allDates.includes(today) ? today : (allDates[0] || null))
       } catch (e) {
         console.error('load error:', e)
       }
@@ -1196,6 +1209,41 @@ export default function InputKeputusan() {
     setStep('input')
   }
 
+  // ── Fix 1: Real-time listener untuk status heat semasa ───────────────────────
+  // Dengar perubahan statusKeputusan, bantahanDiterima, countdownTamat sahaja.
+  // TIDAK update peserta/keputusan — jangan overwrite input user yang sedang taip.
+
+  const heatListenerRef = useRef(null)
+
+  useEffect(() => {
+    // Buang listener lama
+    if (heatListenerRef.current) { heatListenerRef.current(); heatListenerRef.current = null }
+    if (!kejohananId || !selectedAcara || !selectedHeat?.heatId) return
+    const aceraKey = selectedAcara.aceraId || selectedAcara.acaraId
+    const hRef = doc(db, 'kejohanan', kejohananId, 'acara', aceraKey, 'heat', selectedHeat.heatId)
+    heatListenerRef.current = onSnapshot(hRef, snap => {
+      if (!snap.exists()) return
+      const d = snap.data()
+      // Update status fields sahaja — jangan sentuh peserta/keputusan
+      setSelectedHeat(prev => prev ? {
+        ...prev,
+        statusKeputusan:  d.statusKeputusan  ?? prev.statusKeputusan,
+        bantahanDiterima: d.bantahanDiterima ?? false,
+        countdownTamat:   d.countdownTamat   ?? prev.countdownTamat,
+        publishedAt:      d.publishedAt      ?? prev.publishedAt,
+        postRasmiSelesai: d.postRasmiSelesai ?? prev.postRasmiSelesai,
+      } : prev)
+      // Sync dalam heats list juga
+      setHeats(prev => prev.map(h =>
+        h.heatId === snap.id
+          ? { ...h, statusKeputusan: d.statusKeputusan ?? h.statusKeputusan, bantahanDiterima: d.bantahanDiterima ?? false }
+          : h
+      ))
+    }, () => {}) // silent error — jangan crash bila offline
+    return () => { if (heatListenerRef.current) { heatListenerRef.current(); heatListenerRef.current = null } }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kejohananId, selectedAcara?.aceraId, selectedHeat?.heatId])
+
   function goBack() {
     if (step === 'input') {
       setStep('heat')
@@ -1250,7 +1298,7 @@ export default function InputKeputusan() {
 
         let cubaan = p.cubaan
         if ((jenisAcara === 'padang_lompat' || jenisAcara === 'padang_balin') && kp.cubaan) {
-          const bil = selectedAcara.bilanganCubaan || 3
+          const bil = selectedAcara.bilanganCubaan || 6
           cubaan = Array.from({ length: bil }, (_, c) => {
             const v = kp.cubaan[c + 1]
             if (v === '' || v == null) return null
@@ -1262,7 +1310,15 @@ export default function InputKeputusan() {
         const kedudukan = (jenisAcara === 'lorong' || jenisAcara === 'relay')
           ? (kp.kedudukan !== '' && kp.kedudukan != null ? kp.kedudukan : (p.kedudukan ?? null))
           : (p.kedudukan ?? null)
-        return { ...p, keputusan: val, kedudukan, status: kp.status || p.status || 'belum', cubaan, updatedBy: userData?.uid || '' }
+
+        // Auto-set status 'selesai' bila ada keputusan sah & tiada flag DNS/DNF/DQ
+        // Ini kritikal — postRasmi() skip peserta yang bukan 'selesai'
+        const rawStatus = kp.status || p.status || 'belum'
+        const isFlagged = ['DNS', 'DNF', 'DQ'].includes(rawStatus)
+        const hasResult = val != null && val !== '' && !isNaN(Number(val)) && Number(val) > 0
+        const finalStatus = isFlagged ? rawStatus : hasResult ? 'selesai' : rawStatus
+
+        return { ...p, keputusan: val, kedudukan, status: finalStatus, cubaan, updatedBy: userData?.uid || '' }
       })
 
       // ── Kira rankDalamHeat ─────────────────────────────────────────────────
@@ -1311,33 +1367,139 @@ export default function InputKeputusan() {
 
   async function handleHantar() {
     if (!kejohananId || !selectedAcara || !selectedHeat || !bolehEdit) return
-    setSaving(true)
-    setSaved(false)
+    setSaving(true); setSaved(false)
     try {
-      // Simpan data dulu
+      // 1. Simpan keputusan
       await handleSave()
-      // Set published
+
       const aceraKey = selectedAcara.aceraId || selectedAcara.acaraId
       const heatRef  = doc(db, 'kejohanan', kejohananId, 'acara', aceraKey, 'heat', selectedHeat.heatId)
-      const pubTs    = serverTimestamp()
-      await updateDoc(heatRef, { statusKeputusan: 'tidak_rasmi', publishedAt: pubTs, updatedAt: pubTs })
-      // Update statusAcara pada acara doc → sekurang-kurangnya tidak_rasmi
-      try {
-        await updateDoc(
-          doc(db, 'kejohanan', kejohananId, 'acara', aceraKey),
-          { statusAcara: 'tidak_rasmi' }
-        )
-      } catch { /* ignore — acara doc mungkin tiada field ini */ }
-      const fakeTs   = { toDate: () => new Date(), seconds: Math.floor(Date.now() / 1000) }
-      setSelectedHeat(prev => ({ ...prev, statusKeputusan: 'tidak_rasmi', publishedAt: fakeTs }))
-      setHeats(prev => prev.map(h =>
-        h.heatId === selectedHeat.heatId
-          ? { ...h, statusKeputusan: 'tidak_rasmi', publishedAt: fakeTs }
-          : h
-      ))
+      const acaraRef = doc(db, 'kejohanan', kejohananId, 'acara', aceraKey)
+
+      // 2. Set status diterima
+      await updateDoc(heatRef, {
+        statusKeputusan:  'diterima',
+        bantahanDiterima: false,
+        publishedAt:      serverTimestamp(),
+        updatedAt:        serverTimestamp(),
+      })
+      await updateDoc(acaraRef, { statusAcara: 'ada_keputusan', updatedAt: serverTimestamp() }).catch(() => {})
+
+      // 3. Update UI state
+      const patch = { statusKeputusan: 'diterima' }
+      setSelectedHeat(prev => ({ ...prev, ...patch }))
+      setHeats(prev => prev.map(h => h.heatId === selectedHeat.heatId ? { ...h, ...patch } : h))
+
+      // 4. Kira config untuk postRasmi
+      const kej     = kejohananData || {}
+      const PKOD    = { daerah: 'D', negeri: 'N', kebangsaan: 'K' }
+      const peringkatKej      = PKOD[(kej.peringkat || '').toLowerCase()] || 'D'
+      const mp                = kej.mataPingat || {}
+      const mataPingat        = {
+        1: Number(mp[1] ?? mp['1'] ?? 5), 2: Number(mp[2] ?? mp['2'] ?? 3),
+        3: Number(mp[3] ?? mp['3'] ?? 2), 4: Number(mp[4] ?? mp['4'] ?? 1),
+      }
+      const bilanganKedudukan = kej.bilanganKedudukan ?? 8
+      const isRelayAcara      = selectedAcara.isRelay || selectedAcara.jenisAcara === 'relay'
+      const isSaringanLocal   = (() => {
+        const p = (selectedAcara.peringkat || '').toLowerCase()
+        const n = (selectedAcara.namaAcara  || '').toLowerCase()
+        return p.includes('saringan') || n.includes('saringan')
+      })()
+      const fasa            = selectedHeat.fasa
+      const grantMedalLocal = !isSaringanLocal && (
+        (fasa ? ['final', 'terus_final'].includes(fasa) : false) || heats.length === 1
+      )
+
+      // 5. Fetch heat terkini + run postRasmi
+      const freshSnap = await getDoc(heatRef)
+      if (freshSnap.exists()) {
+        const freshHeat = { id: selectedHeat.heatId, ...freshSnap.data() }
+        const acaraDoc  = { id: aceraKey, ...selectedAcara }
+        try {
+          await runPostRasmi(db, freshHeat, acaraDoc, kejohananId, {
+            mataPingat, bilanganKedudukan, peringkatKej,
+            grantMedal: grantMedalLocal,
+            isRelay:    isRelayAcara,
+          })
+        } catch (postErr) { console.warn('postRasmi:', postErr.message) }
+      }
+
       setSaved(true)
     } catch (e) {
       alert(`Ralat hantar: ${e.message}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // ── Padam Keputusan — undo medal tally + clear result ────────────────────────
+
+  async function handleDelete() {
+    if (!window.confirm('Padam keputusan heat ini?\nMedal tally akan dikemaskini semula.')) return
+    if (!kejohananId || !selectedAcara || !selectedHeat || !bolehEdit) return
+    setSaving(true)
+    try {
+      const aceraKey = selectedAcara.aceraId || selectedAcara.acaraId
+      const heatRef  = doc(db, 'kejohanan', kejohananId, 'acara', aceraKey, 'heat', selectedHeat.heatId)
+
+      // Fetch data semasa
+      const heatSnap = await getDoc(heatRef)
+      if (!heatSnap.exists()) return
+      const heatData = heatSnap.data()
+
+      // Undo medal tally contributions dari heat ini
+      for (const p of (heatData.peserta || [])) {
+        if (!p.kodSekolah) continue
+        const tId        = `${p.kodSekolah}_${kejohananId}`
+        const contribKey = `contrib_${selectedHeat.heatId}_${p.noKP || p.noBib}`
+        try {
+          const tRef  = doc(db, 'medal_tally', tId)
+          const tSnap = await getDoc(tRef)
+          if (!tSnap.exists()) continue
+          const contrib = tSnap.data()[contribKey]
+          if (!contrib) continue
+          const pingat = contrib.pingat
+          await updateDoc(tRef, {
+            [contribKey]: deleteField(),
+            [pingat]:     increment(-1),
+            jumlahPingat: increment(-1),
+          })
+        } catch { /* ignore */ }
+      }
+
+      // Clear keputusan dalam peserta
+      const clearedPeserta = (heatData.peserta || []).map(p => ({
+        ...p,
+        keputusan:     null,
+        rankDalamHeat: null,
+        kedudukan:     null,
+        pecahRekod:    null,
+      }))
+
+      await updateDoc(heatRef, {
+        peserta:          clearedPeserta,
+        statusKeputusan:  'kosong',
+        postRasmiSelesai: false,
+        updatedAt:        serverTimestamp(),
+      })
+
+      // Update statusAcara
+      const updatedHeats = heats.map(h =>
+        h.heatId === selectedHeat.heatId ? { ...h, statusKeputusan: 'kosong' } : h
+      )
+      const anyResult = updatedHeats.some(h => ['diterima','tidak_rasmi','rasmi'].includes(h.statusKeputusan))
+      await updateDoc(
+        doc(db, 'kejohanan', kejohananId, 'acara', aceraKey),
+        { statusAcara: anyResult ? 'ada_keputusan' : 'akan_datang', updatedAt: serverTimestamp() }
+      ).catch(() => {})
+
+      setSelectedHeat(prev => ({ ...prev, statusKeputusan: 'kosong', peserta: clearedPeserta }))
+      setHeats(updatedHeats)
+      setKeputusan({})
+      setSaved(false)
+    } catch (e) {
+      alert(`Ralat padam: ${e.message}`)
     } finally {
       setSaving(false)
     }
@@ -1394,8 +1556,18 @@ export default function InputKeputusan() {
     if (!kejohananId || !selectedAcara) return
     setJanaFinalLoading(true)
     try {
-      const aceraKey  = selectedAcara.aceraId || selectedAcara.acaraId
-      const maxHeatNo = Math.max(0, ...heats.map(h => h.noHeat || 0))
+      const aceraKey = selectedAcara.aceraId || selectedAcara.acaraId
+
+      // Padam heat final lama jika ada (re-jana selepas bantahan)
+      const { deleteDoc } = await import('firebase/firestore')
+      const finalLama = heats.filter(h => h.peringkat === 'final')
+      for (const lama of finalLama) {
+        await deleteDoc(doc(db, 'kejohanan', kejohananId, 'acara', aceraKey, 'heat', lama.heatId))
+          .catch(() => {})
+      }
+
+      const nonFinalHeats = heats.filter(h => h.peringkat !== 'final')
+      const maxHeatNo = Math.max(0, ...nonFinalHeats.map(h => h.noHeat || 0))
       const newHeatId = `final_${Date.now()}`
       const isPadang  = ['padang_lompat', 'padang_balin'].includes(selectedAcara.jenisAcara)
 
@@ -1465,7 +1637,7 @@ export default function InputKeputusan() {
 
   const katKeys = [...KAT_ORDER.filter(k => acaraByKat[k]), ...Object.keys(acaraByKat).filter(k => !KAT_ORDER.includes(k))]
 
-  // Count untuk filter badge
+  // Count overall (progress bar)
   const filterCounts = useMemo(() => ({
     semua: acaraList.length,
     belum: acaraList.filter(a => a._drafHeat === 0 && a._rasmiHeat === 0).length,
@@ -1473,31 +1645,100 @@ export default function InputKeputusan() {
     rasmi: acaraList.filter(a => a._rasmiHeat > 0).length,
   }), [acaraList])
 
+  // Hari tabs
+  const hariList = useMemo(() => {
+    const dates = [...new Set(jadualAll.map(j => j.tarikhAcara).filter(Boolean))].sort()
+    return dates.map((d, i) => ({
+      tarikh: d,
+      label:  new Date(d + 'T00:00:00').toLocaleDateString('ms-MY', { day: 'numeric', month: 'short' }),
+      hariKe: i + 1,
+    }))
+  }, [jadualAll])
+
+  // Jadual untuk hari terpilih, sort by masa → noAcara
+  const jadualHari = useMemo(() => {
+    if (!selectedHari) return []
+    return jadualAll
+      .filter(j => j.tarikhAcara === selectedHari && j.acara)
+      .sort((a, b) => {
+        const mA = a.masaMula || '99:99'
+        const mB = b.masaMula || '99:99'
+        if (mA !== mB) return mA.localeCompare(mB)
+        return (a.acara?.noAcara ?? 999) - (b.acara?.noAcara ?? 999)
+      })
+  }, [jadualAll, selectedHari])
+
+  // Acara hari ini terpilih selepas filter tab
+  const acaraHariFiltered = useMemo(() => {
+    return jadualHari.filter(j => {
+      const a = j.acara
+      if (filterTab === 'belum') return (a._drafHeat || 0) === 0 && (a._rasmiHeat || 0) === 0
+      if (filterTab === 'draf')  return (a._drafHeat || 0) > 0
+      if (filterTab === 'rasmi') return (a._rasmiHeat || 0) > 0
+      return true
+    })
+  }, [jadualHari, filterTab])
+
+  // Count filter untuk hari terpilih
+  const hariFilterCounts = useMemo(() => {
+    const items = jadualHari.map(j => j.acara)
+    return {
+      semua: items.length,
+      belum: items.filter(a => (a._drafHeat || 0) === 0 && (a._rasmiHeat || 0) === 0).length,
+      draf:  items.filter(a => (a._drafHeat || 0) > 0).length,
+      rasmi: items.filter(a => (a._rasmiHeat || 0) > 0).length,
+    }
+  }, [jadualHari])
+
+  // Acara tanpa jadual
+  const jadualAcaraIds = useMemo(() =>
+    new Set(jadualAll.map(j => j.aceraId || j.acaraId)),
+  [jadualAll])
+
+  const acaraTanpaJadual = useMemo(() =>
+    acaraList.filter(a => !jadualAcaraIds.has(a.aceraId) && !jadualAcaraIds.has(a.acaraId)),
+  [acaraList, jadualAcaraIds])
+
   // ── Jana Final computations ────────────────────────────────────────────────
 
   const janaFinalEligible = useMemo(() => {
     if (!selectedAcara || heats.length === 0) return false
-    const jenis = selectedAcara.jenisAcara
-    if (!['lorong', 'mass_start', 'relay'].includes(jenis)) return false
+    // Hanya acara saringan yang perlu jana final
+    const p = (selectedAcara.peringkat || '').toLowerCase()
+    const n = (selectedAcara.namaAcara  || '').toLowerCase()
+    const isSaringan = p.includes('saringan') || n.includes('saringan')
+    if (!isSaringan) return false
     const nonFinal = heats.filter(h => h.peringkat !== 'final')
     if (nonFinal.length === 0) return false
-    const finalExists = heats.some(h => h.peringkat === 'final')
-    if (finalExists) return false
-    return nonFinal.every(h => h.statusKeputusan === 'rasmi')
+    // Semua heat saringan mesti ada keputusan (tidak_rasmi atau rasmi)
+    return nonFinal.every(h => ['rasmi', 'tidak_rasmi'].includes(h.statusKeputusan))
   }, [heats, selectedAcara])
+
+  // Set noBib yang layak final — dari heat final jika ada, atau kira dari saringan results
+  const finalisBibs = useMemo(() => {
+    const finalHeat = heats.find(h => h.peringkat === 'final')
+    if (finalHeat) return new Set((finalHeat.peserta || []).map(p => p.noBib).filter(Boolean))
+    // Tiada final heat lagi — kira dari saringan heats (preview layak final)
+    if (!selectedAcara) return new Set()
+    const raw = _selectFinalists(heats, selectedAcara, finalSetup)
+    return new Set(raw.map(f => f.noBib).filter(Boolean))
+  }, [heats, selectedAcara, finalSetup])
 
   const janaFinalists = useMemo(() => {
     if (!janaFinalEligible || !selectedAcara) return []
-    const raw = selectFinalists(heats, selectedAcara)
+    const raw = _selectFinalists(heats, selectedAcara, finalSetup)
     const isPadang = ['padang_lompat', 'padang_balin'].includes(selectedAcara.jenisAcara)
-    return isPadang ? raw : assignLorong(raw, selectedAcara)
-  }, [janaFinalEligible, heats, selectedAcara])
+    return isPadang ? raw : _assignLorong(raw, isPadang)
+  }, [janaFinalEligible, heats, selectedAcara, finalSetup])
 
   // ── Guards ─────────────────────────────────────────────────────────────────
 
-  const isRasmi         = selectedHeat?.statusKeputusan === 'rasmi'
-  const isDalamBantahan = selectedHeat?.statusKeputusan === 'dalam_bantahan'
-  const isPublished     = selectedHeat?.statusKeputusan === 'tidak_rasmi'
+  // 'diterima' = status baru (flow mudah), 'rasmi'/'tidak_rasmi' = data lama
+  const isDiterima         = selectedHeat?.statusKeputusan === 'diterima'
+  const isRasmi            = selectedHeat?.statusKeputusan === 'rasmi' || isDiterima
+  const isDalamBantahan    = selectedHeat?.statusKeputusan === 'dalam_bantahan'
+  const isPublished        = selectedHeat?.statusKeputusan === 'tidak_rasmi'
+  const isBantahanDiterima = isPublished && !!selectedHeat?.bantahanDiterima
   const bolehInputSekarang = bolehEdit && !isRasmi
 
   // Timer auto-rasmi countdown
@@ -1532,7 +1773,7 @@ export default function InputKeputusan() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="max-w-lg mx-auto pb-12">
+    <div className="w-full pb-12">
 
       {/* ── Top Bar ── */}
       <div className="sticky top-0 z-10 bg-white border-b border-gray-100">
@@ -1585,24 +1826,24 @@ export default function InputKeputusan() {
           STEP: HOME
       ══════════════════════════════════════════════ */}
       {step === 'home' && (
-        <div className="px-4 pt-3 space-y-4">
+        <div className="pt-2 space-y-0">
 
-          {/* ── Progress strip ── */}
+          {/* ── Progress overall ── */}
           {acaraList.length > 0 && (
-            <div className="bg-white border border-gray-100 rounded-2xl px-4 py-3 shadow-sm">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Progress Hari Ini</span>
-                <span className="text-[10px] font-mono font-bold text-gray-700">
-                  {filterCounts.rasmi} / {acaraList.length} Rasmi
+            <div className="px-4 py-2.5 bg-white border-b border-gray-100">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Progress Keseluruhan</span>
+                <span className="text-[10px] font-mono font-bold text-gray-600">
+                  {filterCounts.rasmi} / {acaraList.length}
                 </span>
               </div>
-              <div className="h-2 bg-gray-100 rounded-full overflow-hidden flex">
+              <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden flex">
                 <div className="h-full bg-green-500 transition-all"
                   style={{ width: `${acaraList.length ? filterCounts.rasmi / acaraList.length * 100 : 0}%` }} />
                 <div className="h-full bg-amber-400 transition-all"
                   style={{ width: `${acaraList.length ? filterCounts.draf / acaraList.length * 100 : 0}%` }} />
               </div>
-              <div className="flex gap-3 mt-1.5">
+              <div className="flex gap-3 mt-1">
                 <span className="text-[9px] font-bold text-green-700">✓ {filterCounts.rasmi} Rasmi</span>
                 <span className="text-[9px] font-bold text-amber-600">⏳ {filterCounts.draf} Draf</span>
                 <span className="text-[9px] text-gray-400">{filterCounts.belum} Belum</span>
@@ -1611,104 +1852,158 @@ export default function InputKeputusan() {
           )}
 
           {/* ── Search bar ── */}
-          <div className="relative">
-            <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-300"
-              fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <input
-              className="w-full border border-gray-200 rounded-xl pl-9 pr-9 py-2.5 text-sm bg-gray-50 focus:outline-none focus:border-[#003399] focus:bg-white transition-colors"
-              placeholder="Cari No. Acara atau nama…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
-            {search && (
-              <button onClick={() => setSearch('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            )}
+          <div className="px-4 py-2 bg-white border-b border-gray-100">
+            <div className="relative">
+              <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-300"
+                fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                className="w-full border border-gray-100 rounded-xl pl-9 pr-9 py-2 text-sm bg-gray-50 focus:outline-none focus:border-[#003399] focus:bg-white transition-colors"
+                placeholder="Cari No. Acara atau nama acara…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+              {search && (
+                <button onClick={() => setSearch('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* ── Search results ── */}
-          {search && (
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                Hasil Carian ({searchResults.length})
+          {/* ══ SEARCH MODE ══ */}
+          {search ? (
+            <div className="px-4 pt-3 space-y-1">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">
+                Hasil Carian — {searchResults.length} acara
               </p>
               {searchResults.length === 0
-                ? <p className="text-sm text-gray-400 text-center py-6">Tiada acara dijumpai.</p>
-                : searchResults.map(a => <AcaraCard key={a.acaraId} acara={a} nowMs={now} onClick={() => selectAcara(a)} />)
+                ? <p className="text-sm text-gray-400 text-center py-10">Tiada acara dijumpai.</p>
+                : searchResults.map(a => (
+                  <AcaraRow key={a.acaraId} acara={a} nowMs={now} onClick={() => selectAcara(a)} />
+                ))
               }
             </div>
-          )}
-
-          {!search && (
+          ) : (
             <>
-              {/* ── Jadual hari ini ── */}
-              {jadualHariIni.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Jadual Hari Ini</p>
-                  {jadualHariIni.map(j => (
-                    <AcaraCard key={j.jadualId} acara={j.acara} masa={j.masaMula} nowMs={now} onClick={() => selectAcara(j.acara)} />
-                  ))}
+              {/* ── Hari Tabs ── */}
+              {hariList.length > 0 && (
+                <div className="flex gap-0 overflow-x-auto border-b border-gray-100 bg-white">
+                  {hariList.map(h => {
+                    const isActive = h.tarikh === selectedHari
+                    const isToday  = h.tarikh === new Date().toISOString().slice(0, 10)
+                    return (
+                      <button key={h.tarikh}
+                        onClick={() => setSelectedHari(h.tarikh)}
+                        className={`shrink-0 flex flex-col items-center px-4 py-2.5 border-b-2 transition-all ${
+                          isActive
+                            ? 'border-[#003399] text-[#003399] bg-blue-50/50'
+                            : 'border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50'
+                        }`}>
+                        <span className={`text-[9px] font-bold uppercase tracking-wider ${isActive ? 'text-[#003399]' : 'text-gray-400'}`}>
+                          Hari {h.hariKe}{isToday ? ' · Hari Ini' : ''}
+                        </span>
+                        <span className={`text-xs font-black mt-0.5 ${isActive ? 'text-[#003399]' : 'text-gray-500'}`}>
+                          {h.label}
+                        </span>
+                      </button>
+                    )
+                  })}
                 </div>
               )}
 
-              {/* ── Filter tabs + Accordion ── */}
-              <div className="space-y-3">
-                {/* Tab header */}
-                <div className="flex items-center justify-between">
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Semua Acara</p>
+              {/* ── Filter pills (per hari) ── */}
+              <div className="flex gap-1.5 overflow-x-auto px-4 py-2 bg-white border-b border-gray-100">
+                {[
+                  { key: 'semua', label: 'Semua',    act: 'bg-[#003399] text-white',   inact: 'bg-gray-100 text-gray-500' },
+                  { key: 'belum', label: 'Belum',    act: 'bg-gray-600 text-white',     inact: 'bg-gray-100 text-gray-500' },
+                  { key: 'draf',  label: '⏳ Draf',  act: 'bg-amber-500 text-white',    inact: 'bg-amber-50 text-amber-700' },
+                  { key: 'rasmi', label: '✓ Rasmi',  act: 'bg-green-600 text-white',    inact: 'bg-green-50 text-green-700' },
+                ].map(t => (
+                  <button key={t.key} onClick={() => setFilterTab(t.key)}
+                    className={`shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-colors ${
+                      filterTab === t.key ? t.act : t.inact
+                    }`}>
+                    {t.label}
+                    <span className={`text-[9px] font-black px-1 py-0.5 rounded-full min-w-[16px] text-center ${
+                      filterTab === t.key ? 'bg-white/25 text-white' : 'bg-white text-gray-600 border border-gray-200'
+                    }`}>{hariFilterCounts[t.key]}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* ── Jadual Acara Table ── */}
+              <div className="bg-white">
+                {/* Table header */}
+                <div className="grid px-4 py-1.5 bg-gray-50 border-b border-gray-100 text-[9px] font-bold text-gray-400 uppercase tracking-widest"
+                  style={{ gridTemplateColumns: '40px 48px 1fr 72px' }}>
+                  <div>No.</div>
+                  <div>Masa</div>
+                  <div>Acara</div>
+                  <div className="text-right">Status</div>
                 </div>
 
-                {/* Filter pills */}
-                <div className="flex gap-1.5 overflow-x-auto pb-0.5 -mx-1 px-1">
-                  {[
-                    { key: 'semua', label: 'Semua',       cls: 'bg-[#003399] text-white',      inact: 'bg-gray-100 text-gray-500 hover:bg-gray-200' },
-                    { key: 'belum', label: 'Belum',       cls: 'bg-gray-600 text-white',        inact: 'bg-gray-100 text-gray-500 hover:bg-gray-200' },
-                    { key: 'draf',  label: '⏳ Tidak Rasmi', cls: 'bg-amber-500 text-white',   inact: 'bg-amber-50 text-amber-700 hover:bg-amber-100' },
-                    { key: 'rasmi', label: '✓ Rasmi',     cls: 'bg-green-600 text-white',       inact: 'bg-green-50 text-green-700 hover:bg-green-100' },
-                  ].map(t => (
-                    <button key={t.key} onClick={() => setFilterTab(t.key)}
-                      className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-colors ${
-                        filterTab === t.key ? t.cls : t.inact
-                      }`}>
-                      {t.label}
-                      <span className={`min-w-[18px] text-center text-[9px] font-black px-1 py-0.5 rounded-full ${
-                        filterTab === t.key ? 'bg-white/25 text-white' : 'bg-white text-gray-600'
-                      }`}>{filterCounts[t.key]}</span>
-                    </button>
-                  ))}
-                </div>
-
-                {/* Empty state for filter */}
-                {katKeys.length === 0 && (
-                  <div className="text-center py-8">
+                {acaraHariFiltered.length === 0 ? (
+                  <div className="py-12 text-center">
+                    <p className="text-2xl mb-2">
+                      {filterTab === 'rasmi' ? '🏆' : filterTab === 'draf' ? '⏳' : '📋'}
+                    </p>
                     <p className="text-sm text-gray-400">
                       {filterTab === 'rasmi' ? 'Tiada keputusan rasmi lagi.' :
                        filterTab === 'draf'  ? 'Tiada keputusan draf.' :
                        filterTab === 'belum' ? 'Semua acara sudah ada keputusan!' :
-                       'Tiada acara.'}
+                       selectedHari ? 'Tiada acara dijadualkan hari ini.' : 'Tiada jadual ditemui.'}
                     </p>
                   </div>
+                ) : (
+                  acaraHariFiltered.map((j, idx) => (
+                    <AcaraRow key={j.jadualId || j.acara.acaraId}
+                      acara={j.acara} masa={j.masaMula} nowMs={now}
+                      isLast={idx === acaraHariFiltered.length - 1}
+                      onClick={() => selectAcara(j.acara)} />
+                  ))
                 )}
-
-                {/* Accordion by kategori */}
-                {katKeys.map(kat => (
-                  <AccordionSection key={kat}
-                    title={kat}
-                    count={acaraByKat[kat]?.length || 0}
-                    open={openKat[kat] ?? false}
-                    onToggle={() => setOpenKat(prev => ({ ...prev, [kat]: !prev[kat] }))}>
-                    {(acaraByKat[kat] || []).map(a => (
-                      <AcaraCard key={a.acaraId} acara={a} nowMs={now} onClick={() => selectAcara(a)} />
-                    ))}
-                  </AccordionSection>
-                ))}
               </div>
+
+              {/* ── Acara Tanpa Jadual ── */}
+              {acaraTanpaJadual.length > 0 && (
+                <div className="bg-white border-t border-gray-100 mt-2">
+                  <button
+                    onClick={() => setTanpaJadualOpen(o => !o)}
+                    className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 transition-colors">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-gray-500">Acara Tanpa Jadual</span>
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-400">
+                        {acaraTanpaJadual.length}
+                      </span>
+                    </div>
+                    <svg className={`w-4 h-4 text-gray-300 transition-transform ${tanpaJadualOpen ? 'rotate-180' : ''}`}
+                      fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  {tanpaJadualOpen && (
+                    <div>
+                      <div className="grid px-4 py-1.5 bg-gray-50 border-y border-gray-100 text-[9px] font-bold text-gray-400 uppercase tracking-widest"
+                        style={{ gridTemplateColumns: '40px 48px 1fr 72px' }}>
+                        <div>No.</div>
+                        <div>—</div>
+                        <div>Acara</div>
+                        <div className="text-right">Status</div>
+                      </div>
+                      {acaraTanpaJadual.map((a, idx) => (
+                        <AcaraRow key={a.acaraId} acara={a} nowMs={now}
+                          isLast={idx === acaraTanpaJadual.length - 1}
+                          onClick={() => selectAcara(a)} />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
         </div>
@@ -1718,7 +2013,7 @@ export default function InputKeputusan() {
           STEP: PILIH HEAT
       ══════════════════════════════════════════════ */}
       {step === 'heat' && (
-        <div className="px-4 pt-4 space-y-4">
+        <div className="max-w-2xl mx-auto px-4 pt-4 space-y-4">
           <div className="bg-[#003399]/5 rounded-2xl p-4 border border-[#003399]/10">
             <p className="text-xs font-bold text-[#003399] uppercase tracking-widest mb-1">
               {JENIS_LABEL[selectedAcara?.jenisAcara] || selectedAcara?.jenisAcara}
@@ -1754,7 +2049,7 @@ export default function InputKeputusan() {
           STEP: INPUT KEPUTUSAN
       ══════════════════════════════════════════════ */}
       {step === 'input' && selectedAcara && selectedHeat && (
-        <div className="px-4 pt-4 space-y-4">
+        <div className="max-w-2xl mx-auto px-4 pt-4 space-y-4">
 
           {/* Heat info bar */}
           <div className="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-3 border border-gray-100">
@@ -1769,39 +2064,35 @@ export default function InputKeputusan() {
             </span>
           </div>
 
-          {/* ── Status Banners ── */}
+          {/* ── Status Banner ── */}
 
-          {/* RASMI — terkunci */}
-          {isRasmi && (
-            <div className="flex items-start gap-3 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
-              <svg className="w-5 h-5 text-green-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          {/* Keputusan diterima — tunjuk butang Edit/Padam */}
+          {isRasmi && bolehEdit && (
+            <div className="flex items-center gap-2 bg-teal-50 border border-teal-200 rounded-xl px-4 py-3">
+              <svg className="w-4 h-4 text-teal-600 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              <div>
-                <p className="text-sm font-bold text-green-800">Keputusan Rasmi — Terkunci</p>
-                <p className="text-[11px] text-green-600 mt-0.5">
-                  Hubungi Pengurus Teknik untuk buka semula melalui proses bantahan.
-                </p>
-              </div>
+              <p className="text-xs font-bold text-teal-700 flex-1">Keputusan Diterima</p>
+              <button
+                onClick={() => {
+                  setSelectedHeat(prev => ({ ...prev, statusKeputusan: 'kosong' }))
+                  setHeats(prev => prev.map(h => h.heatId === selectedHeat.heatId ? { ...h, statusKeputusan: 'kosong' } : h))
+                }}
+                className="text-[10px] font-bold px-2.5 py-1 rounded bg-white border border-teal-300 text-teal-700 hover:bg-teal-100 transition-colors"
+              >
+                ✏ EDIT
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={saving}
+                className="text-[10px] font-bold px-2.5 py-1 rounded bg-white border border-red-300 text-red-600 hover:bg-red-50 transition-colors"
+              >
+                🗑 PADAM
+              </button>
             </div>
           )}
 
-          {/* DALAM BANTAHAN — boleh edit semula */}
-          {isDalamBantahan && bolehEdit && (
-            <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-              <svg className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-              <div>
-                <p className="text-sm font-bold text-amber-800">Bantahan Diterima — Boleh Edit Semula</p>
-                <p className="text-[11px] text-amber-600 mt-0.5">
-                  Betulkan keputusan dan simpan. PT perlu sahkan semula.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Admin — baca sahaja (Model A) */}
+          {/* Admin — baca sahaja */}
           {!bolehEdit && (
             <div className="flex items-start gap-3 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
               <svg className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -1817,11 +2108,11 @@ export default function InputKeputusan() {
           {/* ── Input form (locked if rasmi or not pencatat) ── */}
           <div className={!bolehInputSekarang ? 'opacity-50 pointer-events-none select-none' : ''}>
             {selectedAcara.jenisAcara === 'lorong' && (
-              <InputLorong heat={selectedHeat} acara={selectedAcara} keputusan={keputusan}
+              <InputLorong heat={selectedHeat} acara={selectedAcara} keputusan={keputusan} finalisBibs={finalisBibs}
                 onChange={handleChange} onWind={setWindSpeed} windSpeed={windSpeed} sekolahMap={sekolahMap} />
             )}
             {selectedAcara.jenisAcara === 'mass_start' && (
-              <InputMassStart heat={selectedHeat} keputusan={keputusan} onChange={handleChange} sekolahMap={sekolahMap} />
+              <InputMassStart heat={selectedHeat} keputusan={keputusan} onChange={handleChange} sekolahMap={sekolahMap} finalisBibs={finalisBibs} />
             )}
             {['padang_lompat', 'padang_balin'].includes(selectedAcara.jenisAcara) && (
               <InputPadang acara={selectedAcara} peserta={peserta} keputusan={keputusan}
@@ -1917,6 +2208,19 @@ export default function InputKeputusan() {
                   </p>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ── Jana Final Panel — tunjuk bila semua heat saringan selesai ── */}
+          {janaFinalEligible && janaFinalists.length > 0 && (
+            <div className="pb-6">
+              <JanaFinalPanel
+                finalists={janaFinalists}
+                acara={selectedAcara}
+                sekolahMap={sekolahMap}
+                onJana={handleJanaFinal}
+                loading={janaFinalLoading}
+              />
             </div>
           )}
         </div>

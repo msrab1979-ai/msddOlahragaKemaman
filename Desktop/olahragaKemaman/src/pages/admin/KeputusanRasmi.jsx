@@ -8,11 +8,13 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  collection, getDocs, getDoc, doc, updateDoc, addDoc, setDoc,
+  collection, getDocs, getDoc, doc, updateDoc, addDoc, setDoc, deleteDoc,
   query, orderBy, where, serverTimestamp, Timestamp, increment, runTransaction,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
+import { selectFinalists as _selectFinalists, assignLorong as _assignLorong } from '../../utils/finalistUtils'
+import { runPostRasmi, rekodKeyStr as _rekodKeyStr } from '../../utils/postRasmiUtils'
 
 // ─── Konstanta ────────────────────────────────────────────────────────────────
 
@@ -80,6 +82,8 @@ const cls = {
   input:  'w-full border border-gray-200 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#003399]/25 focus:border-[#003399] bg-white',
 }
 
+// selectFinalistsKR + assignLorongKR diganti dengan import dari finalistUtils
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function KeputusanRasmi() {
@@ -97,9 +101,15 @@ export default function KeputusanRasmi() {
   const [namaKej,       setNamaKej]       = useState('')
   const [peringkatKej,  setPeringkatKej]  = useState('D') // D | N | K — ikut kejohanan
   const [acaraList,     setAcaraList]     = useState([])
+  const [finalSetup,    setFinalSetup]    = useState(null) // tetapan/finalSetup
   const [selAcara,      setSelAcara]      = useState('')
   const [heatList,      setHeatList]      = useState([])
   const [selHeat,       setSelHeat]       = useState('')
+
+  // ── Filter acara ───────────────────────────────────────────────────────────
+  const [filterHari,      setFilterHari]      = useState('') // '' = semua hari
+  const [filterPeringkat, setFilterPeringkat] = useState('') // '' | 'saringan' | 'final'
+  const [filterCari,      setFilterCari]      = useState('') // cari by no acara / nama
 
   // ── Data ───────────────────────────────────────────────────────────────────
   const [heat,         setHeat]         = useState(null)
@@ -135,6 +145,16 @@ export default function KeputusanRasmi() {
   const [savingBantahan, setSavingBantahan] = useState(false)
   const [savingPutusan,  setSavingPutusan]  = useState(null)
   const [msg,            setMsg]            = useState(null)
+  const [sweeping,       setSweeping]       = useState(false)
+  const [sweepResult,    setSweepResult]    = useState(null)
+
+  // ── Jana Final ────────────────────────────────────────────────────────────
+  const [janaFinalLoading, setJanaFinalLoading] = useState(false)
+
+  // ── Inline edit (superadmin sahaja) ───────────────────────────────────────
+  const [editMode,       setEditMode]       = useState(false)
+  const [editValues,     setEditValues]     = useState({}) // { noBib: { keputusan, status } }
+  const [savingEdit,     setSavingEdit]     = useState(false)
 
   // Mapping peringkat kejohanan (lowercase) → kod rekod (uppercase)
   const PERINGKAT_KOD = { daerah: 'D', negeri: 'N', kebangsaan: 'K' }
@@ -166,6 +186,11 @@ export default function KeputusanRasmi() {
           }
         }
       })
+      .catch(() => {})
+
+    // Load tetapan finalSetup untuk pilih finalis
+    getDoc(doc(db, 'tetapan', 'finalSetup'))
+      .then(snap => { if (snap.exists()) setFinalSetup(snap.data()) })
       .catch(() => {})
   }, [])
 
@@ -203,9 +228,27 @@ export default function KeputusanRasmi() {
 
   const loadHeatAndBantahan = useCallback(async () => {
     if (!selHeat) { setHeat(null); setBantahanList([]); return }
-    const h = heatList.find(x => x.id === selHeat)
-    setHeat(h || null)
+    let h = heatList.find(x => x.id === selHeat) || null
     autoRasmiDone.current = false
+
+    // ── Patch: heat tidak_rasmi + publishedAt tapi tiada countdownTamat ──────
+    // Berlaku bila heat dihantar dari InputKeputusan lama (sebelum fix) atau
+    // bila heat dihantar sebelum field countdownTamat wujud.
+    // Fix: compute countdownTamat dari publishedAt + timer kejohanan.
+    if (h && h.statusKeputusan === 'tidak_rasmi' && h.publishedAt && !h.countdownTamat) {
+      try {
+        const pubMs     = h.publishedAt?.toDate?.()?.getTime?.() || (h.publishedAt?.seconds * 1000) || null
+        const timerMin  = h.timerAutoRasmi ?? 30
+        if (pubMs) {
+          const tamatTs = Timestamp.fromMillis(pubMs + timerMin * 60 * 1000)
+          const hRef    = doc(db, 'kejohanan', selKej, 'acara', selAcara, 'heat', selHeat)
+          await updateDoc(hRef, { countdownTamat: tamatTs })
+          h = { ...h, countdownTamat: tamatTs }
+        }
+      } catch { /* patch gagal — teruskan sahaja */ }
+    }
+
+    setHeat(h)
     try {
       const bSnap = await getDocs(query(
         collection(db, 'bantahan'),
@@ -214,7 +257,7 @@ export default function KeputusanRasmi() {
       ))
       setBantahanList(bSnap.docs.map(d => ({ id: d.id, ...d.data() })))
     } catch { setBantahanList([]) }
-  }, [selHeat, heatList])
+  }, [selHeat, heatList, selKej, selAcara])
 
   useEffect(() => { loadHeatAndBantahan() }, [loadHeatAndBantahan])
 
@@ -263,10 +306,17 @@ export default function KeputusanRasmi() {
 
   const bantahanAktif = bantahanList.filter(b => b.status === 'menunggu')
 
-  // Fasa final = layak medal
-  // BUG3 FIX: jangan fallback ke 'final' — heat tanpa fasa bukan final kecuali cuma 1 heat
+  // Saringan acara = TIDAK PERNAH dapat medal (walaupun 1 heat sahaja)
+  const isSaringanAcara = (() => {
+    if (!acara) return false
+    const p = (acara.peringkat || '').toLowerCase()
+    const n = (acara.namaAcara  || '').toLowerCase()
+    return p.includes('saringan') || n.includes('saringan')
+  })()
+
+  // Fasa final = layak medal — TAPI saringan acara tidak layak walaupun 1 heat
   const grantMedal = (() => {
-    if (!heat) return false
+    if (!heat || !acara || isSaringanAcara) return false
     const fasa = heat.fasa
     return (fasa ? ['final', 'terus_final'].includes(fasa) : false) || heatList.length === 1
   })()
@@ -294,274 +344,18 @@ export default function KeputusanRasmi() {
     }
   }
 
-  async function postRasmi(heatDoc, acaraDoc, kejId) {
-    const pecahRekodMap = {} // noKP → peringkat (untuk patch peserta selepas loop)
-
-    // Bina sekolah nama map sebagai backup untuk heat lama (tiada namaSekolah dalam peserta)
-    const kodSekolahSet = [...new Set((heatDoc.peserta || []).map(p => p.kodSekolah).filter(Boolean))]
-    const sekolahNamaMap = {}
-    await Promise.all(kodSekolahSet.map(async kod => {
-      try {
-        const snap = await getDoc(doc(db, 'sekolah', kod))
-        if (snap.exists()) sekolahNamaMap[kod] = snap.data().namaSekolah || kod
-      } catch { sekolahNamaMap[kod] = kod }
-    }))
-    const getNamaSekolah = (p) => p.namaSekolah || sekolahNamaMap[p.kodSekolah] || p.kodSekolah || ''
-
-    // ── Kunci idempoten: satu acara hanya boleh contribute sekali ke medal_tally ──
-    // contrib key: heatId + noKP/kodSekolah — unik per atlet per heat
-    // Jika postRasmi dijalankan semula (selepas bantahan), contribution lama
-    // dibalikkan dahulu sebelum contribution baru ditulis. Elak double-count.
-
-    for (const p of (heatDoc.peserta || [])) {
-      const rank = p.rankDalamHeat
-      if (!rank || p.status !== 'selesai') continue
-
-      // Mata olahragawan (bukan relay, top 4 sahaja)
-      // R2/R3 FIX: semak sama ada acaraDetail sudah ada — jika ya, kira diff bukan tambah blind
-      if (!isRelay && p.noKP && rank <= 4) {
-        const mata      = mataPingatKej[rank] ?? 0
-        const pingat    = NAMA_PINGAT[rank]
-        const mId       = `${p.noKP}_${kejId}`
-        const mRef      = doc(db, 'mata_olahragawan', mId)
-        const unitAcara = ['padang_lompat', 'padang_balin'].includes(acaraDoc.jenisAcara) ? 'm' : 's'
-        const acaraKey  = `acaraDetail_${acaraDoc.id}`
-        try {
-          await setDoc(mRef, {
-            noKP:        p.noKP,
-            namaAtlet:   p.namaAtlet   || '',
-            kodSekolah:  p.kodSekolah  || '',
-            namaSekolah: getNamaSekolah(p),
-            jantina:     acaraDoc.jantina    || '',
-            kategoriKod: acaraDoc.kategoriKod || '',
-            kejohananId: kejId,
-          }, { merge: true })
-
-          // Baca doc semasa — semak contribution lama untuk acara ini
-          const existingSnap = await getDoc(mRef)
-          const existingData = existingSnap.exists() ? existingSnap.data() : {}
-          const prevDetail   = existingData[acaraKey]
-
-          const patch = { [acaraKey]: { aceraId: acaraDoc.id, namaAcara: acaraDoc.namaAcara, pingat, mata, rank, prestasi: p.keputusan ?? null, unit: unitAcara } }
-          if (prevDetail) {
-            // Sudah ada — kira diff: balik lama, tambah baru
-            const prevMata   = prevDetail.mata   || 0
-            const prevPingat = prevDetail.pingat  || ''
-            if (mata !== prevMata)     patch.jumlahMata         = increment(mata - prevMata)
-            if (pingat !== prevPingat) {
-              patch[`pingat_${prevPingat}`] = increment(-1)
-              patch[`pingat_${pingat}`]     = increment(1)
-            }
-          } else {
-            // Contribution pertama — tambah terus
-            patch.jumlahMata          = increment(mata)
-            patch[`pingat_${pingat}`] = increment(1)
-          }
-          await updateDoc(mRef, patch)
-        } catch (e) { console.warn('mata_olahragawan:', e.message) }
-      }
-
-      // Medal tally agregat per sekolah (fasa final, sehingga ke-5 jika setting benarkan)
-      // R2 FIX: track contribution per heat per peserta — elak double-count pada retry
-      if (grantMedal && p.kodSekolah && rank <= Math.min(bilanganKedudukan, 5) && NAMA_PINGAT[rank]) {
-        const pingat      = NAMA_PINGAT[rank]
-        const tId         = `${p.kodSekolah}_${kejId}`
-        const tRef        = doc(db, 'medal_tally', tId)
-        const contribKey  = `contrib_${heatDoc.id}_${p.noKP || p.noBib || rank}`
-        try {
-          await setDoc(tRef, {
-            kodSekolah: p.kodSekolah, namaSekolah: getNamaSekolah(p),
-            kejohananId: kejId,
-          }, { merge: true })
-
-          const tSnap     = await getDoc(tRef)
-          const tData     = tSnap.exists() ? tSnap.data() : {}
-          const prevContr = tData[contribKey]
-
-          const tPatch = { [contribKey]: { pingat, noKP: p.noKP || null, rank } }
-          if (prevContr) {
-            const prevPingat = prevContr.pingat || ''
-            if (pingat !== prevPingat) {
-              tPatch[prevPingat]    = increment(-1)
-              tPatch.jumlahPingat   = increment(-1)
-              tPatch[pingat]        = increment(1)
-              tPatch.jumlahPingat   = increment(1)
-            }
-            // pingat sama — tiada perubahan kiraan
-          } else {
-            tPatch[pingat]      = increment(1)
-            tPatch.jumlahPingat = increment(1)
-          }
-          await updateDoc(tRef, tPatch)
-        } catch (e) { console.warn('medal_tally:', e.message) }
-      }
-
-      // Rekod detection — fasa final, individu, tempat 1 sahaja
-      const isRelayAcara  = acaraDoc.isRelay || acaraDoc.jenisAcara === 'relay'
-      const isPadangAcara = ['padang_lompat', 'padang_balin'].includes(acaraDoc.jenisAcara)
-      if (
-        grantMedal && !isRelayAcara && rank === 1 &&
-        p.keputusan != null && p.keputusan !== '' &&
-        acaraDoc.namaAcara && acaraDoc.jantina && acaraDoc.kategoriKod
-      ) {
-        try {
-          const unit    = isPadangAcara ? 'm' : 's'
-          const rKey    = rekodKeyStr(acaraDoc.namaAcara, acaraDoc.jantina, acaraDoc.kategoriKod, peringkatKej)
-          const rekodRef = doc(db, 'rekod', rKey)
-          const rekodSnap = await getDoc(rekodRef)
-          const newPrestasi = Number(p.keputusan)
-
-          // Semak juga tuntutan sedia ada — elak tuntutan berganda
-          const tuntutanRef = doc(db, 'rekod', rKey + '_tuntutan')
-          const tuntutanSnap = await getDoc(tuntutanRef)
-
-          let isBetter = false
-          if (rekodSnap.exists() && rekodSnap.data().statusRekod === 'aktif') {
-            const oldPrestasi = Number(rekodSnap.data().prestasi)
-            // Masa (s): lebih rendah = lebih baik | Jarak (m): lebih tinggi = lebih baik
-            isBetter = unit === 's' ? newPrestasi < oldPrestasi : newPrestasi > oldPrestasi
-          } else if (
-            tuntutanSnap.exists() &&
-            tuntutanSnap.data().statusRekod === 'tuntutan' &&
-            // R8 FIX: elak self-compare — jangan bandingkan tuntutan dari heat ini sendiri
-            // (berlaku bila postRasmi dijalankan semula selepas bantahan diterima)
-            tuntutanSnap.data().catatanKhas?.includes?.(heatDoc.id) !== true
-          ) {
-            // Ada tuntutan dari heat lain — bandingkan dengan tuntutan sedia ada
-            const oldTuntutan = Number(tuntutanSnap.data().prestasi)
-            isBetter = unit === 's' ? newPrestasi < oldTuntutan : newPrestasi > oldTuntutan
-          } else if (!tuntutanSnap.exists() || tuntutanSnap.data().catatanKhas?.includes?.(heatDoc.id)) {
-            isBetter = true // tiada rekod, tiada tuntutan, atau tuntutan dari heat ini sendiri
-          }
-
-          if (isBetter) {
-            const today       = new Date().toISOString().split('T')[0]
-
-            // Catat untuk patch peserta dalam heat doc (untuk badge dalam KeputusanRasmi)
-            if (p.noKP) pecahRekodMap[p.noKP] = peringkatKej
-
-            // Simpan rekod pecah dalam mata_olahragawan (untuk paparan Olahragawan)
-            if (p.noKP) {
-              const mRef2 = doc(db, 'mata_olahragawan', `${p.noKP}_${kejId}`)
-              const rekodLama = rekodSnap.exists() ? rekodSnap.data() : null
-              await setDoc(mRef2, {
-                [`rekod_${acaraDoc.id}`]: {
-                  namaAcara:    acaraDoc.namaAcara,
-                  kategoriKod:  acaraDoc.kategoriKod,
-                  jantina:      acaraDoc.jantina,
-                  peringkat:    peringkatKej,
-                  unit,
-                  // Rekod baru (atlet ini)
-                  prestasiBaru: Number(p.keputusan),
-                  tarikhBaru:   today,
-                  // Rekod lama (yang dipecahkan)
-                  prestasiLama: rekodLama ? Number(rekodLama.prestasi) : null,
-                  tahunLama:    rekodLama ? String(rekodLama.tarikhRekod || '').slice(0, 4) : null,
-                  namaLama:     rekodLama?.namaAtlet  || null,
-                  lokasiLama:   rekodLama?.namaSekolah || rekodLama?.namaDaerah || rekodLama?.namaNegeri || null,
-                },
-              }, { merge: true }).catch(() => {})
-            }
-
-            await setDoc(tuntutanRef, {
-              rekodId:     rKey + '_tuntutan',
-              rekodAsal:   rKey,
-              namaAcara:   acaraDoc.namaAcara,
-              jantina:     acaraDoc.jantina,
-              kategoriKod: acaraDoc.kategoriKod,
-              peringkat:   peringkatKej,
-              noKP:        p.noKP    || '',
-              namaAtlet:   p.namaAtlet  || '',
-              kodSekolah:  p.kodSekolah || '',
-              namaSekolah: getNamaSekolah(p),
-              prestasi:    newPrestasi,
-              unit,
-              windSpeed:   heatDoc.windSpeed  ?? null,
-              isWindLegal: heatDoc.isWindLegal ?? true,
-              jenisRekod:  'elektronik',
-              statusRekod: 'tuntutan',
-              tarikhRekod: today,
-              kejohananId: kejId,
-              catatanKhas: `Auto-tuntutan dari keputusan RASMI (${heatDoc.id})`,
-              updatedAt:   serverTimestamp(),
-            })
-          }
-        } catch (e) { console.warn('rekod_tuntutan:', e.message) }
-      }
-
-      // ── Relay rekod — fasa final, pasukan tempat 1 sahaja ─────────────────
-      // Rekod relay disimpan atas nama sekolah (bukan individu). noKP = null.
-      if (
-        grantMedal && isRelayAcara && rank === 1 &&
-        p.keputusan != null && p.keputusan !== '' &&
-        p.kodSekolah &&
-        acaraDoc.namaAcara && acaraDoc.jantina && acaraDoc.kategoriKod
-      ) {
-        try {
-          const rKey        = rekodKeyStr(acaraDoc.namaAcara, acaraDoc.jantina, acaraDoc.kategoriKod, peringkatKej)
-          const rekodRef    = doc(db, 'rekod', rKey)
-          const tuntutanRef = doc(db, 'rekod', rKey + '_tuntutan')
-          const [rekodSnap, tuntutanSnap] = await Promise.all([getDoc(rekodRef), getDoc(tuntutanRef)])
-          const newPrestasi = Number(p.keputusan)
-
-          let isBetter = false
-          if (rekodSnap.exists() && rekodSnap.data().statusRekod === 'aktif') {
-            isBetter = newPrestasi < Number(rekodSnap.data().prestasi) // masa: lebih rendah lebih baik
-          } else if (tuntutanSnap.exists() && tuntutanSnap.data().statusRekod === 'tuntutan') {
-            isBetter = newPrestasi < Number(tuntutanSnap.data().prestasi)
-          } else {
-            isBetter = true // rekod pertama untuk acara ini
-          }
-
-          if (isBetter) {
-            const rekodLama = rekodSnap.exists() ? rekodSnap.data() : null
-            await setDoc(tuntutanRef, {
-              rekodId:      rKey + '_tuntutan',
-              rekodAsal:    rKey,
-              namaAcara:    acaraDoc.namaAcara,
-              jantina:      acaraDoc.jantina,
-              kategoriKod:  acaraDoc.kategoriKod,
-              peringkat:    peringkatKej,
-              noKP:         null,
-              namaAtlet:    getNamaSekolah(p),
-              kodSekolah:   p.kodSekolah || '',
-              namaSekolah:  getNamaSekolah(p),
-              prestasi:     newPrestasi,
-              unit:         's',
-              isRelay:      true,
-              windSpeed:    null,
-              isWindLegal:  true,
-              jenisRekod:   'elektronik',
-              statusRekod:  'tuntutan',
-              tarikhRekod:  new Date().toISOString().split('T')[0],
-              kejohananId:  kejId,
-              catatanKhas:  `Auto-tuntutan relay dari keputusan RASMI (${heatDoc.id})`,
-              prestasiLama: rekodLama ? Number(rekodLama.prestasi) : null,
-              tahunLama:    rekodLama ? String(rekodLama.tarikhRekod || '').slice(0, 4) : null,
-              namaLama:     rekodLama?.namaAtlet  || null,
-              lokasiLama:   rekodLama?.namaSekolah || null,
-              updatedAt:    serverTimestamp(),
-            })
-          }
-        } catch (e) { console.warn('rekod_relay:', e.message) }
-      }
-    }
-
-    // Patch heat doc — tambah pecahRekod pada peserta yang pecah rekod
-    const hRef3 = doc(db, 'kejohanan', kejId, 'acara', acaraDoc.id, 'heat', heatDoc.id)
-    if (Object.keys(pecahRekodMap).length > 0) {
-      try {
-        const pesertaPatched = (heatDoc.peserta || []).map(p =>
-          pecahRekodMap[p.noKP] ? { ...p, pecahRekod: pecahRekodMap[p.noKP] } : p
-        )
-        await updateDoc(hRef3, { peserta: pesertaPatched, updatedAt: serverTimestamp() })
-        // Kemaskini state heat supaya badge nampak terus tanpa reload
-        setHeat(prev => prev ? { ...prev, peserta: pesertaPatched } : prev)
-      } catch (e) { console.warn('patch pecahRekod:', e.message) }
-    }
-
-    // postRasmiSelesai kini diset secara atomic dalam runTransaction di sahkanRasmi()
-    // — tidak perlu set semula di sini
+  async function postRasmi(heatDoc, acaraDoc, kejId, opts = {}) {
+    // Delegate ke shared utility — hantar semua config dari component state
+    const isRelayLocal    = opts.isRelayOverride   ?? (acaraDoc.isRelay || acaraDoc.jenisAcara === 'relay')
+    const grantMedalLocal = opts.grantMedalOverride ?? grantMedal
+    await runPostRasmi(db, heatDoc, acaraDoc, kejId, {
+      mataPingat:        mataPingatKej,
+      bilanganKedudukan: bilanganKedudukan,
+      peringkatKej:      peringkatKej,
+      grantMedal:        grantMedalLocal,
+      isRelay:           isRelayLocal,
+      onPesertaPatch:    patched => setHeat(prev => prev ? { ...prev, peserta: patched } : prev),
+    })
   }
 
   async function sahkanRasmi() {
@@ -599,10 +393,15 @@ export default function KeputusanRasmi() {
 
       // Kemaskini statusAcara pada acara doc
       const updatedHeatList = heatList.map(h => h.id === heat.id ? { ...h, statusKeputusan: 'rasmi' } : h)
-      const finalHeat = updatedHeatList.find(h => h.fasa === 'final' || h.fasa === 'terus_final')
-      const newAcaraStatus = finalHeat
-        ? (finalHeat.statusKeputusan === 'rasmi' ? 'rasmi' : 'tidak_rasmi')
-        : (updatedHeatList.every(h => h.statusKeputusan === 'rasmi') ? 'rasmi' : 'tidak_rasmi')
+      // Untuk acara saringan: statusAcara ikut saringan heats sahaja (abaikan final heat)
+      // Untuk acara lain: ikut final heat jika ada, else semua heat
+      const heatsUntukStatus = isSaringanAcara
+        ? updatedHeatList.filter(h => h.fasa !== 'final' && h.fasa !== 'terus_final' && h.peringkat !== 'final')
+        : updatedHeatList
+      const finalHeatStatus = !isSaringanAcara && heatsUntukStatus.find(h => h.fasa === 'final' || h.fasa === 'terus_final')
+      const newAcaraStatus = finalHeatStatus
+        ? (finalHeatStatus.statusKeputusan === 'rasmi' ? 'rasmi' : 'tidak_rasmi')
+        : (heatsUntukStatus.every(h => h.statusKeputusan === 'rasmi') ? 'rasmi' : 'tidak_rasmi')
       await updateDoc(acaraRef, { statusAcara: newAcaraStatus, updatedAt: serverTimestamp() }).catch(() => {})
 
       const updated = { ...heat, statusKeputusan: 'rasmi', postRasmiSelesai: true }
@@ -621,6 +420,347 @@ export default function KeputusanRasmi() {
     } catch (e) {
       setMsg({ type: 'err', text: 'Ralat: ' + e.message })
     } finally { setSavingRasmi(false) }
+  }
+
+  // ── Rerun Medal — jalankan semula postRasmi untuk heat rasmi semasa ──────────
+
+  async function rerunMedal() {
+    if (!heat || !acara || !selKej || !canRasmi) return
+    if (!window.confirm('Jalankan semula kira medal & mata olahragawan untuk heat ini?\n\nIni akan betulkan medal tally dan kedudukan jika sebelum ini gagal.')) return
+    setSavingRasmi(true); setMsg(null)
+    try {
+      const hRef = doc(db, 'kejohanan', selKej, 'acara', selAcara, 'heat', heat.id)
+
+      // Baca data terbaru dari Firestore
+      await updateDoc(hRef, { postRasmiSelesai: false })
+      const freshSnap = await getDoc(hRef)
+      const freshHeat = { id: heat.id, ...freshSnap.data() }
+
+      // Kira semula rankDalamHeat dari keputusan terkini
+      const isPadangRerun = ['padang_lompat', 'padang_balin'].includes(acara?.jenisAcara)
+      const finishersRerun = (freshHeat.peserta || [])
+        .filter(p => !['DNS','DNF','DQ'].includes(p.status) && p.keputusan != null && Number(p.keputusan) > 0)
+        .sort((a, b) => isPadangRerun ? Number(b.keputusan) - Number(a.keputusan) : Number(a.keputusan) - Number(b.keputusan))
+      const rankMapRerun = new Map()
+      finishersRerun.forEach((p, i) => {
+        const prev = i > 0 && p.keputusan === finishersRerun[i-1].keputusan
+        rankMapRerun.set(p.noKP || p.noBib, prev ? rankMapRerun.get(finishersRerun[i-1].noKP || finishersRerun[i-1].noBib) : i + 1)
+      })
+      const pesertaWithRank = (freshHeat.peserta || []).map(p => ({
+        ...p,
+        rankDalamHeat: rankMapRerun.get(p.noKP || p.noBib) ?? null,
+      }))
+
+      // Simpan rankDalamHeat yang dikira semula ke Firestore
+      await updateDoc(hRef, { peserta: pesertaWithRank, updatedAt: serverTimestamp() })
+
+      // Jalankan postRasmi dengan data terkini
+      const heatWithRank = { ...freshHeat, peserta: pesertaWithRank }
+      await postRasmi(heatWithRank, acara, selKej)
+      await updateDoc(hRef, { postRasmiSelesai: true })
+
+      // Refresh UI
+      setHeat({ ...heatWithRank, postRasmiSelesai: true })
+      setMsg({ type: 'ok', text: '✓ Kedudukan dan medal tally dikemaskini semula.' })
+    } catch (e) {
+      setMsg({ type: 'err', text: 'Ralat rerun: ' + e.message })
+    } finally { setSavingRasmi(false) }
+  }
+
+  // ── Simpan Edit Rasmi (superadmin) + Jalankan Semula Medal ──────────────────
+
+  async function simpanEditRasmi() {
+    if (!heat || !acara || !selKej || !isSuperadmin) return
+    if (!window.confirm('Simpan perubahan keputusan dan kemas kini medal tally?\n\nTindakan ini akan overwrite keputusan rasmi.')) return
+    setSavingEdit(true); setMsg(null)
+    try {
+      const hRef = doc(db, 'kejohanan', selKej, 'acara', selAcara, 'heat', heat.id)
+      const isPadangEdit = ['padang_lompat', 'padang_balin'].includes(acara?.jenisAcara)
+
+      // Patch peserta array dengan nilai baru
+      const pesertaTanpaRank = (heat.peserta || []).map(p => {
+        const key = p.noBib || p.noKP
+        const ev = editValues[key]
+        if (!ev) return p
+        const keputusanBaru = ev.keputusan !== '' && ev.keputusan !== undefined
+          ? Number(ev.keputusan) : p.keputusan
+        const statusBaru = ev.status || p.status
+        const isFlagged = ['DNS', 'DNF', 'DQ'].includes(statusBaru)
+        const hasResult = keputusanBaru != null && !isNaN(keputusanBaru) && keputusanBaru > 0
+        const finalStatus = isFlagged ? statusBaru : hasResult ? 'selesai' : statusBaru
+        return { ...p, keputusan: keputusanBaru, status: finalStatus }
+      })
+
+      // Kira semula rankDalamHeat berdasarkan keputusan baru
+      const finishersEdit = pesertaTanpaRank
+        .filter(p => !['DNS','DNF','DQ'].includes(p.status) && p.keputusan != null && Number(p.keputusan) > 0)
+        .sort((a, b) => isPadangEdit ? Number(b.keputusan) - Number(a.keputusan) : Number(a.keputusan) - Number(b.keputusan))
+      const rankMapEdit = new Map()
+      finishersEdit.forEach((p, i) => {
+        const prev = i > 0 && p.keputusan === finishersEdit[i-1].keputusan
+        rankMapEdit.set(p.noKP || p.noBib, prev ? rankMapEdit.get(finishersEdit[i-1].noKP || finishersEdit[i-1].noBib) : i + 1)
+      })
+      const pesertaBaru = pesertaTanpaRank.map(p => ({
+        ...p,
+        rankDalamHeat: rankMapEdit.get(p.noKP || p.noBib) ?? null,
+      }))
+
+      await updateDoc(hRef, { peserta: pesertaBaru, updatedAt: serverTimestamp() })
+      // Jalankan semula medal
+      await updateDoc(hRef, { postRasmiSelesai: false })
+      const freshSnap = await getDoc(hRef)
+      const freshHeat = { id: heat.id, ...freshSnap.data() }
+      await postRasmi(freshHeat, acara, selKej)
+      await updateDoc(hRef, { postRasmiSelesai: true })
+      // Refresh local state
+      setHeat({ ...freshHeat, peserta: pesertaBaru, postRasmiSelesai: true })
+      setEditMode(false)
+      setEditValues({})
+      setMsg({ type: 'ok', text: '✓ Keputusan dikemas kini dan medal tally diperbaharui.' })
+    } catch (e) {
+      setMsg({ type: 'err', text: 'Ralat simpan: ' + e.message })
+    } finally { setSavingEdit(false) }
+  }
+
+  // ── Kelayakan Final — kira dari heatList semasa ───────────────────────────────
+
+  const finalistList = (() => {
+    if (!acara || !isSaringanAcara || heatList.length === 0) return []
+    const isPadang = ['padang_lompat', 'padang_balin'].includes(acara.jenisAcara)
+    const finalists = _selectFinalists(heatList, acara, finalSetup)
+    return isPadang ? finalists : _assignLorong(finalists, false)
+  })()
+
+  const finalistBibs = new Set(finalistList.map(f => f.noBib))
+
+  const semakHeatFinalAda = heatList.some(h => h.peringkat === 'final')
+  const semakSaringanSelesai = heatList
+    .filter(h => h.peringkat !== 'final')
+    .every(h => ['rasmi', 'tidak_rasmi'].includes(h.statusKeputusan))
+  const bolehJanaFinal = isSaringanAcara && canRasmi && semakSaringanSelesai && finalistList.length > 0
+
+  async function handleJanaFinalAdmin() {
+    if (!bolehJanaFinal || !selKej || !selAcara) return
+    const konfirm = window.confirm(
+      `Jana heat Final dengan ${finalistList.length} atlet terpilih?\n\n` +
+      (semakHeatFinalAda ? '⚠ Heat Final lama akan dipadam dan dijana semula.' : 'Heat Final baru akan dicipta.')
+    )
+    if (!konfirm) return
+    setJanaFinalLoading(true)
+    try {
+      // Padam heat final lama jika ada
+      const finalLama = heatList.filter(h => h.peringkat === 'final')
+      for (const lama of finalLama) {
+        await deleteDoc(doc(db, 'kejohanan', selKej, 'acara', selAcara, 'heat', lama.id)).catch(() => {})
+      }
+
+      const nonFinalHeats = heatList.filter(h => h.peringkat !== 'final')
+      const maxHeatNo = Math.max(0, ...nonFinalHeats.map(h => h.noHeat || 0))
+      const newHeatId = `final_${Date.now()}`
+      const isPadang  = ['padang_lompat', 'padang_balin'].includes(acara.jenisAcara)
+
+      const finalPeserta = finalistList.map(f => ({
+        lorong:     !isPadang ? (f.lorong || null) : null,
+        noBib:      f.noBib,
+        namaAtlet:  f.namaAtlet,
+        kodSekolah: f.kodSekolah,
+        noKP:       f.noKP || null,
+        keputusan:  null,
+        status:     'belum',
+        dariHeat:   f.noHeat,
+        masaHeat:   f.keputusan,
+      }))
+
+      await setDoc(doc(db, 'kejohanan', selKej, 'acara', selAcara, 'heat', newHeatId), {
+        noHeat:          maxHeatNo + 1,
+        fasa:            'final',
+        peringkat:       'final',
+        statusKeputusan: 'belum',
+        peserta:         finalPeserta,
+        bilanganLorong:  finalistList.length,
+        caraPilih:       acara.caraPilihFinal || 'hybrid',
+        janaFinalDari:   nonFinalHeats.map(h => h.id),
+        createdAt:       serverTimestamp(),
+      })
+
+      // Reload heat list
+      const snap = await getDocs(collection(db, 'kejohanan', selKej, 'acara', selAcara, 'heat'))
+      const list = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(h => (h.peserta || []).length > 0)
+        .sort((a, b) => (a.noHeat || 0) - (b.noHeat || 0))
+      setHeatList(list)
+      setMsg({ type: 'ok', text: `✓ Heat Final dijana dengan ${finalistList.length} atlet. Pilih heat Final untuk masukkan keputusan.` })
+    } catch (e) {
+      setMsg({ type: 'err', text: 'Ralat jana final: ' + e.message })
+    } finally { setJanaFinalLoading(false) }
+  }
+
+  // ── Proses Semua Tertunggak — sweep heat tidak_rasmi yang timer tamat ────────
+
+  async function prosesSemuaTertunggak() {
+    if (!selKej || !canRasmi) return
+    setSweeping(true)
+    setSweepResult(null)
+    let berjaya = 0, gagal = 0, tiada = 0
+    try {
+      // Load semua acara aktif
+      const acaraSnap = await getDocs(collection(db, 'kejohanan', selKej, 'acara'))
+      const now = Date.now()
+
+      for (const acaraDoc of acaraSnap.docs) {
+        const acaraData = { id: acaraDoc.id, ...acaraDoc.data() }
+        const heatSnap  = await getDocs(
+          collection(db, 'kejohanan', selKej, 'acara', acaraDoc.id, 'heat')
+        )
+        for (const heatDoc of heatSnap.docs) {
+          const h = { id: heatDoc.id, ...heatDoc.data() }
+          if (h.statusKeputusan !== 'tidak_rasmi') continue
+          if (h.postRasmiSelesai) continue
+
+          // Semak sama ada timer tamat
+          let expired = false
+          if (h.countdownTamat) {
+            const tamatMs = h.countdownTamat?.toDate?.()?.getTime?.() || null
+            if (tamatMs && now > tamatMs) expired = true
+          } else if (h.publishedAt) {
+            const pubMs   = h.publishedAt?.toDate?.()?.getTime?.() || (h.publishedAt?.seconds * 1000) || null
+            const timerMs = (h.timerAutoRasmi ?? 30) * 60 * 1000
+            if (pubMs && now > pubMs + timerMs) expired = true
+          }
+          if (!expired) { tiada++; continue }
+
+          // Semak tiada bantahan menunggu
+          try {
+            const bSnap = await getDocs(query(
+              collection(db, 'bantahan'),
+              where('heatId', '==', h.id),
+              where('status', '==', 'menunggu'),
+            ))
+            if (!bSnap.empty) { tiada++; continue }
+          } catch { tiada++; continue }
+
+          // Rasmi + postRasmi
+          try {
+            const hRef = doc(db, 'kejohanan', selKej, 'acara', acaraDoc.id, 'heat', h.id)
+            let alreadyDone = false
+            await runTransaction(db, async (tx) => {
+              const snap = await tx.get(hRef)
+              if (snap.data()?.postRasmiSelesai) { alreadyDone = true; return }
+              tx.update(hRef, {
+                statusKeputusan:  'rasmi',
+                postRasmiSelesai: true,
+                tarikhRasmi:      serverTimestamp(),
+                rasmiOleh:        'auto_sweep',
+                updatedAt:        serverTimestamp(),
+              })
+            })
+            if (!alreadyDone) {
+              const hUpdated      = { ...h, statusKeputusan: 'rasmi', postRasmiSelesai: true }
+              const sweepHeatList = heatSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+              const isRelayOvr    = acaraData.isRelay || acaraData.jenisAcara === 'relay'
+              const fasa          = h.fasa
+              const isSaringAcara = (acaraData.peringkat || '').toLowerCase().includes('saringan') ||
+                                    (acaraData.namaAcara  || '').toLowerCase().includes('saringan')
+              const grantOvr      = !isSaringAcara && ((fasa ? ['final', 'terus_final'].includes(fasa) : false) || sweepHeatList.length === 1)
+              await postRasmi(hUpdated, acaraData, selKej, { isRelayOverride: isRelayOvr, grantMedalOverride: grantOvr })
+              // Update statusAcara — untuk saringan acara, abaikan final heat
+              const heatAllSnap = await getDocs(collection(db, 'kejohanan', selKej, 'acara', acaraDoc.id, 'heat'))
+              const isSaringSnap = (acaraData.peringkat || '').toLowerCase().includes('saringan') ||
+                                   (acaraData.namaAcara  || '').toLowerCase().includes('saringan')
+              const heatsUntukStatusSnap = heatAllSnap.docs.filter(d => {
+                if (!isSaringSnap) return true
+                const fd = d.data()
+                return fd.fasa !== 'final' && fd.fasa !== 'terus_final' && fd.peringkat !== 'final'
+              })
+              const allRasmiSnap = heatsUntukStatusSnap.every(d => d.data().statusKeputusan === 'rasmi')
+              if (allRasmiSnap) {
+                await updateDoc(doc(db, 'kejohanan', selKej, 'acara', acaraDoc.id),
+                  { statusAcara: 'rasmi' }).catch(() => {})
+              }
+            }
+            berjaya++
+          } catch { gagal++ }
+        }
+      }
+
+      const msg = berjaya > 0
+        ? `✓ ${berjaya} heat dirasmi. Medal tally dikemaskini.`
+        : tiada > 0
+        ? 'Tiada heat tertunggak ditemui.'
+        : 'Tiada heat untuk diproses.'
+      setSweepResult({ type: berjaya > 0 ? 'ok' : 'info', berjaya, gagal, tiada, msg })
+
+      // Refresh heatList semasa
+      if (selAcara) {
+        const refreshed = await getDocs(
+          collection(db, 'kejohanan', selKej, 'acara', selAcara, 'heat')
+        )
+        setHeatList(refreshed.docs.map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => (a.noHeat || 0) - (b.noHeat || 0)))
+      }
+    } catch (e) {
+      setSweepResult({ type: 'err', msg: 'Ralat sweep: ' + e.message })
+    } finally { setSweeping(false) }
+  }
+
+  // ── Betulkan statusAcara semua acara dalam kejohanan ────────────────────────
+
+  const [fixingStatus,    setFixingStatus]    = useState(false)
+  const [fixStatusResult, setFixStatusResult] = useState(null)
+
+  async function betulkanStatusAcara() {
+    if (!selKej || !canRasmi) return
+    if (!window.confirm('Kira semula dan betulkan statusAcara untuk SEMUA acara?\n\nIni akan betulkan label "Rasmi/Tidak Rasmi" dalam paparan awam.')) return
+    setFixingStatus(true); setFixStatusResult(null)
+    let fixed = 0, skip = 0
+    try {
+      const acaraSnap = await getDocs(collection(db, 'kejohanan', selKej, 'acara'))
+      for (const acaraDoc of acaraSnap.docs) {
+        const acaraData = acaraDoc.data()
+        const heatSnap  = await getDocs(collection(db, 'kejohanan', selKej, 'acara', acaraDoc.id, 'heat'))
+        const allHeats  = heatSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+        const isSaring = (acaraData.peringkat || '').toLowerCase().includes('saringan') ||
+                         (acaraData.namaAcara  || '').toLowerCase().includes('saringan')
+
+        // Heats yang relevan: saringan acara → abaikan final heat
+        const relevantHeats = allHeats.filter(h => {
+          if (!isSaring) return true
+          return h.fasa !== 'final' && h.fasa !== 'terus_final' && h.peringkat !== 'final'
+        })
+
+        if (relevantHeats.length === 0) { skip++; continue }
+
+        // Kira status betul
+        const finalHeatRel = !isSaring && relevantHeats.find(h =>
+          h.fasa === 'final' || h.fasa === 'terus_final' || h.peringkat === 'final'
+        )
+        let newStatus
+        if (finalHeatRel) {
+          newStatus = finalHeatRel.statusKeputusan === 'rasmi' ? 'rasmi' : 'tidak_rasmi'
+        } else if (relevantHeats.some(h => h.statusKeputusan === 'rasmi')) {
+          newStatus = relevantHeats.every(h => h.statusKeputusan === 'rasmi') ? 'rasmi' : 'tidak_rasmi'
+        } else if (relevantHeats.some(h => h.statusKeputusan === 'tidak_rasmi')) {
+          newStatus = 'tidak_rasmi'
+        } else {
+          skip++; continue // semua belum — jangan ubah
+        }
+
+        // Update jika berbeza
+        if (acaraData.statusAcara !== newStatus) {
+          await updateDoc(doc(db, 'kejohanan', selKej, 'acara', acaraDoc.id),
+            { statusAcara: newStatus, updatedAt: serverTimestamp() }).catch(() => {})
+          fixed++
+        } else { skip++ }
+      }
+      setFixStatusResult({ type: 'ok', msg: `✓ ${fixed} acara dibetulkan. ${skip} acara tiada perubahan.` })
+      // Refresh acaraList
+      const refreshed = await getDocs(query(collection(db, 'kejohanan', selKej, 'acara'), orderBy('namaAcara')))
+      setAcaraList(refreshed.docs.map(d => ({ id: d.id, ...d.data() })))
+    } catch (e) {
+      setFixStatusResult({ type: 'err', msg: 'Ralat: ' + e.message })
+    } finally { setFixingStatus(false) }
   }
 
   async function hantarBantahan() {
@@ -684,12 +824,13 @@ export default function KeputusanRasmi() {
 
       const hRef = doc(db, 'kejohanan', selKej, 'acara', selAcara, 'heat', heat.id)
       if (terima) {
-        // Reset countdown 30 min, unlock untuk input semula
+        // Reset countdown 30 min, unlock untuk input semula + tandakan bantahanDiterima
         const tamatTs = Timestamp.fromMillis(Date.now() + 30 * 60 * 1000)
         await updateDoc(hRef, {
-          statusKeputusan: 'tidak_rasmi',
-          countdownTamat: tamatTs,
-          updatedAt: serverTimestamp(),
+          statusKeputusan:  'tidak_rasmi',
+          bantahanDiterima: true,
+          countdownTamat:   tamatTs,
+          updatedAt:        serverTimestamp(),
         })
         const updated = { ...heat, statusKeputusan: 'tidak_rasmi', countdownTamat: tamatTs }
         setHeat(updated)
@@ -710,6 +851,30 @@ export default function KeputusanRasmi() {
   }
 
   // ─── UI ───────────────────────────────────────────────────────────────────
+
+  // Senarai hari unik dari acaraList (sort ascending)
+  const hariList = [...new Set(
+    acaraList.map(a => a.hari).filter(h => h != null)
+  )].sort((a, b) => Number(a) - Number(b))
+
+  // Acara ditapis berdasarkan filter
+  const acaraTapis = acaraList.filter(a => {
+    if (a.isAktif === false) return false
+    if (filterHari && String(a.hari) !== String(filterHari)) return false
+    if (filterPeringkat) {
+      const p = (a.peringkat || '').toLowerCase()
+      const n = (a.namaAcara || '').toLowerCase()
+      if (filterPeringkat === 'final' && !p.includes('final') && !n.includes('final')) return false
+      if (filterPeringkat === 'saringan' && (p.includes('final') || n.includes('final'))) return false
+    }
+    if (filterCari.trim()) {
+      const q = filterCari.trim().toLowerCase()
+      const noMatch = String(a.noAcara || '').includes(q)
+      const namaMatch = (a.namaAcara || '').toLowerCase().includes(q)
+      if (!noMatch && !namaMatch) return false
+    }
+    return true
+  })
 
   const statusBadge = (() => {
     if (!heat || !statusKep) return null
@@ -734,24 +899,106 @@ export default function KeputusanRasmi() {
     <div className="p-4 max-w-6xl mx-auto">
 
       {/* Header */}
-      <div className="mb-5">
-        <h1 className="text-base font-bold text-[#003399]">Keputusan Rasmi</h1>
-        <p className="text-xs text-gray-400 mt-0.5">
-          Semak keputusan, urus bantahan, dan sahkan keputusan rasmi
-        </p>
-        {namaKej && <p className="text-xs font-semibold text-[#003399] mt-0.5">{namaKej}</p>}
+      <div className="mb-5 flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-base font-bold text-[#003399]">Keputusan Rasmi</h1>
+          <p className="text-xs text-gray-400 mt-0.5">
+            Semak keputusan, urus bantahan, dan sahkan keputusan rasmi
+          </p>
+          {namaKej && <p className="text-xs font-semibold text-[#003399] mt-0.5">{namaKej}</p>}
+        </div>
+
+        {/* Butang Proses Semua Tertunggak + Betulkan Status — PT & Superadmin */}
+        {canRasmi && selKej && (
+          <div className="flex flex-col items-end gap-1.5">
+            <div className="flex gap-2 flex-wrap justify-end">
+              <button
+                onClick={prosesSemuaTertunggak}
+                disabled={sweeping || fixingStatus}
+                className="flex items-center gap-2 px-3 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors active:scale-95">
+                {sweeping
+                  ? <><svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg> Memproses…</>
+                  : '⚡ Proses Semua Tertunggak'}
+              </button>
+              <button
+                onClick={betulkanStatusAcara}
+                disabled={fixingStatus || sweeping}
+                className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors active:scale-95">
+                {fixingStatus
+                  ? <><svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg> Memproses…</>
+                  : '🔧 Betulkan Status Acara'}
+              </button>
+            </div>
+            {sweepResult && (
+              <p className={`text-[10px] font-semibold ${sweepResult.type === 'ok' ? 'text-green-600' : sweepResult.type === 'err' ? 'text-red-500' : 'text-gray-500'}`}>
+                {sweepResult.msg}
+                {sweepResult.gagal > 0 && ` (${sweepResult.gagal} gagal)`}
+              </p>
+            )}
+            {fixStatusResult && (
+              <p className={`text-[10px] font-semibold ${fixStatusResult.type === 'ok' ? 'text-green-600' : 'text-red-500'}`}>
+                {fixStatusResult.msg}
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Selectors */}
-      <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4 shadow-sm">
+      <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4 shadow-sm space-y-3">
+
+        {/* Baris 1: Carian + Filter Peringkat */}
+        <div className="flex flex-wrap gap-2 items-center">
+          {/* Carian no acara / nama */}
+          <input
+            type="text"
+            placeholder="Cari no. acara atau nama…"
+            value={filterCari}
+            onChange={e => { setFilterCari(e.target.value); setSelAcara('') }}
+            className="border border-gray-200 rounded px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#003399]/25 focus:border-[#003399] w-44 bg-white"
+          />
+          {/* Filter Peringkat */}
+          {(['', 'saringan', 'final']).map(p => (
+            <button key={p}
+              onClick={() => { setFilterPeringkat(p); setSelAcara('') }}
+              className={`px-2.5 py-1 rounded text-[11px] font-semibold border transition-colors ${filterPeringkat === p ? 'bg-[#003399] text-white border-[#003399]' : 'bg-white text-gray-500 border-gray-200 hover:border-[#003399] hover:text-[#003399]'}`}>
+              {p === '' ? 'Semua' : p === 'saringan' ? 'Saringan' : 'Final'}
+            </button>
+          ))}
+        </div>
+
+        {/* Baris 2: Filter Hari */}
+        {hariList.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 items-center">
+            <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wide mr-1">Hari:</span>
+            <button
+              onClick={() => { setFilterHari(''); setSelAcara('') }}
+              className={`px-2 py-0.5 rounded text-[11px] font-semibold border transition-colors ${filterHari === '' ? 'bg-[#003399] text-white border-[#003399]' : 'bg-white text-gray-500 border-gray-200 hover:border-[#003399] hover:text-[#003399]'}`}>
+              Semua
+            </button>
+            {hariList.map(h => (
+              <button key={h}
+                onClick={() => { setFilterHari(String(h)); setSelAcara('') }}
+                className={`px-2 py-0.5 rounded text-[11px] font-semibold border transition-colors ${filterHari === String(h) ? 'bg-[#003399] text-white border-[#003399]' : 'bg-white text-gray-500 border-gray-200 hover:border-[#003399] hover:text-[#003399]'}`}>
+                Hari {h}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Baris 3: Pilih Acara + Heat */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Acara</label>
+            <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">
+              Acara <span className="text-gray-300 font-normal normal-case">({acaraTapis.length} acara)</span>
+            </label>
             <select className={cls.select} value={selAcara} onChange={e => setSelAcara(e.target.value)}
-              disabled={!selKej || acaraList.length === 0}>
+              disabled={!selKej || acaraTapis.length === 0}>
               <option value="">-- Pilih Acara --</option>
-              {acaraList.filter(a => a.isAktif !== false).map(a => (
-                <option key={a.id} value={a.id}>{a.namaAcara}</option>
+              {acaraTapis.map(a => (
+                <option key={a.id} value={a.id}>
+                  {a.noAcara ? `[${a.noAcara}] ` : ''}{a.namaAcara}
+                </option>
               ))}
             </select>
           </div>
@@ -870,10 +1117,45 @@ export default function KeputusanRasmi() {
               )}
 
               {isRasmi && (
-                <div className="mt-3 pt-3 border-t border-green-100">
+                <div className="mt-3 pt-3 border-t border-green-100 flex items-center justify-between gap-3 flex-wrap">
                   <p className="text-xs text-green-600">
                     ✓ Keputusan dikunci. Medal tally dan mata olahragawan dikemaskini secara automatik.
                   </p>
+                  <div className="flex gap-2 flex-wrap">
+                    {isSuperadmin && !editMode && (
+                      <button
+                        onClick={() => {
+                          const init = {}
+                          ;(heat.peserta || []).forEach(p => {
+                            const key = p.noBib || p.noKP
+                            init[key] = { keputusan: p.keputusan ?? '', status: p.status || 'selesai' }
+                          })
+                          setEditValues(init)
+                          setEditMode(true)
+                        }}
+                        className="text-[10px] font-bold px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg transition-colors shrink-0">
+                        ✏️ Edit Keputusan Rasmi
+                      </button>
+                    )}
+                    {isSuperadmin && editMode && (
+                      <>
+                        <button onClick={() => { setEditMode(false); setEditValues({}) }}
+                          className="text-[10px] font-bold px-2.5 py-1.5 bg-gray-400 hover:bg-gray-500 text-white rounded-lg transition-colors shrink-0">
+                          Batal
+                        </button>
+                        <button onClick={simpanEditRasmi} disabled={savingEdit}
+                          className="text-[10px] font-bold px-2.5 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 transition-colors shrink-0">
+                          {savingEdit ? 'Menyimpan...' : '💾 Simpan + Kemas Kini Medal'}
+                        </button>
+                      </>
+                    )}
+                    {canRasmi && !editMode && (
+                      <button onClick={rerunMedal} disabled={savingRasmi}
+                        className="text-[10px] font-bold px-2.5 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-lg disabled:opacity-50 transition-colors shrink-0">
+                        🔄 Jalankan Semula Medal
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -918,6 +1200,7 @@ export default function KeputusanRasmi() {
                     </thead>
                     <tbody>
                       {pesertaSorted.map((p, i) => {
+                        const key = p.noBib || p.noKP
                         const rank = p.rankDalamHeat
                         const medal = isRasmi && rank === 1 ? '🥇' : isRasmi && rank === 2 ? '🥈' : isRasmi && rank === 3 ? '🥉' : null
                         const rowBg = isRasmi
@@ -926,27 +1209,44 @@ export default function KeputusanRasmi() {
                         const rekodBadge = p.pecahRekod
                           ? { D: 'RD', N: 'RN', K: 'RK' }[p.pecahRekod] || `R${p.pecahRekod}`
                           : null
+                        const ev = editValues[key] || {}
                         return (
-                          <tr key={p.noBib || i} className={`border-b border-gray-50 hover:bg-gray-50/50 transition-colors ${rowBg}`}>
+                          <tr key={p.noBib || i} className={`border-b border-gray-50 hover:bg-gray-50/50 transition-colors ${editMode ? 'bg-amber-50/30' : rowBg}`}>
                             <td className="px-3 py-2 font-bold text-gray-600">
                               {medal || (rank ? `#${rank}` : '—')}
                             </td>
                             <td className="px-3 py-2 font-mono text-gray-400 text-[11px]">{p.noBib || '—'}</td>
                             <td className="px-3 py-2 font-semibold text-gray-700 max-w-[130px]">
                               <span className="truncate block">{p.namaAtlet || '—'}</span>
-                              {rekodBadge && (
-                                <span className="inline-block mt-0.5 text-[8px] font-black px-1.5 py-0.5 rounded bg-amber-400 text-white tracking-wide">
-                                  {rekodBadge}
-                                </span>
-                              )}
+                              <div className="flex gap-1 flex-wrap mt-0.5">
+                                {rekodBadge && (
+                                  <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-amber-400 text-white tracking-wide">
+                                    {rekodBadge}
+                                  </span>
+                                )}
+                                {isSaringanAcara && finalistBibs.has(p.noBib) && (
+                                  <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-[#003399] text-white tracking-wide">
+                                    FINAL
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td className="px-3 py-2 text-gray-400 text-[11px]">{p.kodSekolah || '—'}</td>
                             {!isPadang && <td className="px-3 py-2 text-center text-gray-400">{p.lorong || p.giliran || '—'}</td>}
                             <td className="px-3 py-2 text-right font-mono font-semibold text-[#003399]">
-                              {isPadang
-                                ? (p.keputusan != null ? formatMeter(p.keputusan) : '—')
-                                : (p.keputusan != null ? formatSaat(p.keputusan) : '—')
-                              }
+                              {editMode ? (
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={ev.keputusan ?? ''}
+                                  onChange={e => setEditValues(prev => ({ ...prev, [key]: { ...prev[key], keputusan: e.target.value } }))}
+                                  className="w-20 border border-amber-300 rounded px-1.5 py-1 text-xs font-mono text-right focus:outline-none focus:border-amber-500 bg-white"
+                                />
+                              ) : (
+                                isPadang
+                                  ? (p.keputusan != null ? formatMeter(p.keputusan) : '—')
+                                  : (p.keputusan != null ? formatSaat(p.keputusan) : '—')
+                              )}
                             </td>
                             {isPadang && (
                               <td className="px-3 py-2 font-mono text-[10px] text-gray-400 max-w-[120px]">
@@ -958,9 +1258,22 @@ export default function KeputusanRasmi() {
                               </td>
                             )}
                             <td className="px-3 py-2 text-center">
-                              <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold border ${STATUS_COLOR[p.status] || 'bg-gray-50 text-gray-400 border-gray-100'}`}>
-                                {p.status || '—'}
-                              </span>
+                              {editMode ? (
+                                <select
+                                  value={ev.status ?? p.status ?? 'selesai'}
+                                  onChange={e => setEditValues(prev => ({ ...prev, [key]: { ...prev[key], status: e.target.value } }))}
+                                  className="border border-amber-300 rounded px-1 py-1 text-[10px] focus:outline-none focus:border-amber-500 bg-white"
+                                >
+                                  <option value="selesai">selesai</option>
+                                  <option value="DNS">DNS</option>
+                                  <option value="DNF">DNF</option>
+                                  <option value="DQ">DQ</option>
+                                </select>
+                              ) : (
+                                <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold border ${STATUS_COLOR[p.status] || 'bg-gray-50 text-gray-400 border-gray-100'}`}>
+                                  {p.status || '—'}
+                                </span>
+                              )}
                             </td>
                           </tr>
                         )
@@ -974,6 +1287,71 @@ export default function KeputusanRasmi() {
 
           {/* ── Kanan: Bantahan Panel ──────────────────────────────────── */}
           <div className="space-y-3">
+
+            {/* ── Panel Kelayakan Final (saringan sahaja) ── */}
+            {isSaringanAcara && (
+              <div className="bg-white border border-blue-200 rounded-lg shadow-sm overflow-hidden">
+                <div className="px-4 py-2.5 border-b border-blue-100 bg-blue-50 flex items-center justify-between">
+                  <p className="text-xs font-semibold text-blue-700">🏁 Kelayakan Final</p>
+                  <span className="text-[10px] text-blue-500">
+                    {acara?.bilanganFinalis || 8} tempat
+                  </span>
+                </div>
+
+                {finalistList.length === 0 ? (
+                  <div className="p-4 text-center text-xs text-gray-400">
+                    {heatList.filter(h => h.peringkat !== 'final').length === 0
+                      ? 'Tiada heat saringan.'
+                      : 'Saringan belum selesai — tunggu semua heat rasmi/tidak rasmi.'}
+                  </div>
+                ) : (
+                  <>
+                    <div className="divide-y divide-gray-50 max-h-72 overflow-y-auto">
+                      {finalistList.map((f, i) => {
+                        const isCurrent = heat && (heat.peserta || []).some(p => p.noBib === f.noBib)
+                        return (
+                          <div key={f.noBib || i} className={`flex items-center gap-2 px-3 py-2 ${isCurrent ? 'bg-blue-50/60' : ''}`}>
+                            <span className="text-[10px] font-mono text-gray-400 w-5 shrink-0">
+                              {f.lorong ? `L${f.lorong}` : `${i+1}.`}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-semibold text-gray-700 truncate">{f.namaAtlet || '—'}</p>
+                              <p className="text-[10px] text-gray-400">{f.kodSekolah} · H{f.noHeat}</p>
+                            </div>
+                            <span className="text-[10px] font-mono text-[#003399] shrink-0">
+                              {['padang_lompat','padang_balin'].includes(acara?.jenisAcara)
+                                ? formatMeter(f.keputusan)
+                                : formatSaat(f.keputusan)}
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    {/* Butang Jana Final */}
+                    {bolehJanaFinal && (
+                      <div className="px-3 py-2.5 border-t border-blue-100">
+                        <button
+                          onClick={handleJanaFinalAdmin}
+                          disabled={janaFinalLoading}
+                          className="w-full py-2 bg-[#003399] hover:bg-[#002280] disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors"
+                        >
+                          {janaFinalLoading ? 'Menjana...' : semakHeatFinalAda ? '🔄 Jana Semula Final' : '🏁 Jana Heat Final'}
+                        </button>
+                        {semakHeatFinalAda && (
+                          <p className="text-[10px] text-amber-600 mt-1.5 text-center">Heat Final sedia ada akan dipadam</p>
+                        )}
+                      </div>
+                    )}
+                    {!semakSaringanSelesai && (
+                      <div className="px-3 py-2 border-t border-gray-100">
+                        <p className="text-[10px] text-amber-600 text-center">⏳ Tunggu semua heat saringan selesai</p>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
 
             {/* Butang hantar bantahan */}
             {!isRasmi && canBantah && (

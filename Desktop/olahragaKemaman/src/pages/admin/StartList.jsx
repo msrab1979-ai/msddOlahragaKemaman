@@ -219,13 +219,12 @@ function buatStartListPDFUnified({
   acara, heats, namaKej, jadual, rekodDNK = { D: null, N: null, K: null },
   namaSekolahMap = {}, kategoriList = [], logoKiri = null, logoKanan = null,
 }) {
-  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-  const W   = pdf.internal.pageSize.getWidth()
-  const H   = pdf.internal.pageSize.getHeight()
-  const M   = 12
+  const isPadang       = ['padang_lompat', 'padang_balin'].includes(acara.jenisAcara)
+  const isMass         = acara.jenisAcara === 'mass_start'
+  const bilanganCubaan = isPadang ? (acara.bilanganCubaan || 6) : 0
 
-  const isPadang = ['padang_lompat', 'padang_balin'].includes(acara.jenisAcara)
-  const isMass   = acara.jenisAcara === 'mass_start'
+  const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+  const M   = 12
   const katLbl   = katLabel(acara.kategoriKod, kategoriList)
   const masa     = jadual?.masaMula || '—'
   const lokasi   = jadual?.lokasi   || '—'
@@ -263,8 +262,13 @@ function buatStartListPDFUnified({
                   : `HEAT ${heat.noHeat}`
 
     for (const sal of SALINAN) {
-      if (!isFirst) pdf.addPage()
+      const isTeknikal = sal.id === 'teknikal'
+      if (!isFirst) {
+        pdf.addPage([297, 210])  // landscape A4
+      }
       isFirst = false
+
+      const W = pdf.internal.pageSize.getWidth()
 
       // ── Salinan checkbox (kanan atas) ────────────────────────────────────
       const boxW  = 38
@@ -321,17 +325,24 @@ function buatStartListPDFUnified({
       pdf.setFontSize(9)
       pdf.setFont('helvetica', 'normal')
       pdf.text('START LIST', centerX, y + 13, { align: 'center' })
-      pdf.setFontSize(8)
+      pdf.setFontSize(8.5)
+      pdf.setFont('helvetica', 'bold')
       pdf.text(
-        `${acara.namaAcara}   |   Kategori: ${katLbl}   |   ${peringkatLabel}`,
+        `No. Acara : ${acara.noAcara || '—'}     |     Acara : ${acara.namaAcara}`,
         centerX, y + 19, { align: 'center' }
       )
+      pdf.setFontSize(8)
+      pdf.setFont('helvetica', 'normal')
       pdf.text(
-        `${tarikhLabel}   |   Masa: ${masa}   |   Lokasi: ${lokasi}`,
-        centerX, y + 24, { align: 'center' }
+        `Kategori : ${katLbl}     |     Peringkat : ${peringkatLabel}`,
+        centerX, y + 25, { align: 'center' }
+      )
+      pdf.text(
+        `${tarikhLabel}   |   Masa : ${masa}   |   Lokasi : ${lokasi}`,
+        centerX, y + 31, { align: 'center' }
       )
 
-      y = 36
+      y = 44
       pdf.setDrawColor(sal.clr[0], sal.clr[1], sal.clr[2])
       pdf.setLineWidth(0.7)
       pdf.line(M, y, W - M, y)
@@ -340,17 +351,18 @@ function buatStartListPDFUnified({
       // ── Rekod DNK ─────────────────────────────────────────────────────────
       const rekodRows = ['D', 'N', 'K'].map(p => {
         const r = rekodDNK[p]
-        if (!r) return [PERINGKAT_LABEL[p], '—', '—', '—']
+        if (!r) return [PERINGKAT_LABEL[p], '—', '—', '—', '—']
         return [
           PERINGKAT_LABEL[p],
           tahunRekod(r.tarikhRekod),
           formatPrestasiRekod(r.prestasi, r.unit),
           r.namaAtlet || '—',
+          lokasiRekod(r),
         ]
       })
       autoTable(pdf, {
         startY: y,
-        head: [['Rekod', 'Tahun', 'Prestasi', 'Nama Atlet']],
+        head: [['Rekod', 'Tahun', 'Prestasi', 'Nama Atlet', 'Catatan']],
         body: rekodRows,
         styles: { fontSize: 7, cellPadding: 1 },
         headStyles: { fillColor: [80, 80, 80], textColor: 255, fontStyle: 'bold', fontSize: 7 },
@@ -358,7 +370,8 @@ function buatStartListPDFUnified({
           0: { fontStyle: 'bold', cellWidth: 20 },
           1: { halign: 'center', cellWidth: 14 },
           2: { halign: 'center', cellWidth: 24 },
-          3: { cellWidth: 'auto' },
+          3: { cellWidth: 52 },
+          4: { cellWidth: 'auto' },
         },
         margin: { left: M, right: M },
         tableLineColor: [200, 200, 200], tableLineWidth: 0.2,
@@ -381,87 +394,109 @@ function buatStartListPDFUnified({
       let head, body, colStyles
 
       if (isPadang) {
-        const c0 = 'Giliran'
+        const c0 = 'Gil.'
         if (sal.id === 'juruhebah') {
-          head = [[c0, 'No. BIB', 'Nama Atlet', 'Sekolah', 'Kategori']]
+          head = [[c0, 'No. BIB', 'Nama Atlet', 'Sekolah']]
           body = peserta.map(p => [
             p.giliran ?? '—', p.noBib, p.namaAtlet,
             namaSekolahMap[p.kodSekolah] || p.kodSekolah,
-            katLabel(p.kategoriKod, kategoriList) || '—',
           ])
-          colStyles = { 0:{halign:'center',cellWidth:16}, 1:{cellWidth:22}, 4:{cellWidth:20} }
+          colStyles = { 0:{halign:'center',cellWidth:14}, 1:{cellWidth:20} }
         } else if (sal.id === 'callroom') {
-          head = [[c0, 'No. BIB', 'Nama Atlet', 'Sekolah', 'Kategori', 'Hadir (✓ / DNS)']]
+          head = [[c0, 'No. BIB', 'Nama Atlet', 'Sekolah', 'Hadir (✓ / DNS)']]
           body = peserta.map(p => [
             p.giliran ?? '—', p.noBib, p.namaAtlet,
-            namaSekolahMap[p.kodSekolah] || p.kodSekolah,
-            katLabel(p.kategoriKod, kategoriList) || '—', '',
+            namaSekolahMap[p.kodSekolah] || p.kodSekolah, '',
           ])
-          colStyles = { 0:{halign:'center',cellWidth:16}, 1:{cellWidth:22}, 4:{cellWidth:18}, 5:{cellWidth:30} }
+          colStyles = { 0:{halign:'center',cellWidth:14}, 1:{cellWidth:20}, 4:{cellWidth:40} }
         } else {
-          head = [[c0, 'No. BIB', 'Nama Atlet', 'Sekolah', 'Kat', 'Cubaan 1', 'Cubaan 2', 'Cubaan 3', 'Keputusan']]
+          // ── Teknikal — landscape, 2-baris header, baris besar untuk tulis tangan ──
+          const gilW = 12, bibW = 16, namaW = 60, kddkW = 16, cW = 28
+          head = [
+            [
+              { content: 'Gil.', rowSpan: 2, styles: { valign: 'middle', halign: 'center' } },
+              { content: 'No. BIB', rowSpan: 2, styles: { valign: 'middle', halign: 'center' } },
+              { content: 'Nama Atlet / Sekolah', rowSpan: 2, styles: { valign: 'middle' } },
+              { content: 'Cubaan (m)', colSpan: bilanganCubaan, styles: { halign: 'center' } },
+              { content: 'Kddk', rowSpan: 2, styles: { valign: 'middle', halign: 'center' } },
+            ],
+            Array.from({ length: bilanganCubaan }, (_, i) => ({
+              content: String(i + 1),
+              styles: { halign: 'center' },
+            })),
+          ]
           body = peserta.map(p => [
-            p.giliran ?? '—', p.noBib, p.namaAtlet,
-            namaSekolahMap[p.kodSekolah] || p.kodSekolah,
-            katLabel(p.kategoriKod, kategoriList) || '—',
-            '', '', '', '',
+            p.giliran ?? '—',
+            p.noBib ?? '—',
+            `${p.namaAtlet || '—'}\n${namaSekolahMap[p.kodSekolah] || p.kodSekolah || ''}`,
+            ...Array(bilanganCubaan).fill(''),
+            '',
           ])
           colStyles = {
-            0:{halign:'center',cellWidth:14}, 1:{cellWidth:20}, 4:{cellWidth:13},
-            5:{cellWidth:20}, 6:{cellWidth:20}, 7:{cellWidth:20}, 8:{cellWidth:22},
+            0: { halign: 'center', cellWidth: gilW, valign: 'middle' },
+            1: { halign: 'center', cellWidth: bibW, fontStyle: 'bold', valign: 'middle' },
+            2: { cellWidth: namaW, fontStyle: 'bold', valign: 'middle', overflow: 'linebreak' },
+            ...Object.fromEntries(Array.from({ length: bilanganCubaan }, (_, i) => [
+              i + 3, { halign: 'center', cellWidth: cW, valign: 'middle' }
+            ])),
+            [3 + bilanganCubaan]: { halign: 'center', cellWidth: kddkW, valign: 'middle' },
           }
         }
       } else {
-        const c0 = isMass ? 'Bil' : 'Lorong'
+        const c0 = isMass ? 'Bil' : 'Lrg'
         const getPos = p => isMass ? (p.giliran ?? '—') : (p.lorong ?? '—')
         if (sal.id === 'juruhebah') {
-          head = [[c0, 'No. BIB', 'Nama Atlet', 'Sekolah', 'Kategori']]
+          head = [[c0, 'No. BIB', 'Nama Atlet', 'Sekolah']]
           body = peserta.map(p => [
             getPos(p), p.noBib, p.namaAtlet,
             namaSekolahMap[p.kodSekolah] || p.kodSekolah,
-            katLabel(p.kategoriKod, kategoriList) || '—',
           ])
-          colStyles = { 0:{halign:'center',cellWidth:16}, 1:{cellWidth:22}, 4:{cellWidth:22} }
+          colStyles = { 0:{halign:'center',cellWidth:14}, 1:{cellWidth:20} }
         } else if (sal.id === 'callroom') {
-          head = [[c0, 'No. BIB', 'Nama Atlet', 'Sekolah', 'Kategori', 'Hadir (✓ / DNS)']]
+          head = [[c0, 'No. BIB', 'Nama Atlet', 'Sekolah', 'Hadir (✓ / DNS)']]
           body = peserta.map(p => [
             getPos(p), p.noBib, p.namaAtlet,
-            namaSekolahMap[p.kodSekolah] || p.kodSekolah,
-            katLabel(p.kategoriKod, kategoriList) || '—', '',
+            namaSekolahMap[p.kodSekolah] || p.kodSekolah, '',
           ])
-          colStyles = { 0:{halign:'center',cellWidth:16}, 1:{cellWidth:22}, 4:{cellWidth:18}, 5:{cellWidth:28} }
+          colStyles = { 0:{halign:'center',cellWidth:14}, 1:{cellWidth:20}, 4:{cellWidth:40} }
         } else {
-          // Teknikal / Fail
-          head = [[c0, 'No. BIB', 'Nama Atlet', 'Sekolah', 'Kat', 'Masa', 'Angin', 'Keputusan']]
+          // Teknikal / Fail — Angin direkod sekali di footer (buang kolum per-atlet)
+          head = [[c0, 'No. BIB', 'Nama Atlet', 'Sekolah', 'Masa', 'Keputusan']]
           body = peserta.map(p => [
             getPos(p), p.noBib, p.namaAtlet,
             namaSekolahMap[p.kodSekolah] || p.kodSekolah,
-            katLabel(p.kategoriKod, kategoriList) || '—',
-            '', '', '',
+            '', '',
           ])
           colStyles = {
-            0:{halign:'center',cellWidth:16}, 1:{cellWidth:22}, 4:{cellWidth:14},
-            5:{cellWidth:24}, 6:{cellWidth:18}, 7:{cellWidth:24},
+            0:{halign:'center',cellWidth:14}, 1:{cellWidth:20},
+            4:{cellWidth:34}, 5:{cellWidth:34},
           }
         }
       }
 
+      const isTeknikalPadang = isPadang && isTeknikal
       autoTable(pdf, {
         startY: y,
         head,
         body,
-        styles: { fontSize: 9, cellPadding: 4, minCellHeight: 12 },
+        styles: isTeknikalPadang
+          ? { fontSize: 9, cellPadding: { top: 3, right: 2, bottom: 3, left: 3 }, minCellHeight: 16, overflow: 'linebreak' }
+          : { fontSize: 9, cellPadding: 4, minCellHeight: 12 },
         headStyles: {
           fillColor: [sal.clr[0], sal.clr[1], sal.clr[2]],
-          textColor: 255, fontStyle: 'bold', fontSize: 8, cellPadding: 2,
+          textColor: 255, fontStyle: 'bold', fontSize: 8,
+          cellPadding: isTeknikalPadang ? 3 : 2,
+          halign: 'center',
         },
-        alternateRowStyles: { fillColor: [248, 248, 252] },
+        alternateRowStyles: isTeknikalPadang ? {} : { fillColor: [248, 248, 252] },
         columnStyles: colStyles,
         margin: { left: M, right: M },
-        tableLineColor: [160, 160, 160], tableLineWidth: 0.3,
+        tableLineColor: isTeknikalPadang ? [80, 80, 80] : [160, 160, 160],
+        tableLineWidth: isTeknikalPadang ? 0.5 : 0.3,
       })
 
       // ── Footer tandatangan ────────────────────────────────────────────────
+      const H = pdf.internal.pageSize.getHeight()
       const footY = H - 24
       pdf.setDrawColor(sal.clr[0], sal.clr[1], sal.clr[2])
       pdf.setLineWidth(0.4)
@@ -787,7 +822,7 @@ function EditLorongModal({ heat, acara, kejohananId, onClose, onSaved, sekolahMa
 
 // ─── Helper: Jana heat untuk satu acara (boleh guna batch atau individual) ────
 
-async function generateHeatsForAcara({ acara, pesertaAll, kejohananId, caraDraw, skipJikaAda }) {
+async function generateHeatsForAcara({ acara, pesertaAll, kejohananId, caraDraw, skipJikaAda, namaSekolahMap = {} }) {
   // Tapis peserta untuk acara ini
   const peserta = pesertaAll.filter(p => (p.acaraIds || []).includes(acara.aceraId))
   if (peserta.length === 0) return { status: 'skip', sebab: 'tiada peserta' }
@@ -936,7 +971,7 @@ function pilihFinalis(heatPhaseHeats, acara, isPadang) {
 
 // ─── Modal: Jana Semua Heat ───────────────────────────────────────────────────
 
-function JanaSemuaModal({ kejohananId, acaraList, onClose, onDone }) {
+function JanaSemuaModal({ kejohananId, acaraList, kategoriList = [], namaSekolahMap = {}, onClose, onDone }) {
   const [caraDraw,    setCaraDraw]    = useState('random')
   const [skipJikaAda, setSkip]       = useState(true)
   const [running,     setRunning]    = useState(false)
@@ -967,7 +1002,7 @@ function JanaSemuaModal({ kejohananId, acaraList, onClose, onDone }) {
       const acara = acaraAktif[i]
       const label = `${acara.namaAcara} Kat${katLabel(acara.kategoriKod, kategoriList)} ${acara.jantina}`
       try {
-        const result = await generateHeatsForAcara({ acara, pesertaAll, kejohananId, caraDraw, skipJikaAda })
+        const result = await generateHeatsForAcara({ acara, pesertaAll, kejohananId, caraDraw, skipJikaAda, namaSekolahMap })
         if (result.status === 'ok') {
           berjaya++
           log.push({ status:'ok', msg:`✓ ${label} — ${result.heatCount} heat, ${result.pesertaCount} peserta` })
@@ -3470,6 +3505,8 @@ export default function StartList() {
         <JanaSemuaModal
           kejohananId={selectedKej}
           acaraList={acaraList}
+          kategoriList={kategoriList}
+          namaSekolahMap={namaSekolahMap}
           onClose={() => setModal(null)}
           onDone={fetchAcaraData}
         />

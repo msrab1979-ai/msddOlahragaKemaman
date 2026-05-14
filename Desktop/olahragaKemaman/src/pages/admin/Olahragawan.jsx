@@ -101,22 +101,280 @@ function formatSelisih(baru, lama, unit) {
   return unit === 's' ? `-${diff}s (lebih pantas)` : `+${diff}m (lebih jauh)`
 }
 
+// ─── AtletModal ───────────────────────────────────────────────────────────────
+
+function AtletModal({ atlet, namaKej, katLabelFn, onClose }) {
+  if (!atlet) return null
+  const acaraList = getAcaraDetail(atlet)
+  const rekodList = getRekodDetail(atlet)
+
+  // Close on backdrop click or Escape
+  useEffect(() => {
+    const fn = e => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', fn)
+    return () => window.removeEventListener('keydown', fn)
+  }, [onClose])
+
+  async function cetakKadAtlet() {
+    const { jsPDF }              = await import('jspdf')
+    const { default: autoTable } = await import('jspdf-autotable')
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+    const W = 210
+
+    // ── Header
+    pdf.setFontSize(13); pdf.setFont('helvetica', 'bold')
+    pdf.text('KAD ATLET', W / 2, 14, { align: 'center' })
+    pdf.setFontSize(9); pdf.setFont('helvetica', 'normal')
+    pdf.text(namaKej || '', W / 2, 20, { align: 'center' })
+    pdf.setDrawColor(0, 51, 153); pdf.setLineWidth(0.5)
+    pdf.line(12, 23, W - 12, 23)
+
+    // ── Maklumat atlet
+    pdf.setFontSize(14); pdf.setFont('helvetica', 'bold')
+    pdf.text(atlet.namaAtlet || '—', 12, 32)
+    pdf.setFontSize(9); pdf.setFont('helvetica', 'normal')
+    pdf.text(`${atlet.namaSekolah || atlet.kodSekolah || '—'}   ·   ${katLabelFn(atlet.kategoriKod)}   ·   ${atlet.jantina === 'L' ? 'Lelaki' : 'Perempuan'}`, 12, 38)
+
+    // Medal summary
+    const medals = [
+      atlet.pingat_emas   > 0 ? `Emas ×${atlet.pingat_emas}`   : null,
+      atlet.pingat_perak  > 0 ? `Perak ×${atlet.pingat_perak}` : null,
+      atlet.pingat_gangsa > 0 ? `Gangsa ×${atlet.pingat_gangsa}` : null,
+      atlet.pingat_tempat4 > 0 ? `T.4 ×${atlet.pingat_tempat4}` : null,
+    ].filter(Boolean).join('   ')
+    pdf.setFontSize(10); pdf.setFont('helvetica', 'bold')
+    pdf.text(`${medals || 'Tiada pingat'}   ·   ${atlet.jumlahMata || 0} mata`, 12, 45)
+    pdf.line(12, 48, W - 12, 48)
+
+    // ── Acara dimenangi
+    if (acaraList.length > 0) {
+      pdf.setFontSize(9); pdf.setFont('helvetica', 'bold')
+      pdf.text('ACARA DIMENANGI', 12, 54)
+      const rows = acaraList.map(a => {
+        const rekod = rekodList.find(r => r.namaAcara === a.namaAcara)
+        return [
+          a.namaAcara || '—',
+          a.pingat ? a.pingat.charAt(0).toUpperCase() + a.pingat.slice(1) : '—',
+          formatPrestasi(a.prestasi, a.unit),
+          `+${a.mata || 0}`,
+          rekod ? '🏆 REKOD' : '',
+        ]
+      })
+      autoTable(pdf, {
+        startY: 57,
+        head: [['Acara', 'Pingat', 'Prestasi', '+Mata', 'Rekod']],
+        body: rows,
+        styles: { fontSize: 8.5, cellPadding: 2.5 },
+        headStyles: { fillColor: [0, 51, 153], fontSize: 7.5, fontStyle: 'bold' },
+        columnStyles: {
+          0: { cellWidth: 70 }, 1: { cellWidth: 28, halign: 'center' },
+          2: { cellWidth: 30, halign: 'center' }, 3: { cellWidth: 18, halign: 'center' },
+          4: { cellWidth: 25, halign: 'center' },
+        },
+        theme: 'striped',
+      })
+    }
+
+    // ── Rekod dipecahkan
+    if (rekodList.length > 0) {
+      let y = (acaraList.length > 0 ? pdf.lastAutoTable.finalY : 57) + 6
+      pdf.setFontSize(9); pdf.setFont('helvetica', 'bold')
+      pdf.setTextColor(180, 0, 0)
+      pdf.text('REKOD DIPECAHKAN', 12, y); y += 5
+      pdf.setTextColor(0, 0, 0)
+
+      rekodList.forEach(r => {
+        const peringkatLabel = PERINGKAT_LABEL[r.peringkat] || r.peringkat || '—'
+        const body = []
+        body.push(['Acara', r.namaAcara || '—'])
+        body.push(['Peringkat', peringkatLabel])
+        body.push(['Rekod Baru', formatPrestasi(r.prestasiBaru, r.unit) + (r.tarikhBaru ? `  (${r.tarikhBaru})` : '')])
+        if (r.prestasiLama != null) {
+          body.push(['Rekod Lama', formatPrestasi(r.prestasiLama, r.unit)])
+          if (r.tahunLama)   body.push(['Tahun Lama',  String(r.tahunLama)])
+          if (r.namaLama)    body.push(['Pemegang Lama', r.namaLama])
+          if (r.lokasiLama)  body.push(['Sekolah/Lokasi', r.lokasiLama])
+          if (r.catatanLama) body.push(['Catatan', r.catatanLama])
+          const selisih = formatSelisih(r.prestasiBaru, r.prestasiLama, r.unit)
+          if (selisih) body.push(['Perbezaan', selisih])
+        } else {
+          body.push(['Rekod Lama', r.catatanLama || 'Rekod pertama — tiada rekod sebelum ini'])
+        }
+        autoTable(pdf, {
+          startY: y,
+          body,
+          styles: { fontSize: 8, cellPadding: 2 },
+          columnStyles: { 0: { cellWidth: 40, fontStyle: 'bold', fillColor: [255, 245, 245] }, 1: { cellWidth: 130 } },
+          theme: 'plain',
+          tableLineColor: [220, 180, 180],
+          tableLineWidth: 0.3,
+        })
+        y = pdf.lastAutoTable.finalY + 4
+      })
+    }
+
+    // Footer
+    pdf.setFontSize(7); pdf.setFont('helvetica', 'italic')
+    pdf.setTextColor(150, 150, 150)
+    pdf.text(`Dicetak: ${new Date().toLocaleDateString('ms-MY')}`, W - 12, 287, { align: 'right' })
+
+    pdf.save(`KadAtlet_${(atlet.namaAtlet || 'Atlet').replace(/\s+/g, '_')}.pdf`)
+  }
+
+  const REKOD_COLOR = { K: 'bg-amber-400 text-white', N: 'bg-blue-500 text-white', D: 'bg-green-600 text-white' }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-3 py-4"
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+
+        {/* Header */}
+        <div className="bg-[#003399] px-5 py-4 flex items-start justify-between shrink-0">
+          <div>
+            <p className="text-white font-black text-sm leading-snug">{atlet.namaAtlet || '—'}</p>
+            <p className="text-white/70 text-[10px] mt-0.5">{atlet.namaSekolah || atlet.kodSekolah}</p>
+            <p className="text-white/60 text-[9px]">{katLabelFn(atlet.kategoriKod)} · {atlet.jantina === 'L' ? 'Lelaki' : 'Perempuan'}</p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 ml-3">
+            <button onClick={cetakKadAtlet}
+              className="text-[9px] font-bold px-2.5 py-1.5 bg-white/20 hover:bg-white/30 text-white rounded-lg border border-white/30 transition-colors">
+              🖨 Cetak
+            </button>
+            <button onClick={onClose} className="text-white/60 hover:text-white transition-colors p-1">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Medal summary */}
+        <div className="px-5 py-3 bg-gray-50 border-b border-gray-100 flex items-center gap-3 shrink-0">
+          {[
+            { v: atlet.pingat_emas,    cls: 'text-yellow-600', label: 'E' },
+            { v: atlet.pingat_perak,   cls: 'text-gray-500',   label: 'P' },
+            { v: atlet.pingat_gangsa,  cls: 'text-orange-500', label: 'G' },
+            { v: atlet.pingat_tempat4, cls: 'text-slate-400',  label: 'T4' },
+          ].map(m => (
+            <span key={m.label} className={`text-xs font-black ${(m.v||0)>0 ? m.cls : 'text-gray-200'}`}>
+              {m.label}×{m.v||0}
+            </span>
+          ))}
+          <span className="ml-auto text-sm font-black text-[#003399]">{atlet.jumlahMata||0} mata</span>
+        </div>
+
+        {/* Scrollable body */}
+        <div className="overflow-y-auto flex-1 divide-y divide-gray-100">
+
+          {/* Acara dimenangi */}
+          {acaraList.length > 0 && (
+            <div className="px-5 py-4">
+              <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-3">Acara Dimenangi</p>
+              <div className="space-y-2">
+                {acaraList.map((a, i) => {
+                  const s     = PINGAT_STYLE[a.pingat] || PINGAT_STYLE.tempat4
+                  const rekod = rekodList.find(r => r.namaAcara === a.namaAcara)
+                  return (
+                    <div key={i} className="flex items-center gap-3">
+                      <span className={`inline-flex items-center gap-0.5 px-2 py-1 rounded-full border text-[9px] font-bold shrink-0 ${s.bg}`}>
+                        <span className={`w-3 h-3 rounded-full border flex items-center justify-center text-[7px] font-black ${s.coin}`}>{s.label}</span>
+                        {s.short}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-gray-800 truncate">{a.namaAcara}</p>
+                        <p className="text-[9px] text-gray-400 font-mono">{formatPrestasi(a.prestasi, a.unit)}</p>
+                      </div>
+                      <div className="shrink-0 flex items-center gap-1.5">
+                        {rekod && (
+                          <span className={`text-[7px] font-black px-1.5 py-0.5 rounded border ${REKOD_COLOR[rekod.peringkat] || 'bg-red-100 text-red-700'}`}>
+                            🏆 REKOD
+                          </span>
+                        )}
+                        <span className="text-[9px] font-black text-[#003399]">+{a.mata||0}</span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Rekod dipecahkan */}
+          {rekodList.map((r, i) => (
+            <div key={i} className="px-5 py-4 bg-red-50/40">
+              <div className="flex items-center gap-2 mb-3">
+                <span className={`text-[8px] font-black px-2 py-0.5 rounded-full text-white ${
+                  r.peringkat === 'K' ? 'bg-amber-500' : r.peringkat === 'N' ? 'bg-blue-600' : 'bg-green-600'
+                }`}>
+                  🏆 REKOD {PERINGKAT_LABEL[r.peringkat] || r.peringkat}
+                </span>
+                <p className="text-xs font-bold text-gray-800">{r.namaAcara}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-[9px]">
+                {/* Rekod Baru */}
+                <div className="bg-green-50 border border-green-200 rounded-xl px-3 py-2.5">
+                  <p className="text-[8px] font-bold text-green-500 uppercase mb-1">Rekod Baru</p>
+                  <p className="font-black text-green-700 text-sm">{formatPrestasi(r.prestasiBaru, r.unit)}</p>
+                  {r.tarikhBaru && <p className="text-green-600 mt-0.5">{r.tarikhBaru}</p>}
+                  {r.prestasiLama != null && (
+                    <p className="text-green-600 font-semibold mt-0.5">{formatSelisih(r.prestasiBaru, r.prestasiLama, r.unit)}</p>
+                  )}
+                </div>
+                {/* Rekod Lama */}
+                <div className="bg-gray-100 rounded-xl px-3 py-2.5">
+                  <p className="text-[8px] font-bold text-gray-400 uppercase mb-1">Rekod Lama</p>
+                  {r.prestasiLama != null ? (
+                    <>
+                      <p className="font-black text-gray-700 text-sm">{formatPrestasi(r.prestasiLama, r.unit)}</p>
+                      {r.tahunLama   && <p className="text-gray-500 mt-0.5">Tahun: {r.tahunLama}</p>}
+                      {r.namaLama    && <p className="text-gray-700 font-semibold">{r.namaLama}</p>}
+                      {r.lokasiLama  && <p className="text-gray-500">{r.lokasiLama}</p>}
+                      {r.catatanLama && <p className="text-gray-500 italic mt-0.5">{r.catatanLama}</p>}
+                    </>
+                  ) : r.catatanLama ? (
+                    <p className="text-gray-600 text-[9px] italic">{r.catatanLama}</p>
+                  ) : (
+                    <p className="text-gray-400 italic text-[9px]">Rekod pertama</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {acaraList.length === 0 && rekodList.length === 0 && (
+            <div className="px-5 py-8 text-center text-gray-400 text-xs">Tiada detail acara lagi.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function AtletRow({ atlet, rank, isDipilih, onPilih }) {
+function AtletRow({ atlet, rank, isDipilih, onPilih, onDetail }) {
   const [expand, setExpand] = useState(false)
   const acaraList = getAcaraDetail(atlet)
   const rekodList = getRekodDetail(atlet)
   const isTop3    = rank <= 3
   const rankStyle = RANK_STYLE[rank] || ''
 
+  const hasRekod   = rekodList.length > 0
+  const rekodPeringkat = hasRekod
+    ? [...new Set(rekodList.map(r => r.peringkat).filter(Boolean))].sort((a,b) => ['K','N','D'].indexOf(a) - ['K','N','D'].indexOf(b))
+    : []
+  const topPeringkat = rekodPeringkat[0] || null
+  const REKOD_STRIPE = { K: 'border-l-amber-400', N: 'border-l-blue-500', D: 'border-l-green-500' }
+
   const rowBg = isDipilih
     ? 'bg-amber-50 border-l-4 border-l-yellow-400'
-    : isTop3
-      ? rank === 1 ? 'bg-yellow-50 hover:bg-yellow-100'
-      : rank === 2 ? 'bg-gray-50 hover:bg-gray-100'
-      :              'bg-orange-50 hover:bg-orange-100'
-    : 'hover:bg-slate-50'
+    : hasRekod
+      ? `bg-red-50/30 border-l-4 ${REKOD_STRIPE[topPeringkat] || 'border-l-red-400'}`
+      : isTop3
+        ? rank === 1 ? 'bg-yellow-50 hover:bg-yellow-100'
+        : rank === 2 ? 'bg-gray-50 hover:bg-gray-100'
+        :              'bg-orange-50 hover:bg-orange-100'
+      : 'hover:bg-slate-50'
 
   return (
     <>
@@ -135,11 +393,21 @@ function AtletRow({ atlet, rank, isDipilih, onPilih }) {
           )}
         </td>
 
-        {/* Nama + Sekolah */}
-        <td className="px-2 py-2 max-w-[110px]">
-          <p className={`font-semibold text-xs leading-snug truncate ${isTop3 || isDipilih ? 'text-gray-900' : 'text-gray-700'}`}>
-            {atlet.namaAtlet || '—'}
-          </p>
+        {/* Nama + Sekolah — klik untuk modal detail */}
+        <td className="px-2 py-2 max-w-[110px]" onClick={e => { e.stopPropagation(); onDetail && onDetail(atlet) }}>
+          <div className="flex items-center gap-1 flex-wrap">
+            <p className={`font-semibold text-xs leading-snug truncate cursor-pointer hover:text-[#003399] hover:underline ${isTop3 || isDipilih ? 'text-gray-900' : 'text-gray-700'}`}>
+              {atlet.namaAtlet || '—'}
+            </p>
+            {hasRekod && (
+              <span className={`shrink-0 text-[7px] font-black px-1 py-0.5 rounded text-white leading-tight ${
+                topPeringkat === 'K' ? 'bg-amber-400' :
+                topPeringkat === 'N' ? 'bg-blue-500' : 'bg-green-600'
+              }`}>
+                🏆R{topPeringkat}
+              </span>
+            )}
+          </div>
           <p className="text-[9px] text-gray-400 truncate">{atlet.namaSekolah || atlet.kodSekolah || '—'}</p>
         </td>
 
@@ -315,7 +583,7 @@ function AtletRow({ atlet, rank, isDipilih, onPilih }) {
 
 // ─── Ranking Table per Jantina ────────────────────────────────────────────────
 
-function RankingTable({ data, jantina, pilihanNoKP, onPilih }) {
+function RankingTable({ data, jantina, pilihanNoKP, onPilih, onDetail }) {
   const filtered = data.filter(a => a.jantina === jantina && (a.jumlahMata || 0) > 0)
   const ranked   = rankWithTies([...filtered].sort(sortOlahragawan))
   const isL      = jantina === 'L'
@@ -358,6 +626,7 @@ function RankingTable({ data, jantina, pilihanNoKP, onPilih }) {
                   rank={atlet.rank}
                   isDipilih={atlet.noKP === pilihanNoKP}
                   onPilih={atlet => onPilih(atlet, jantina)}
+                  onDetail={onDetail}
                 />
               ))}
             </tbody>
@@ -428,6 +697,12 @@ export default function Olahragawan() {
   const [kategoriList, setKategoriList] = useState([]) // dari Firestore
   const unsubRef = useRef(null)
 
+  const [anugerahCustom,   setAnugerahCustom]   = useState([])   // list custom anugerah defs
+  const [formAnugerah,     setFormAnugerah]     = useState(null) // null=hidden, ''=new
+  const [savingAnugerah,   setSavingAnugerah]   = useState(false)
+  const [modalAtlet,       setModalAtlet]       = useState(null) // atlet doc untuk modal
+  const [searchAtlet,      setSearchAtlet]      = useState('')   // search in terbaik/custom tabs
+
   // ── Kategori dari Firestore ──────────────────────────────────────────────
   useEffect(() => {
     getDocs(query(collection(db, 'kategori'), orderBy('urutan')))
@@ -483,10 +758,19 @@ export default function Olahragawan() {
         const map = {}
         snap.docs.forEach(d => {
           const r = d.data()
-          map[`${r.kategoriKod}_${r.jantina}`] = r
+          const key = r.pilihanKey || `${r.kategoriKod}_${r.jantina}`
+          map[key] = r
         })
         setPilihan(map)
       }).catch(() => {})
+  }, [selKej])
+
+  // ── Load anugerah custom ─────────────────────────────────────────────────
+  useEffect(() => {
+    if (!selKej) { setAnugerahCustom([]); return }
+    getDocs(query(collection(db, 'anugerah_custom'), where('kejohananId', '==', selKej), orderBy('cipta')))
+      .then(snap => setAnugerahCustom(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+      .catch(() => {})
   }, [selKej])
 
   // ── Kat yang ada data ────────────────────────────────────────────────────
@@ -496,38 +780,72 @@ export default function Olahragawan() {
     ...katOrder.filter(k => katDariData.includes(k)),
     ...katDariData.filter(k => !katOrder.includes(k)),
   ]
-  const activeKat = selKat && katAda.includes(selKat) ? selKat : (katAda[0] || '')
+  const customTabKeys = anugerahCustom.map(a => `CUSTOM_${a.id}`)
+  const allTabKeys    = [...katAda, 'TERBAIK_KEJ', ...customTabKeys]
+  const activeTab     = selKat && allTabKeys.includes(selKat) ? selKat : (katAda[0] || '')
+  // keep activeKat for backward compat
+  const activeKat     = katAda.includes(activeTab) ? activeTab : ''
 
   // ── Pilih Murid Terbaik ──────────────────────────────────────────────────
-  async function handlePilih(atlet, jantina) {
+  async function handlePilihByKey(atlet, pilihanKey) {
     if (!selKej || savingPilihan) return
-    const key    = `${atlet.kategoriKod}_${jantina}`
-    const docId  = `${selKej}_${atlet.kategoriKod}_${jantina}`
+    const docId  = `${selKej}_${pilihanKey}`
     const ref    = doc(db, 'pilihan_olahragawan', docId)
-    const isSame = pilihan[key]?.noKP === atlet.noKP
+    const isSame = pilihan[pilihanKey]?.noKP === atlet.noKP
     setSavingPilihan(true)
     try {
       if (isSame) {
         await deleteDoc(ref)
-        setPilihan(p => { const n = { ...p }; delete n[key]; return n })
+        setPilihan(p => { const n = { ...p }; delete n[pilihanKey]; return n })
       } else {
         const payload = {
           kejohananId: selKej,
-          kategoriKod: atlet.kategoriKod,
-          jantina,
+          pilihanKey,
           noKP:        atlet.noKP,
-          namaAtlet:   atlet.namaAtlet  || '',
-          kodSekolah:  atlet.kodSekolah || '',
+          namaAtlet:   atlet.namaAtlet   || '',
+          kodSekolah:  atlet.kodSekolah  || '',
           namaSekolah: atlet.namaSekolah || atlet.kodSekolah || '',
-          // Mata TIDAK disimpan — ambil live dari mata_olahragawan semasa cetak/papar
+          kategoriKod: atlet.kategoriKod || '',
+          jantina:     atlet.jantina     || '',
           dipilihOleh: userData?.uid || '',
           dipilihPada: serverTimestamp(),
         }
         await setDoc(ref, payload)
-        setPilihan(p => ({ ...p, [key]: payload }))
+        setPilihan(p => ({ ...p, [pilihanKey]: payload }))
       }
-    } catch (e) { alert('Gagal simpan pilihan: ' + e.message) }
+    } catch (e) { alert('Gagal simpan: ' + e.message) }
     finally { setSavingPilihan(false) }
+  }
+
+  async function handlePilih(atlet, jantina) {
+    return handlePilihByKey(atlet, `${atlet.kategoriKod}_${jantina}`)
+  }
+
+  // ── Tambah / Padam Anugerah Custom ──────────────────────────────────────
+  async function handleTambahAnugerah(nama) {
+    if (!nama.trim() || !selKej) return
+    setSavingAnugerah(true)
+    try {
+      const id  = `${selKej}_${Date.now()}`
+      const ref = doc(db, 'anugerah_custom', id)
+      const payload = { id, kejohananId: selKej, nama: nama.trim(), cipta: serverTimestamp() }
+      await setDoc(ref, payload)
+      setAnugerahCustom(prev => [...prev, payload])
+      setFormAnugerah(null)
+      setSelKat(`CUSTOM_${id}`)
+    } catch (e) { alert('Gagal simpan: ' + e.message) }
+    finally { setSavingAnugerah(false) }
+  }
+
+  async function handlePadamAnugerah(anugerah) {
+    if (!confirm(`Padam anugerah "${anugerah.nama}"? Pilihan winner turut dipadam.`)) return
+    try {
+      await deleteDoc(doc(db, 'anugerah_custom', anugerah.id))
+      await deleteDoc(doc(db, 'pilihan_olahragawan', `${selKej}_CUSTOM_${anugerah.id}`))
+      setAnugerahCustom(prev => prev.filter(a => a.id !== anugerah.id))
+      setPilihan(p => { const n = { ...p }; delete n[`CUSTOM_${anugerah.id}`]; return n })
+      if (activeTab === `CUSTOM_${anugerah.id}`) setSelKat(katAda[0] || '')
+    } catch (e) { alert('Gagal padam: ' + e.message) }
   }
 
   // ── Cetak PDF ────────────────────────────────────────────────────────────
@@ -645,6 +963,138 @@ export default function Olahragawan() {
     pdf.save(`Olahragawan_${fname}_${namaKej || 'KOAM'}.pdf`)
   }
 
+  async function cetakTerbaikKategori() {
+    const { jsPDF }             = await import('jspdf')
+    const { default: autoTable } = await import('jspdf-autotable')
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+    const W = 210
+
+    pdf.setFontSize(13); pdf.setFont('helvetica', 'bold')
+    pdf.text('ATLET TERBAIK KATEGORI', W / 2, 15, { align: 'center' })
+    pdf.setFontSize(9); pdf.setFont('helvetica', 'normal')
+    pdf.text(namaKej || 'Kejohanan Olahraga', W / 2, 21, { align: 'center' })
+    pdf.setDrawColor(0, 51, 153); pdf.setLineWidth(0.5)
+    pdf.line(12, 24, W - 12, 24)
+
+    const rows = katAda.map(kat => {
+      const pL   = pilihan[`${kat}_L`]
+      const pP   = pilihan[`${kat}_P`]
+      const live = n => allData.find(a => a.noKP === n?.noKP)
+      const fmt  = p => {
+        if (!p) return 'Belum dipilih'
+        const d = live(p) || p
+        return `${p.namaAtlet}\n${p.namaSekolah || p.kodSekolah}\nE×${d.pingat_emas||0}  P×${d.pingat_perak||0}  G×${d.pingat_gangsa||0}  ·  ${d.jumlahMata||0} mata`
+      }
+      return [katLabel(kat), fmt(pL), fmt(pP)]
+    })
+
+    autoTable(pdf, {
+      startY: 30,
+      head: [['Kategori', '♂ Olahragawan (Lelaki)', '♀ Olahragawati (Perempuan)']],
+      body: rows,
+      styles: { fontSize: 9, cellPadding: 4, valign: 'top' },
+      headStyles: { fillColor: [0, 51, 153], fontSize: 8, fontStyle: 'bold' },
+      columnStyles: { 0: { cellWidth: 38 }, 1: { cellWidth: 76 }, 2: { cellWidth: 76 } },
+      theme: 'grid',
+    })
+
+    pdf.save(`AtletTerbaikKategori_${namaKej || 'KOAM'}.pdf`)
+  }
+
+  async function cetakTerbaikKejohanan() {
+    const { jsPDF }             = await import('jspdf')
+    const { default: autoTable } = await import('jspdf-autotable')
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+    const W = 210
+
+    pdf.setFontSize(13); pdf.setFont('helvetica', 'bold')
+    pdf.text('ATLET TERBAIK KEJOHANAN', W / 2, 15, { align: 'center' })
+    pdf.setFontSize(9); pdf.setFont('helvetica', 'normal')
+    pdf.text(namaKej || 'Kejohanan Olahraga', W / 2, 21, { align: 'center' })
+    pdf.setDrawColor(0, 51, 153); pdf.setLineWidth(0.5)
+    pdf.line(12, 24, W - 12, 24)
+
+    let y = 32
+    ;['L', 'P'].forEach((j, ji) => {
+      const title = j === 'L' ? 'OLAHRAGAWAN TERBAIK KEJOHANAN' : 'OLAHRAGAWATI TERBAIK KEJOHANAN'
+      const pil   = pilihan[`TERBAIK_KEJ_${j}`]
+      const live  = pil ? (allData.find(a => a.noKP === pil.noKP) || pil) : null
+      const x     = ji === 0 ? 12 : W / 2 + 3
+      const bW    = W / 2 - 15
+
+      // Box border
+      pdf.setDrawColor(j === 'L' ? 0 : 180, 0, j === 'L' ? 153 : 90)
+      pdf.setLineWidth(0.8)
+      pdf.rect(x, y, bW, 60)
+
+      // Header
+      pdf.setFillColor(j === 'L' ? 0 : 180, 0, j === 'L' ? 153 : 90)
+      pdf.rect(x, y, bW, 10, 'F')
+      pdf.setTextColor(255, 255, 255)
+      pdf.setFontSize(8); pdf.setFont('helvetica', 'bold')
+      pdf.text(title, x + bW / 2, y + 6.5, { align: 'center' })
+      pdf.setTextColor(0, 0, 0)
+
+      if (live) {
+        pdf.setFontSize(12); pdf.setFont('helvetica', 'bold')
+        pdf.text(live.namaAtlet || pil.namaAtlet || '—', x + bW / 2, y + 22, { align: 'center' })
+        pdf.setFontSize(9); pdf.setFont('helvetica', 'normal')
+        pdf.text(live.namaSekolah || pil.namaSekolah || '—', x + bW / 2, y + 29, { align: 'center' })
+        pdf.setFontSize(8)
+        const kat = live.kategoriKod ? `Kategori: ${katLabel(live.kategoriKod)}` : ''
+        if (kat) pdf.text(kat, x + bW / 2, y + 35, { align: 'center' })
+        pdf.setFontSize(10); pdf.setFont('helvetica', 'bold')
+        const medalStr = `🥇 ${live.pingat_emas||0}   🥈 ${live.pingat_perak||0}   🥉 ${live.pingat_gangsa||0}`
+        pdf.text(medalStr, x + bW / 2, y + 44, { align: 'center' })
+        pdf.setFontSize(13)
+        pdf.text(`${live.jumlahMata || 0} mata`, x + bW / 2, y + 54, { align: 'center' })
+      } else {
+        pdf.setFontSize(9); pdf.setFont('helvetica', 'italic')
+        pdf.setTextColor(150, 150, 150)
+        pdf.text('Belum dipilih', x + bW / 2, y + 35, { align: 'center' })
+        pdf.setTextColor(0, 0, 0)
+      }
+    })
+
+    pdf.save(`AtletTerbaikKejohanan_${namaKej || 'KOAM'}.pdf`)
+  }
+
+  async function cetakAnugerahKhas() {
+    if (anugerahCustom.length === 0) return
+    const { jsPDF }             = await import('jspdf')
+    const { default: autoTable } = await import('jspdf-autotable')
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+    const W = 210
+
+    pdf.setFontSize(13); pdf.setFont('helvetica', 'bold')
+    pdf.text('ANUGERAH KHAS', W / 2, 15, { align: 'center' })
+    pdf.setFontSize(9); pdf.setFont('helvetica', 'normal')
+    pdf.text(namaKej || 'Kejohanan Olahraga', W / 2, 21, { align: 'center' })
+    pdf.setDrawColor(0, 51, 153); pdf.setLineWidth(0.5)
+    pdf.line(12, 24, W - 12, 24)
+
+    const rows = anugerahCustom.map(a => {
+      const pil  = pilihan[`CUSTOM_${a.id}`]
+      const live = pil ? (allData.find(atl => atl.noKP === pil.noKP) || pil) : null
+      const fmt  = live
+        ? `${live.namaAtlet || pil.namaAtlet}\n${live.namaSekolah || pil.namaSekolah || '—'}\nE×${live.pingat_emas||0}  P×${live.pingat_perak||0}  G×${live.pingat_gangsa||0}  ·  ${live.jumlahMata||0} mata`
+        : 'Belum dipilih'
+      return [a.nama, fmt]
+    })
+
+    autoTable(pdf, {
+      startY: 30,
+      head: [['Anugerah', 'Pemenang']],
+      body: rows,
+      styles: { fontSize: 10, cellPadding: 5, valign: 'top' },
+      headStyles: { fillColor: [120, 80, 0], fontSize: 9, fontStyle: 'bold' },
+      columnStyles: { 0: { cellWidth: 60, fontStyle: 'bold' }, 1: { cellWidth: 130 } },
+      theme: 'grid',
+    })
+
+    pdf.save(`AnugerahKhas_${namaKej || 'KOAM'}.pdf`)
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="p-4 max-w-6xl mx-auto space-y-5">
@@ -661,10 +1111,20 @@ export default function Olahragawan() {
             <span className="text-[9px] text-gray-400 font-mono">{lastUpdate.toLocaleTimeString('ms-MY', { hour12: true })}</span>
           )}
           <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block" />
-          <button onClick={() => cetakPDF('terbaik')}
+          <button onClick={cetakTerbaikKategori}
             className="text-[10px] font-bold px-3 py-1.5 bg-[#003399] text-white rounded-lg hover:bg-[#002288]">
-            Cetak Murid Terbaik
+            Cetak Terbaik Kategori
           </button>
+          <button onClick={cetakTerbaikKejohanan}
+            className="text-[10px] font-bold px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
+            Cetak Terbaik Kejohanan
+          </button>
+          {anugerahCustom.length > 0 && (
+            <button onClick={cetakAnugerahKhas}
+              className="text-[10px] font-bold px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700">
+              Cetak Anugerah Khas
+            </button>
+          )}
           {activeKat && (
             <button onClick={() => cetakPDF('satu', activeKat)}
               className="text-[10px] font-bold px-3 py-1.5 bg-gray-700 text-white rounded-lg hover:bg-gray-800">
@@ -673,7 +1133,7 @@ export default function Olahragawan() {
           )}
           <button onClick={() => cetakPDF('semua')}
             className="text-[10px] font-bold px-3 py-1.5 bg-gray-500 text-white rounded-lg hover:bg-gray-600">
-            Cetak Semua
+            Cetak Semua Ranking
           </button>
         </div>
       </div>
@@ -703,10 +1163,11 @@ export default function Olahragawan() {
 
           {/* Tab Kategori */}
           <div className="flex border-b border-gray-200 overflow-x-auto">
+            {/* Kategori tabs */}
             {katAda.map(kat => (
               <button key={kat} onClick={() => setSelKat(kat)}
                 className={`px-5 py-3 text-xs font-bold whitespace-nowrap border-b-2 transition-colors ${
-                  activeKat === kat
+                  activeTab === kat
                     ? 'border-[#003399] text-[#003399] bg-blue-50/60'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
                 }`}>
@@ -716,10 +1177,267 @@ export default function Olahragawan() {
                 </span>
               </button>
             ))}
+            {/* Divider */}
+            {katAda.length > 0 && <div className="w-px bg-gray-200 mx-1 self-stretch my-2" />}
+            {/* Terbaik Kejohanan tab */}
+            <button onClick={() => setSelKat('TERBAIK_KEJ')}
+              className={`px-5 py-3 text-xs font-bold whitespace-nowrap border-b-2 transition-colors ${
+                activeTab === 'TERBAIK_KEJ'
+                  ? 'border-amber-500 text-amber-700 bg-amber-50/60'
+                  : 'border-transparent text-gray-500 hover:text-amber-600 hover:bg-amber-50/40'
+              }`}>
+              🏆 Terbaik Kejohanan
+            </button>
+            {/* Custom anugerah tabs */}
+            {anugerahCustom.map(a => (
+              <button key={a.id} onClick={() => setSelKat(`CUSTOM_${a.id}`)}
+                className={`px-5 py-3 text-xs font-bold whitespace-nowrap border-b-2 transition-colors ${
+                  activeTab === `CUSTOM_${a.id}`
+                    ? 'border-purple-500 text-purple-700 bg-purple-50/60'
+                    : 'border-transparent text-gray-500 hover:text-purple-600 hover:bg-purple-50/40'
+                }`}>
+                ★ {a.nama}
+              </button>
+            ))}
+            {/* Add anugerah button */}
+            <button onClick={() => setFormAnugerah('')}
+              className="px-4 py-3 text-xs font-bold whitespace-nowrap border-b-2 border-transparent text-gray-400 hover:text-green-600 hover:bg-green-50/40 transition-colors">
+              + Anugerah
+            </button>
           </div>
 
+          {/* Add anugerah form */}
+          {formAnugerah !== null && (
+            <div className="border-b border-gray-200 bg-green-50 px-4 py-3 flex items-center gap-3">
+              <span className="text-xs font-bold text-green-700">Nama Anugerah:</span>
+              <input
+                type="text"
+                value={formAnugerah}
+                onChange={e => setFormAnugerah(e.target.value)}
+                placeholder="cth: Atlet Harapan, Atlet Veteran…"
+                autoFocus
+                className="flex-1 border border-green-300 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-400"
+              />
+              <button
+                onClick={() => handleTambahAnugerah(formAnugerah)}
+                disabled={savingAnugerah || !formAnugerah.trim()}
+                className="text-xs font-bold px-3 py-1.5 bg-green-600 text-white rounded-lg disabled:opacity-50">
+                {savingAnugerah ? 'Simpan…' : 'Simpan'}
+              </button>
+              <button onClick={() => setFormAnugerah(null)}
+                className="text-xs text-gray-400 hover:text-red-500 px-2">Batal</button>
+            </div>
+          )}
+
           {/* Content */}
-          {activeKat && (
+          {activeTab === 'TERBAIK_KEJ' ? (
+            <div className="p-4 space-y-4">
+              {/* Terbaik Kejohanan Cards */}
+              <div className="flex gap-3 flex-wrap sm:flex-nowrap">
+                {['L', 'P'].map(j => {
+                  const key  = `TERBAIK_KEJ_${j}`
+                  const pil  = pilihan[key] || null
+                  const live = pil ? allData.find(a => a.noKP === pil.noKP) : null
+                  return (
+                    <MuridTerbaikCard
+                      key={j}
+                      jantina={j}
+                      pilihan={pil}
+                      liveData={live}
+                      onTukar={() => handlePilihByKey(pil, key)}
+                    />
+                  )
+                })}
+              </div>
+              {/* Search */}
+              <div className="flex items-center gap-2">
+                <input type="text" value={searchAtlet} onChange={e => setSearchAtlet(e.target.value)}
+                  placeholder="Cari nama atau sekolah…"
+                  className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#003399]/25" />
+                {searchAtlet && <button onClick={() => setSearchAtlet('')} className="text-xs text-gray-400 hover:text-red-500">✕</button>}
+              </div>
+              {/* Ranking — all atlet, L/P side by side */}
+              <div className="flex gap-3 flex-wrap lg:flex-nowrap">
+                {['L', 'P'].map(j => {
+                  const key = `TERBAIK_KEJ_${j}`
+                  const filtered = allData
+                    .filter(a => a.jantina === j && (a.jumlahMata || 0) > 0)
+                    .filter(a => !searchAtlet || (a.namaAtlet||'').toLowerCase().includes(searchAtlet.toLowerCase()) || (a.namaSekolah||'').toLowerCase().includes(searchAtlet.toLowerCase()))
+                  const ranked = rankWithTies([...filtered].sort(sortOlahragawan))
+                  const isL = j === 'L'
+                  return (
+                    <div key={j} className="flex-1 min-w-0 border border-gray-200 rounded-xl overflow-hidden">
+                      <div className={`px-4 py-2.5 flex items-center justify-between ${isL ? 'bg-blue-700' : 'bg-pink-600'} text-white`}>
+                        <span className="text-xs font-bold">{isL ? '♂ Olahragawan' : '♀ Olahragawati'} — Semua Kategori</span>
+                        <span className="text-[9px] font-semibold opacity-80">{ranked.length} atlet</span>
+                      </div>
+                      {ranked.length === 0 ? (
+                        <div className="py-8 text-center text-gray-400 text-xs">Tiada data.</div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="bg-gray-50 border-b border-gray-100 text-[8px] font-bold text-gray-400 uppercase tracking-wide">
+                                <th className="px-2 py-2 text-center w-8">Kd</th>
+                                <th className="px-2 py-2 text-left">Nama / Sekolah / Kat</th>
+                                <th className="px-1 py-2 text-center text-yellow-600">E</th>
+                                <th className="px-1 py-2 text-center text-gray-400">P</th>
+                                <th className="px-1 py-2 text-center text-orange-400">G</th>
+                                <th className="px-2 py-2 text-center text-[#003399]">Mata</th>
+                                <th className="px-2 py-2 text-center">Pilih</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {ranked.map(atlet => {
+                                const isDipilih = pilihan[key]?.noKP === atlet.noKP
+                                const isTop3 = atlet.rank <= 3
+                                const rs = RANK_STYLE[atlet.rank] || ''
+                                return (
+                                  <tr key={atlet.id} className={`border-b border-gray-100 ${isDipilih ? 'bg-amber-50 border-l-4 border-l-yellow-400' : isTop3 ? 'bg-yellow-50/40' : 'hover:bg-gray-50/50'}`}>
+                                    <td className="px-2 py-2 text-center">
+                                      {isDipilih ? <span className="text-yellow-500 font-black text-sm">★</span>
+                                        : isTop3 ? <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full border-2 text-[9px] font-black ${rs}`}>{atlet.rank}</span>
+                                        : <span className="text-[10px] text-gray-400 font-bold">{atlet.rank}</span>}
+                                    </td>
+                                    <td className="px-2 py-2 cursor-pointer" onClick={() => setModalAtlet(atlet)}>
+                                      <p className="font-semibold text-xs text-gray-800 truncate hover:text-[#003399] hover:underline">{atlet.namaAtlet || '—'}</p>
+                                      <p className="text-[9px] text-gray-400 truncate">{atlet.namaSekolah || atlet.kodSekolah}</p>
+                                      <p className="text-[8px] text-blue-400 font-bold">{katLabel(atlet.kategoriKod)}</p>
+                                    </td>
+                                    <td className="px-1 py-2 text-center"><span className={`text-xs font-black ${(atlet.pingat_emas||0)>0?'text-yellow-500':'text-gray-200'}`}>{atlet.pingat_emas||0}</span></td>
+                                    <td className="px-1 py-2 text-center"><span className={`text-xs font-black ${(atlet.pingat_perak||0)>0?'text-gray-400':'text-gray-200'}`}>{atlet.pingat_perak||0}</span></td>
+                                    <td className="px-1 py-2 text-center"><span className={`text-xs font-black ${(atlet.pingat_gangsa||0)>0?'text-orange-400':'text-gray-200'}`}>{atlet.pingat_gangsa||0}</span></td>
+                                    <td className="px-2 py-2 text-center"><span className="text-sm font-black text-[#003399]">{atlet.jumlahMata||0}</span></td>
+                                    <td className="px-2 py-2 text-center">
+                                      <button onClick={() => handlePilihByKey(atlet, key)}
+                                        className={`text-[9px] font-bold px-2 py-1 rounded-lg border transition-colors ${isDipilih ? 'bg-yellow-400 text-white border-yellow-500' : 'bg-white text-[#003399] border-[#003399] hover:bg-blue-50'}`}>
+                                        {isDipilih ? '★ Dipilih' : 'Pilih'}
+                                      </button>
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ) : activeTab.startsWith('CUSTOM_') ? (() => {
+            const anugerah = anugerahCustom.find(a => `CUSTOM_${a.id}` === activeTab)
+            if (!anugerah) return null
+            const key     = `CUSTOM_${anugerah.id}`
+            const pil     = pilihan[key] || null
+            const live    = pil ? allData.find(a => a.noKP === pil.noKP) : null
+            const filtered = allData
+              .filter(a => (a.jumlahMata || 0) > 0)
+              .filter(a => !searchAtlet ||
+                (a.namaAtlet||'').toLowerCase().includes(searchAtlet.toLowerCase()) ||
+                (a.namaSekolah||'').toLowerCase().includes(searchAtlet.toLowerCase()))
+            const ranked = rankWithTies([...filtered].sort(sortOlahragawan))
+            return (
+              <div className="p-4 space-y-4">
+                {/* Header anugerah */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Anugerah Khas</p>
+                    <p className="text-base font-black text-gray-800">{anugerah.nama}</p>
+                  </div>
+                  <button onClick={() => handlePadamAnugerah(anugerah)}
+                    className="text-[10px] text-red-400 hover:text-red-600 border border-red-200 hover:border-red-400 rounded-lg px-2 py-1 transition-colors">
+                    Padam Anugerah
+                  </button>
+                </div>
+
+                {/* Winner card */}
+                <div className={`border-2 rounded-xl px-4 py-3 ${pil ? 'border-amber-300 bg-amber-50' : 'border-dashed border-gray-200 bg-gray-50'}`}>
+                  <p className="text-[9px] font-bold text-amber-600 uppercase tracking-wide mb-1">★ Pemenang</p>
+                  {pil ? (
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="text-sm font-black text-gray-800">{live?.namaAtlet || pil.namaAtlet}</p>
+                        <p className="text-xs text-gray-500">{live?.namaSekolah || pil.namaSekolah} · {katLabel(live?.kategoriKod || pil.kategoriKod)}</p>
+                        <div className="flex gap-2 text-[9px] mt-1">
+                          {(live?.pingat_emas||0)>0 && <span className="text-yellow-600 font-bold">E×{live.pingat_emas}</span>}
+                          {(live?.pingat_perak||0)>0 && <span className="text-gray-500 font-bold">P×{live.pingat_perak}</span>}
+                          {(live?.pingat_gangsa||0)>0 && <span className="text-orange-500 font-bold">G×{live.pingat_gangsa}</span>}
+                          <span className="font-black text-[#003399]">{live?.jumlahMata||pil.jumlahMata||0} mata</span>
+                        </div>
+                      </div>
+                      <button onClick={() => handlePilihByKey(pil, key)}
+                        className="text-[9px] text-gray-400 hover:text-red-500 underline ml-3">Nyah Pilih</button>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-400 italic">Belum dipilih — klik [Pilih] dalam senarai</p>
+                  )}
+                </div>
+
+                {/* Search */}
+                <div className="flex items-center gap-2">
+                  <input type="text" value={searchAtlet} onChange={e => setSearchAtlet(e.target.value)}
+                    placeholder="Cari nama atau sekolah…"
+                    className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#003399]/25" />
+                  {searchAtlet && <button onClick={() => setSearchAtlet('')} className="text-xs text-gray-400 hover:text-red-500">✕</button>}
+                </div>
+
+                {/* All atlet list — both L and P */}
+                <div className="border border-gray-200 rounded-xl overflow-hidden">
+                  <div className="bg-gray-700 text-white px-4 py-2.5 flex items-center justify-between">
+                    <span className="text-xs font-bold">Semua Atlet (L & P)</span>
+                    <span className="text-[9px] opacity-80">{ranked.length} atlet</span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-100 text-[8px] font-bold text-gray-400 uppercase tracking-wide">
+                          <th className="px-2 py-2 text-center w-8">Kd</th>
+                          <th className="px-2 py-2 text-left">Nama / Sekolah / Kat</th>
+                          <th className="px-1 py-2 text-center">J</th>
+                          <th className="px-1 py-2 text-center text-yellow-600">E</th>
+                          <th className="px-1 py-2 text-center text-gray-400">P</th>
+                          <th className="px-1 py-2 text-center text-orange-400">G</th>
+                          <th className="px-2 py-2 text-center text-[#003399]">Mata</th>
+                          <th className="px-2 py-2 text-center">Pilih</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ranked.map(atlet => {
+                          const isDipilih = pilihan[key]?.noKP === atlet.noKP
+                          return (
+                            <tr key={atlet.id} className={`border-b border-gray-100 ${isDipilih ? 'bg-amber-50 border-l-4 border-l-yellow-400' : 'hover:bg-gray-50/50'}`}>
+                              <td className="px-2 py-2 text-center">
+                                {isDipilih ? <span className="text-yellow-500 font-black text-sm">★</span>
+                                  : <span className="text-[10px] text-gray-400 font-bold">{atlet.rank}</span>}
+                              </td>
+                              <td className="px-2 py-2 cursor-pointer" onClick={() => setModalAtlet(atlet)}>
+                                <p className="font-semibold text-xs text-gray-800 truncate hover:text-[#003399] hover:underline">{atlet.namaAtlet || '—'}</p>
+                                <p className="text-[9px] text-gray-400 truncate">{atlet.namaSekolah || atlet.kodSekolah}</p>
+                                <p className="text-[8px] text-blue-400 font-bold">{katLabel(atlet.kategoriKod)}</p>
+                              </td>
+                              <td className="px-1 py-2 text-center text-[9px] font-bold text-gray-500">{atlet.jantina}</td>
+                              <td className="px-1 py-2 text-center"><span className={`text-xs font-black ${(atlet.pingat_emas||0)>0?'text-yellow-500':'text-gray-200'}`}>{atlet.pingat_emas||0}</span></td>
+                              <td className="px-1 py-2 text-center"><span className={`text-xs font-black ${(atlet.pingat_perak||0)>0?'text-gray-400':'text-gray-200'}`}>{atlet.pingat_perak||0}</span></td>
+                              <td className="px-1 py-2 text-center"><span className={`text-xs font-black ${(atlet.pingat_gangsa||0)>0?'text-orange-400':'text-gray-200'}`}>{atlet.pingat_gangsa||0}</span></td>
+                              <td className="px-2 py-2 text-center"><span className="text-sm font-black text-[#003399]">{atlet.jumlahMata||0}</span></td>
+                              <td className="px-2 py-2 text-center">
+                                <button onClick={() => handlePilihByKey(atlet, key)}
+                                  className={`text-[9px] font-bold px-2 py-1 rounded-lg border transition-colors ${isDipilih ? 'bg-yellow-400 text-white border-yellow-500' : 'bg-white text-[#003399] border-[#003399] hover:bg-blue-50'}`}>
+                                  {isDipilih ? '★ Dipilih' : 'Pilih'}
+                                </button>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )
+          })() : activeKat ? (
             <div className="p-4 space-y-4">
 
               {/* Murid Terbaik Cards */}
@@ -748,12 +1466,13 @@ export default function Olahragawan() {
                     jantina={j}
                     pilihanNoKP={pilihan[`${activeKat}_${j}`]?.noKP || null}
                     onPilih={handlePilih}
+                    onDetail={setModalAtlet}
                   />
                 ))}
               </div>
 
             </div>
-          )}
+          ) : null}
         </div>
       )}
 
@@ -764,9 +1483,19 @@ export default function Olahragawan() {
           <p>· Mata: Emas=5, Perak=3, Gangsa=2, Tempat 4=1. Tempat ke-5 ke bawah: tiada mata.</p>
           <p>· Relay: Pingat untuk sekolah sahaja — tiada mata individu.</p>
           <p>· Tiebreak: Jumlah Mata → Emas → Perak → Gangsa → Nama (abjad).</p>
-          <p>· R = Rekod dipecahkan dalam kejohanan ini. Klik baris untuk detail.</p>
+          <p>· Klik nama atlet untuk lihat detail acara & rekod. Boleh cetak kad atlet.</p>
           <p>· Pilihan Murid Terbaik adalah manual oleh admin — boleh tukar bila-bila masa.</p>
         </div>
+      )}
+
+      {/* Modal detail atlet */}
+      {modalAtlet && (
+        <AtletModal
+          atlet={modalAtlet}
+          namaKej={namaKej}
+          katLabelFn={katLabel}
+          onClose={() => setModalAtlet(null)}
+        />
       )}
     </div>
   )

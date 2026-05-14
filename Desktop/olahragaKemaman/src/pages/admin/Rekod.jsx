@@ -988,6 +988,161 @@ export default function Rekod() {
     }
   }
 
+  // ── Kemaskini Rekod Library — sahkan SEMUA tuntutan sekaligus ─────────────────
+
+  const [bulkSaving, setBulkSaving] = useState(false)
+  const [bulkResult, setBulkResult] = useState(null) // { berjaya, gagal }
+
+  async function handleKemaskiniSemua() {
+    if (tuntutanList.length === 0) return
+    if (!confirm(
+      `Kemaskini rekod library dengan ${tuntutanList.length} tuntutan?\n\n` +
+      `Semua rekod lama yang dipecahkan akan diarkibkan.\n` +
+      `Tindakan ini tidak boleh dibatalkan.`
+    )) return
+
+    setBulkSaving(true); setBulkResult(null); setMsg(null)
+    let berjaya = 0, gagal = 0
+
+    for (const tuntutan of tuntutanList) {
+      try {
+        const rekodRef    = doc(db, 'rekod', tuntutan.rekodAsal)
+        const tuntutanRef = doc(db, 'rekod', tuntutan.id)
+        const rekodSnap   = await getDoc(rekodRef)
+
+        // Archive rekod lama
+        if (rekodSnap.exists()) {
+          const sejarahRef = doc(collection(db, 'rekod_sejarah'))
+          await setDoc(sejarahRef, {
+            ...rekodSnap.data(),
+            dipecahOleh: {
+              namaAtlet:   tuntutan.namaAtlet,
+              prestasi:    tuntutan.prestasi,
+              tarikhRekod: tuntutan.tarikhRekod,
+              kejohananId: tuntutan.kejohananId,
+            },
+            diarchivPada: serverTimestamp(),
+          })
+          await updateDoc(rekodRef, { statusRekod: 'dipecah' })
+        }
+
+        // Tulis rekod baru
+        const { id: _id, rekodAsal: _asal, ...tuntutanData } = tuntutan
+        await setDoc(rekodRef, {
+          ...tuntutanData,
+          rekodId:      tuntutan.rekodAsal,
+          statusRekod:  'aktif',
+          disahkanOleh: userData?.uid || null,
+          updatedAt:    serverTimestamp(),
+        })
+
+        // Padam tuntutan
+        await deleteDoc(tuntutanRef)
+        berjaya++
+      } catch (e) {
+        console.warn('bulk sahkan gagal:', tuntutan.id, e.message)
+        gagal++
+      }
+    }
+
+    setBulkResult({ berjaya, gagal })
+    setMsg({
+      type: gagal === 0 ? 'ok' : 'warn',
+      text: `${berjaya} rekod berjaya dikemaskini${gagal > 0 ? `, ${gagal} gagal` : ''}.`,
+    })
+    setBulkSaving(false)
+    load()
+  }
+
+  // ── Refresh Rekod Lama dalam mata_olahragawan ────────────────────────────────
+  // Scan semua mata_olahragawan untuk kejohanan aktif
+  // Untuk setiap rekod_ field, baca balik rekod library dan kemaskini prestasiLama dll
+
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshResult, setRefreshResult] = useState(null)
+
+  async function handleRefreshRekodLama() {
+    if (!confirm('Refresh data rekod lama dalam semua rekod atlet?\n\nIni akan kemaskini prestasiLama, namaLama, lokasiLama untuk semua atlet yang pecah rekod dalam kejohanan aktif.')) return
+    setRefreshing(true); setRefreshResult(null)
+    let kemaskini = 0, skip = 0
+    try {
+      // 1. Ambil kejohananId aktif
+      const kejSnap = await getDocs(query(collection(db, 'kejohanan'), where('statusKejohanan', '==', 'aktif')))
+      if (kejSnap.empty) { setRefreshResult({ err: 'Tiada kejohanan aktif.' }); return }
+      const kejId = kejSnap.docs[0].data().kejohananId || kejSnap.docs[0].id
+
+      // 2. Ambil semua mata_olahragawan untuk kejohanan ini
+      const mataSnap = await getDocs(query(collection(db, 'mata_olahragawan'), where('kejohananId', '==', kejId)))
+
+      for (const mataDoc of mataSnap.docs) {
+        const mataData = mataDoc.data()
+        const patch = {}
+
+        // 3. Cari semua rekod_ fields
+        const rekodFields = Object.entries(mataData).filter(([k]) => k.startsWith('rekod_'))
+        for (const [fieldKey, fieldVal] of rekodFields) {
+          if (!fieldVal?.namaAcara || !fieldVal?.kategoriKod || !fieldVal?.jantina || !fieldVal?.peringkat) continue
+
+          // 4. Bina key dan baca dari library
+          const rKey = [fieldVal.namaAcara, fieldVal.jantina, fieldVal.kategoriKod, fieldVal.peringkat]
+            .join('_').toUpperCase().replace(/[^A-Z0-9_]/g, '_')
+
+          // Kita nak rekod SEBELUM yang ini — iaitu rekod yang wujud
+          // Untuk rekod pertama yang pernah dihantar, rekod library sekarang = rekod baru itu sendiri
+          // Kita skip jika prestasiBaru == prestasi dalam library (bermakna atlet ini ADALAH rekod semasa)
+          const rekodSnap = await getDoc(doc(db, 'rekod', rKey))
+          if (!rekodSnap.exists()) { skip++; continue }
+          const lib = rekodSnap.data()
+
+          // Jika prestasi library == prestasiBaru atlet → atlet ini yang pegang rekod → rekod lama dari sejarah
+          const samaPrestasi = Number(lib.prestasi) === Number(fieldVal.prestasiBaru)
+          if (samaPrestasi) {
+            // Cuba cari rekod_sejarah untuk acara ini
+            const sejarahSnap = await getDocs(
+              query(collection(db, 'rekod_sejarah'), where('rekodId', '==', rKey), orderBy('diarchivPada', 'desc'))
+            )
+            if (!sejarahSnap.empty) {
+              const lama = sejarahSnap.docs[0].data()
+              patch[fieldKey] = {
+                ...fieldVal,
+                prestasiLama: lama.prestasi != null ? Number(lama.prestasi) : null,
+                tahunLama:    lama.tarikhRekod ? String(lama.tarikhRekod).slice(0,4) : null,
+                namaLama:     lama.namaAtlet   || null,
+                lokasiLama:   lama.namaSekolah || lama.namaDaerah || lama.namaNegeri || null,
+                catatanLama:  lama.catatanKhas || null,
+              }
+              kemaskini++
+            } else {
+              // Rekod pertama — tiada sejarah
+              patch[fieldKey] = { ...fieldVal, prestasiLama: null, namaLama: null, lokasiLama: null, catatanLama: null }
+              skip++
+            }
+          } else {
+            // Library ada rekod berbeza — itu rekod lama
+            patch[fieldKey] = {
+              ...fieldVal,
+              prestasiLama: lib.prestasi != null ? Number(lib.prestasi) : null,
+              tahunLama:    lib.tarikhRekod ? String(lib.tarikhRekod).slice(0,4) : null,
+              namaLama:     lib.namaAtlet   || null,
+              lokasiLama:   lib.namaSekolah || lib.namaDaerah || lib.namaNegeri || null,
+              catatanLama:  lib.catatanKhas || null,
+            }
+            kemaskini++
+          }
+        }
+
+        if (Object.keys(patch).length > 0) {
+          await setDoc(doc(db, 'mata_olahragawan', mataDoc.id), patch, { merge: true })
+        }
+      }
+      setRefreshResult({ kemaskini, skip })
+    } catch (e) {
+      setRefreshResult({ err: e.message })
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
   async function handleDelete(rekod) {
     if (!confirm(`Padam rekod ${rekod.namaAcara} ${rekod.jantina} ${rekod.kategoriKod}?\nTindakan ini tidak boleh dibatalkan.`)) return
     try {
@@ -1124,6 +1279,31 @@ export default function Rekod() {
           </button>
         </div>
       )}
+
+      {/* Refresh Rekod Lama tool */}
+      <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap">
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-bold text-gray-700">Refresh Rekod Lama Atlet</p>
+          <p className="text-[10px] text-gray-400 mt-0.5">
+            Kemaskini data rekod lama (nama, prestasi, tahun) dalam rekod atlet untuk kejohanan aktif.
+            Jalankan selepas kemaskini rekod library.
+          </p>
+          {refreshResult && !refreshResult.err && (
+            <p className="text-[10px] font-bold text-green-600 mt-1">
+              ✓ {refreshResult.kemaskini} rekod dikemaskini, {refreshResult.skip} rekap dilepas.
+            </p>
+          )}
+          {refreshResult?.err && (
+            <p className="text-[10px] font-bold text-red-500 mt-1">✗ {refreshResult.err}</p>
+          )}
+        </div>
+        <button
+          onClick={handleRefreshRekodLama}
+          disabled={refreshing}
+          className="shrink-0 px-3 py-1.5 bg-gray-700 hover:bg-gray-800 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors">
+          {refreshing ? '⏳ Memproses…' : '🔄 Refresh Rekod Lama'}
+        </button>
+      </div>
 
       {/* Tabs */}
       <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
@@ -1299,8 +1479,32 @@ export default function Rekod() {
             </div>
           ) : (
             <>
-              <p className="text-xs text-gray-500">
-                {tuntutanList.length} tuntutan menunggu pengesahan. Semak angin dan kelayakan atlet sebelum sahkan.
+              {/* Bulk button */}
+              <div className="bg-[#003399]/5 border border-[#003399]/20 rounded-xl px-4 py-3 flex items-center gap-3">
+                <div className="flex-1">
+                  <p className="text-xs font-bold text-[#003399]">
+                    {tuntutanList.length} rekod baru menunggu — kemaskini library untuk kejohanan akan datang
+                  </p>
+                  <p className="text-[11px] text-gray-500 mt-0.5">
+                    Semak setiap tuntutan di bawah, atau sahkan semua sekaligus selepas kejohanan tamat.
+                  </p>
+                  {bulkResult && (
+                    <p className={`text-[11px] font-semibold mt-1 ${bulkResult.gagal > 0 ? 'text-amber-700' : 'text-green-700'}`}>
+                      {bulkResult.berjaya} rekod dikemaskini{bulkResult.gagal > 0 ? `, ${bulkResult.gagal} gagal` : ' ✓'}
+                    </p>
+                  )}
+                </div>
+                <button
+                  onClick={handleKemaskiniSemua}
+                  disabled={bulkSaving}
+                  className="shrink-0 px-4 py-2 bg-[#003399] hover:bg-[#002277] disabled:bg-gray-300 text-white text-xs font-black rounded-xl tracking-wide transition-colors"
+                >
+                  {bulkSaving ? 'MEMPROSES…' : `KEMASKINI SEMUA (${tuntutanList.length})`}
+                </button>
+              </div>
+
+              <p className="text-[11px] text-gray-400">
+                Atau sahkan satu-satu di bawah — semak angin dan kelayakan atlet dahulu.
               </p>
               {tuntutanList.map(t => {
                 const isMasa    = t.unit === 's'

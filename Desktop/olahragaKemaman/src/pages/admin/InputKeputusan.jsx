@@ -494,7 +494,7 @@ export default function InputKeputusan() {
   const needWind = acara && acara.isWindReading
   const peserta  = heat?.peserta || []
 
-  const bilanganCubaan = isPadang ? (peserta.length > 8 ? 3 : 6) : 0
+  const bilanganCubaan = isPadang ? (acara?.bilanganCubaan || 6) : 0
 
   // Group acara by kategoriKod
   const acaraByKat = acaraList.reduce((acc, a) => {

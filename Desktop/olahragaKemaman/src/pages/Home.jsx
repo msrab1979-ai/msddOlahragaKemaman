@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { doc, getDoc, updateDoc, deleteField, serverTimestamp, collection, query, where, getDocs, orderBy } from 'firebase/firestore'
+import { selectFinalists as _selectFinalists } from '../utils/finalistUtils'
 import { db } from '../firebase/config'
 import { useAuth } from '../context/AuthContext'
 import PasswordInput from '../components/ui/PasswordInput'
@@ -356,9 +357,147 @@ function AdminModal({ onClose }) {
   )
 }
 
+// ─── RekodModal ───────────────────────────────────────────────────────────────
+
+const PERINGKAT_LABEL_M = { D: 'Daerah', N: 'Negeri', K: 'Kebangsaan' }
+
+function rekodKeyHome(namaAcara, jantina, kategoriKod, peringkat) {
+  return [namaAcara, jantina, kategoriKod, peringkat].map(s => String(s || '').replace(/\s+/g, '_')).join('_')
+}
+
+function RekodModal({ peserta, acara, onClose }) {
+  const [data,    setData]    = useState(null)  // { tuntutan, rekodAsal }
+  const [loading, setLoading] = useState(true)
+
+  const peringkat   = peserta.pecahRekod
+  const isPadangM   = ['padang_lompat', 'padang_balin'].includes(acara.jenisAcara)
+  const unitM       = isPadangM ? 'm' : 's'
+
+  function fmtP(val) {
+    if (val == null || val === '') return '—'
+    const n = Number(val); if (isNaN(n) || n === 0) return '—'
+    if (unitM === 's') {
+      if (n >= 60) { const m = Math.floor(n/60); return `${m}:${(n%60).toFixed(2).padStart(5,'0')}` }
+      return n.toFixed(2) + 's'
+    }
+    return n.toFixed(2) + 'm'
+  }
+
+  useEffect(() => {
+    const rKey = rekodKeyHome(acara.namaAcara, acara.jantina, acara.kategoriKod, peringkat)
+    Promise.all([
+      getDoc(doc(db, 'rekod', rKey + '_tuntutan')),
+      getDoc(doc(db, 'rekod', rKey)),
+    ]).then(([tSnap, aSnap]) => {
+      setData({
+        tuntutan:  tSnap.exists()  ? tSnap.data()  : null,
+        rekodAsal: aSnap.exists()  ? aSnap.data()  : null,
+      })
+    }).catch(() => setData(null)).finally(() => setLoading(false))
+  }, []) // eslint-disable-line
+
+  useEffect(() => {
+    const fn = e => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', fn)
+    return () => window.removeEventListener('keydown', fn)
+  }, [onClose])
+
+  const t = data?.tuntutan
+  const r = data?.rekodAsal
+
+  // Rekod lama: ambil dari tuntutan.prestasiLama (jika ada) atau dari rekodAsal
+  const prestasiLama = t?.prestasiLama ?? (r ? Number(r.prestasi) : null)
+  const tahunLama    = t?.tahunLama    ?? (r ? String(r.tarikhRekod || '').slice(0, 4) : null)
+  const namaLama     = t?.namaLama     ?? r?.namaAtlet  ?? null
+  const lokasiLama   = t?.lokasiLama   ?? r?.namaSekolah ?? r?.namaDaerah ?? r?.namaNegeri ?? null
+
+  const prestasiStatus = t?.statusRekod || 'tuntutan'
+  const delta = (() => {
+    if (!t?.prestasi || !prestasiLama) return null
+    const diff = Math.abs(Number(t.prestasi) - prestasiLama)
+    return isPadangM ? `+${diff.toFixed(2)}m` : `-${diff.toFixed(2)}s`
+  })()
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white w-full max-w-xs rounded-xl shadow-2xl overflow-hidden">
+
+        {/* Header */}
+        <div className="bg-[#003399] px-4 py-3 flex items-center justify-between">
+          <div>
+            <p className="text-[9px] text-white/50 uppercase tracking-widest">
+              Rekod {PERINGKAT_LABEL_M[peringkat] || peringkat} Dipecahkan
+            </p>
+            <p className="text-sm font-black text-white leading-tight">{acara.namaAcara || '—'}</p>
+          </div>
+          <button onClick={onClose} className="text-white/50 hover:text-white">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="p-4 space-y-3">
+          {loading ? (
+            <div className="flex items-center gap-2 py-4">
+              <div className="w-4 h-4 border-2 border-[#003399] border-t-transparent rounded-full animate-spin" />
+              <p className="text-xs text-gray-400">Memuatkan…</p>
+            </div>
+          ) : !data ? (
+            <p className="text-xs text-gray-400 py-4 text-center">Data rekod tidak dijumpai.</p>
+          ) : (
+            <>
+              {/* Rekod Baru */}
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                <p className="text-[9px] font-bold text-amber-500 uppercase tracking-widest mb-1">Rekod Baru</p>
+                <p className="text-2xl font-black text-amber-700 font-mono">{fmtP(t?.prestasi)}</p>
+                <p className="text-xs font-semibold text-gray-800 mt-1">{t?.namaAtlet || peserta.namaAtlet || '—'}</p>
+                <p className="text-[10px] text-gray-500">{t?.namaSekolah || '—'}</p>
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border border-amber-300 text-amber-700">
+                    {PERINGKAT_LABEL_M[peringkat] || peringkat}
+                  </span>
+                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                    prestasiStatus === 'aktif'
+                      ? 'border-green-300 text-green-700 bg-green-50'
+                      : 'border-orange-300 text-orange-700 bg-orange-50'
+                  }`}>
+                    {prestasiStatus === 'aktif' ? '✓ Disahkan' : '⏳ Menunggu'}
+                  </span>
+                  {delta && <span className="text-[9px] font-bold text-green-600">{delta}</span>}
+                </div>
+              </div>
+
+              {/* Rekod Lama */}
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-3">
+                <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-1">
+                  {prestasiLama ? 'Rekod Lama' : 'Tiada Rekod Sebelum Ini'}
+                </p>
+                {prestasiLama ? (
+                  <>
+                    <p className="text-xl font-black text-gray-600 font-mono">{fmtP(prestasiLama)}</p>
+                    {tahunLama && <p className="text-[10px] text-gray-400">Tahun: {tahunLama}</p>}
+                    {namaLama  && <p className="text-xs text-gray-600 mt-0.5">{namaLama}</p>}
+                    {lokasiLama && <p className="text-[10px] text-gray-400">{lokasiLama}</p>}
+                  </>
+                ) : (
+                  <p className="text-xs text-gray-400 italic">Rekod pertama untuk acara ini.</p>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── KeputusanExpanded ────────────────────────────────────────────────────────
 
-function KeputusanExpanded({ heats, acara, sekolahMap, isLoading }) {
+function KeputusanExpanded({ heats, acara, sekolahMap, isLoading, finalSetup }) {
+  const [rekodModal, setRekodModal] = useState(null) // peserta yang badge diklik
+
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 px-4 py-4">
@@ -374,28 +513,57 @@ function KeputusanExpanded({ heats, acara, sekolahMap, isLoading }) {
   const isPadang = ['padang_lompat', 'padang_balin'].includes(acara.jenisAcara)
   const isRelay  = acara.jenisAcara === 'relay'
 
-  // Hanya tunjuk heat yang tidak_rasmi atau rasmi sahaja
+  // Semak sama ada acara ini adalah saringan (bukan final/akhir)
+  const isSaringanAcara = (() => {
+    const p = (acara.peringkat  || '').toLowerCase()
+    const n = (acara.namaAcara  || '').toLowerCase()
+    return p.includes('saringan') || n.includes('saringan')
+  })()
+
+  // Tunjuk heat yang ada keputusan ('diterima' = baru, 'tidak_rasmi'/'rasmi' = data lama)
   const heatsWithResult = heats.filter(h =>
-    h.statusKeputusan === 'tidak_rasmi' || h.statusKeputusan === 'rasmi'
+    ['diterima','tidak_rasmi','rasmi'].includes(h.statusKeputusan)
   )
   if (heatsWithResult.length === 0) {
     return null
   }
 
-  // Kalau ada final heat → tunjuk final sahaja
-  // 'terus_final' = acara terus ke final (tiada saringan), 'final' = ada saringan sebelum
-  // Kalau tiada final langsung → tunjuk semua heats dengan keputusan
+  // Pisah heat final vs saringan
   const FASA_FINAL = ['final', 'terus_final']
-  const finalHeats = heatsWithResult.filter(h =>
-    FASA_FINAL.includes(h.fasa) || h.peringkat === 'final' || heats.length === 1
-  )
-  const displayHeats = finalHeats.length > 0 ? finalHeats : heatsWithResult
+  const finalHeats    = heatsWithResult.filter(h => FASA_FINAL.includes(h.fasa) || h.peringkat === 'final')
+  const saringanHeats = heatsWithResult.filter(h => !FASA_FINAL.includes(h.fasa) && h.peringkat !== 'final')
 
-  // Status paparan: ikut heat final, atau status tertinggi antara semua heat yang dipapar
-  const statusPapar = displayHeats.some(h => h.statusKeputusan === 'rasmi')
-    ? 'rasmi'
-    : 'tidak_rasmi'
+  // Jika final heat ada keputusan → tunjuk final. Kalau tiada → tunjuk saringan.
+  const showingFinal   = finalHeats.length > 0
+  const displayHeats   = showingFinal ? finalHeats : heatsWithResult
+
+  // Kolum Catatan + label FINAL hanya bila tunjuk saringan (belum ada final)
+  const showCatatanCol = isSaringanAcara && !showingFinal
+
+  // Status paparan
+  const statusPapar  = displayHeats.some(h => h.statusKeputusan === 'rasmi') ? 'rasmi' : 'tidak_rasmi'
   const isRasmiPapar = statusPapar === 'rasmi'
+
+  // Countdown bantahan — ambil countdownTamat terlambat dari heat tidak_rasmi
+  const countdownInfo = (() => {
+    if (isRasmiPapar) return null
+    const toMs = ts => {
+      if (!ts) return null
+      if (typeof ts === 'number') return ts
+      if (ts.toDate) return ts.toDate().getTime()
+      if (ts.seconds) return ts.seconds * 1000
+      return null
+    }
+    let latest = null
+    displayHeats.forEach(h => {
+      if (h.statusKeputusan !== 'tidak_rasmi') return
+      const ms = toMs(h.countdownTamat)
+      if (ms && (!latest || ms > latest)) latest = ms
+    })
+    if (!latest) return null
+    const jamMenit = new Date(latest).toLocaleTimeString('ms-MY', { hour: '2-digit', minute: '2-digit' })
+    return { expired: Date.now() > latest, jamMenit }
+  })()
 
   const allPeserta = []
   displayHeats.forEach(heat => {
@@ -404,7 +572,6 @@ function KeputusanExpanded({ heats, acara, sekolahMap, isLoading }) {
     })
   })
 
-  // Soalan 1 FIX: guna rankDalamHeat sebagai fallback bila kedudukan belum ada (tidak_rasmi)
   allPeserta.sort((a, b) => {
     const ar = a.kedudukan || a.rankDalamHeat
     const br = b.kedudukan || b.rankDalamHeat
@@ -418,29 +585,27 @@ function KeputusanExpanded({ heats, acara, sekolahMap, isLoading }) {
     return isPadang ? bv - av : av - bv
   })
 
-  // Label heat yang dipapar
-  const heatLabel = finalHeats.length > 0
+  // finalistBibs: hanya kira bila papar saringan (tiada final lagi)
+  const finalistBibs = showCatatanCol
+    ? new Set(_selectFinalists(heats, acara, finalSetup).map(f => f.noBib))
+    : new Set()
+
+  // Label
+  const heatLabel = showingFinal
     ? (displayHeats[0]?.fasa === 'terus_final' ? 'Akhir' : 'Final')
-    : displayHeats.length > 1 ? `${displayHeats.length} Heat Saringan` : 'Saringan'
+    : isSaringanAcara
+      ? (saringanHeats.length > 1 ? `${saringanHeats.length} Heat Saringan` : 'Saringan')
+      : (heatsWithResult.length > 1 ? `${heatsWithResult.length} Heat` : 'Heat')
 
   return (
     <div className="overflow-x-auto">
-      <div className={`px-3 py-1.5 border-b flex items-center gap-2 ${
-        isRasmiPapar
-          ? 'bg-green-50 border-green-100'
-          : 'bg-amber-50 border-amber-100'
-      }`}>
+      <div className="px-3 py-1.5 border-b border-gray-100 flex items-center gap-2 bg-gray-50/60">
         <span className="text-[9px] font-bold text-gray-400 bg-white border border-gray-200 px-1.5 py-0.5 rounded">
           {heatLabel}
         </span>
-        <span className={`text-[9px] font-black tracking-widest uppercase ${
-          isRasmiPapar ? 'text-green-600' : 'text-amber-600'
-        }`}>
-          {isRasmiPapar ? '✓ Rasmi' : '⏳ Sementara'}
+        <span className="text-[9px] font-black tracking-widest uppercase text-teal-600">
+          Keputusan
         </span>
-        {!isRasmiPapar && (
-          <span className="text-[9px] text-amber-500">(Tertakluk kepada pengesahan)</span>
-        )}
       </div>
       <table className="w-full text-xs min-w-max">
         <thead>
@@ -450,6 +615,7 @@ function KeputusanExpanded({ heats, acara, sekolahMap, isLoading }) {
             <th className="px-3 py-2 text-left">{isRelay ? 'Pasukan' : 'Nama Atlet'}</th>
             {!isRelay && <th className="px-3 py-2 text-left">Sekolah</th>}
             <th className="px-3 py-2 text-right">{isPadang ? 'Jarak' : 'Masa'}</th>
+            {showCatatanCol && <th className="px-2 py-2 text-center">Catatan</th>}
           </tr>
         </thead>
         <tbody>
@@ -460,10 +626,13 @@ function KeputusanExpanded({ heats, acara, sekolahMap, isLoading }) {
             const kddk        = p.kedudukan || p.rankDalamHeat
             const isSementara = !p.kedudukan && !!p.rankDalamHeat
             const hasil       = isPadang ? fmtJarak(p.keputusan) : fmtMasa(p.keputusan)
-            const medal       = kddk === 1 ? '🥇' : kddk === 2 ? '🥈' : kddk === 3 ? '🥉' : null
+            // Medal hanya bila papar final — saringan tunjuk nombor sahaja
+            const medal       = showingFinal && (kddk === 1 ? '🥇' : kddk === 2 ? '🥈' : kddk === 3 ? '🥉' : null)
+            const layakFinal  = showCatatanCol && !flagged && finalistBibs.has(p.noBib)
 
             return (
               <tr key={idx} className={`border-t border-gray-50 ${
+                layakFinal ? 'bg-blue-50/30' :
                 flagged ? 'bg-red-50/30' :
                 kddk === 1 ? 'bg-amber-50/40' :
                 idx % 2 === 1 ? 'bg-gray-50/20' : ''
@@ -480,10 +649,21 @@ function KeputusanExpanded({ heats, acara, sekolahMap, isLoading }) {
                 <td className="px-3 py-2">
                   {isRelay
                     ? <p className="font-semibold text-gray-800">{namaSkl}</p>
-                    : <p className={`font-semibold ${flagged ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
-                        {p.namaAtlet || '—'}
-                        {flagged && <span className="ml-1 no-underline text-red-500 font-bold"> {p.status}</span>}
-                      </p>
+                    : <div className="flex items-center gap-1.5">
+                        <p className={`font-semibold ${flagged ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
+                          {p.namaAtlet || '—'}
+                          {flagged && <span className="ml-1 no-underline text-red-500 font-bold"> {p.status}</span>}
+                        </p>
+                        {p.pecahRekod && (
+                          <button
+                            onClick={e => { e.stopPropagation(); setRekodModal(p) }}
+                            className="shrink-0 text-[8px] font-black px-1.5 py-0.5 rounded bg-amber-400 hover:bg-amber-500 text-white tracking-wide transition-colors"
+                            title="Klik untuk lihat rekod dipecahkan"
+                          >
+                            🏆 REKOD
+                          </button>
+                        )}
+                      </div>
                   }
                 </td>
                 {!isRelay && (
@@ -492,31 +672,54 @@ function KeputusanExpanded({ heats, acara, sekolahMap, isLoading }) {
                 <td className={`px-3 py-2 text-right font-mono font-bold text-[11px] ${flagged ? 'text-red-400' : 'text-gray-800'}`}>
                   {flagged ? p.status : (hasil || '—')}
                 </td>
+                {showCatatanCol && (
+                  <td className="px-2 py-2 text-center">
+                    {layakFinal && (
+                      <span className="inline-block text-[9px] font-black px-1.5 py-0.5 rounded bg-[#003399] text-white tracking-wide">
+                        FINAL
+                      </span>
+                    )}
+                  </td>
+                )}
               </tr>
             )
           })}
         </tbody>
       </table>
+      {rekodModal && (
+        <RekodModal
+          peserta={rekodModal}
+          acara={acara}
+          onClose={() => setRekodModal(null)}
+        />
+      )}
     </div>
   )
 }
 
 // ─── AcaraTableRow ────────────────────────────────────────────────────────────
 
-function AcaraTableRow({ item, isExpanded, onToggle, heats, isLoading, sekolahMap }) {
+function AcaraTableRow({ item, isExpanded, onToggle, heats, isLoading, sekolahMap, finalSetup }) {
   const { acara, masaMula } = item
   const noAcara  = acara.noAcara || acara.id || acara.acaraId || '—'
   const status   = acara.statusAcara || 'akan_datang'
+  const peringkatRaw = (acara.peringkat || '').toLowerCase()
+  const namaRaw      = (acara.namaAcara  || '').toLowerCase()
+  const peringkatLabel = (() => {
+    if (peringkatRaw.includes('saringan') || namaRaw.includes('saringan')) return 'Saringan'
+    if (peringkatRaw.includes('akhir') || namaRaw.includes('akhir'))       return 'Akhir'
+    if (peringkatRaw.includes('final') || namaRaw.includes('final'))       return 'Final'
+    if (peringkatRaw.includes('separuh'))                                   return 'S/Akhir'
+    return peringkat || '—'
+  })()
   const peringkat = acara.peringkat || ''
 
+  const hasResult = ['ada_keputusan','rasmi','tidak_rasmi'].includes(status)
   let catatanText = '—'
   let catatanCls  = 'text-gray-300'
-  if (status === 'rasmi') {
-    catatanText = 'KEPUTUSAN RASMI'
-    catatanCls  = 'text-green-600 font-bold text-[10px] cursor-pointer hover:underline'
-  } else if (status === 'tidak_rasmi') {
-    catatanText = 'KEPUTUSAN TIDAK RASMI'
-    catatanCls  = 'text-amber-600 font-bold text-[10px] cursor-pointer hover:underline'
+  if (hasResult) {
+    catatanText = 'KEPUTUSAN'
+    catatanCls  = 'text-teal-600 font-bold text-[10px] cursor-pointer hover:underline'
   }
 
   return (
@@ -531,7 +734,13 @@ function AcaraTableRow({ item, isExpanded, onToggle, heats, isLoading, sekolahMa
           {acara.namaAcara || acara.namaAcaraPendek || '—'}
         </td>
         <td className="px-2 py-2.5 text-center text-gray-600 text-xs">{acara.kelas || '—'}</td>
-        <td className="px-2 py-2.5 text-center text-gray-500 text-xs">{peringkat || '—'}</td>
+        <td className="px-2 py-2.5 text-center text-xs">
+          <span className={`font-semibold ${
+            peringkatLabel === 'Saringan' ? 'text-blue-500' :
+            peringkatLabel === 'Akhir' || peringkatLabel === 'Final' ? 'text-green-600' :
+            peringkatLabel === 'S/Akhir' ? 'text-purple-500' : 'text-gray-400'
+          }`}>{peringkatLabel}</span>
+        </td>
         <td className={`px-3 py-2.5 text-left ${catatanCls}`}>{catatanText}</td>
         <td className="px-2 py-2.5 text-center w-8">
           <svg className={`w-3.5 h-3.5 text-gray-300 group-hover:text-gray-400 transition-transform duration-150 inline-block ${isExpanded ? 'rotate-180' : ''}`}
@@ -548,6 +757,7 @@ function AcaraTableRow({ item, isExpanded, onToggle, heats, isLoading, sekolahMa
               acara={acara}
               sekolahMap={sekolahMap}
               isLoading={isLoading}
+              finalSetup={finalSetup}
             />
           </td>
         </tr>
@@ -592,10 +802,14 @@ export default function Home() {
   const [medalTally,          setMedalTally]          = useState([])
   const [medalLoading,        setMedalLoading]        = useState(false)
   const [expandedMedalGroups, setExpandedMedalGroups] = useState(new Set()) // default tutup
+  const [expandedKatRows,     setExpandedKatRows]     = useState(new Set()) // sekolah expand kategori
 
   // Rekod Baru
   const [rekodBaru,    setRekodBaru]    = useState([]) // rekod dari kejohanan semasa
   const [rekodLoading, setRekodLoading] = useState(false)
+
+  // Finalist setup (tetapan/finalSetup)
+  const [finalSetup,   setFinalSetup]   = useState(null)
 
   // Redirect if logged in
   useEffect(() => {
@@ -606,6 +820,9 @@ export default function Home() {
   useEffect(() => {
     getDoc(doc(db, 'tetapan', 'home'))
       .then(s => { if (s.exists()) setCfg({ ...TETAPAN_DEFAULTS, ...s.data() }) })
+    getDoc(doc(db, 'tetapan', 'finalSetup'))
+      .then(s => { if (s.exists()) setFinalSetup(s.data()) })
+      .catch(() => {})
       .catch(() => {})
     // Kategori collection — doc ID = kod (A, B, C, D, E, PPKI)
     getDocs(collection(db, 'kategori'))
@@ -614,7 +831,7 @@ export default function Home() {
         const jMap = {}
         snap.forEach(d => {
           const data = d.data()
-          map[d.id] = { umurHad: data.umurHad, nama: data.nama || d.id }
+          map[d.id] = { umurHad: data.umurHad, nama: data.nama || d.id, jenisSekolah: data.jenisSekolah || 'SR' }
           // Build jenisMap: jenisSekolah → { warna, nama }
           if (data.jenisSekolah) {
             if (!jMap[data.jenisSekolah]) {
@@ -800,6 +1017,27 @@ export default function Home() {
 
       setMedalTally(merged)
     } catch { } finally { setMedalLoading(false) }
+  }
+
+  function buildKatDetailFromTally(kodSekolah) {
+    // Baca terus dari medalTally state — data sudah ada, tiada query baru
+    const tallyRow = medalTally.find(r => r.kodSekolah === kodSekolah)
+    if (!tallyRow) return {}
+    // Field format: kat_{kategoriKod}_{jantina}_{pingat}
+    // Contoh: kat_E_L_emas, kat_E_P_gangsa
+    const grp = {}
+    Object.entries(tallyRow).forEach(([key, val]) => {
+      if (!key.startsWith('kat_') || typeof val !== 'number') return
+      const parts = key.split('_') // ['kat', kategoriKod, jantina, pingat]
+      if (parts.length < 4) return
+      const kat    = parts[1]
+      const jan    = parts[2]
+      const pingat = parts[3]
+      const grpKey = `${jan}_${kat}`
+      if (!grp[grpKey]) grp[grpKey] = { kategoriKod: kat, jantina: jan, emas: 0, perak: 0, gangsa: 0, tempat4: 0, tempat5: 0 }
+      if (pingat in grp[grpKey]) grp[grpKey][pingat] += val
+    })
+    return grp
   }
 
   async function loadRekodBaru(kejId) {
@@ -1435,6 +1673,7 @@ export default function Home() {
                                       heats={heatCache[aceraKey]}
                                       isLoading={heatLoading.has(aceraKey)}
                                       sekolahMap={sekolahMap}
+                                      finalSetup={finalSetup}
                                     />
                                   )
                                 })}
@@ -1744,10 +1983,39 @@ export default function Home() {
                             </thead>
                             <tbody>
                               {rows.map((t, i) => {
-                                const rs     = RANK_STYLE[t.rank] || {}
-                                const isTop3 = t.rank <= 3
-                                const jumlah = (t.emas||0) + (t.perak||0) + (t.gangsa||0)
+                                const rs       = RANK_STYLE[t.rank] || {}
+                                const isTop3   = t.rank <= 3
+                                const jumlah   = (t.emas||0) + (t.perak||0) + (t.gangsa||0)
+                                const isKatExp = expandedKatRows.has(t.kodSekolah)
+                                const detail   = isKatExp ? { rows: buildKatDetailFromTally(t.kodSekolah) } : null
+                                const totalCols = 5 + extraCols.length + 1 // No+Nama+E+P+G+extra+Jum
+
+                                // Kategori × jantina — ikut jenisSekolah sekolah ini sahaja
+                                // Deduplicate: pelbagai kod dengan umurHad sama → satu row sahaja
+                                const katKombos = (() => {
+                                  // Kumpul semua kod milik jenisSekolah ini, sorted by umurHad
+                                  const filtered = Object.entries(kategoriMap)
+                                    .filter(([, info]) => info.jenisSekolah === (t.jenisSekolah || 'SR'))
+                                    .sort((a, b) => (a[1].umurHad ?? 99) - (b[1].umurHad ?? 99))
+                                  // Deduplicate by umurHad: satu label per umur per jantina
+                                  // Simpan list of kods untuk matching dalam detail rows
+                                  const seen = new Set()
+                                  const out = []
+                                  filtered.forEach(([kod, info]) => {
+                                    const umur  = info.umurHad || kod
+                                    ;['L', 'P'].forEach(j => {
+                                      const dedupeKey = `${j}_${umur}`
+                                      if (!seen.has(dedupeKey)) {
+                                        seen.add(dedupeKey)
+                                        out.push({ umur, j, label: `${j}${umur}` })
+                                      }
+                                    })
+                                  })
+                                  return out
+                                })()
+
                                 return (
+                                  <>
                                   <tr key={t.id || i} className={`border-b border-gray-50 ${rs.row || 'hover:bg-gray-50/50'}`}>
                                     <td className="px-3 py-3 text-center">
                                       {isTop3
@@ -1756,10 +2024,27 @@ export default function Home() {
                                       }
                                     </td>
                                     <td className="px-3 py-3">
-                                      <p className={`font-semibold text-xs leading-tight ${isTop3 ? 'text-gray-800' : 'text-gray-600'}`}>
-                                        {t.namaSekolah || t.kodSekolah}
-                                      </p>
-                                      <p className="text-[9px] text-gray-300 font-mono mt-0.5">{t.kodSekolah}</p>
+                                      {/* Klik nama → expand kategori */}
+                                      <button
+                                        className="text-left w-full"
+                                        onClick={() => {
+                                          setExpandedKatRows(prev => {
+                                            const next = new Set(prev)
+                                            if (next.has(t.kodSekolah)) { next.delete(t.kodSekolah) }
+                                            else { next.add(t.kodSekolah) }
+                                            return next
+                                          })
+                                        }}
+                                      >
+                                        <p className={`font-semibold text-xs leading-tight ${isTop3 ? 'text-gray-800' : 'text-gray-600'} flex items-center gap-1`}>
+                                          {t.namaSekolah || t.kodSekolah}
+                                          <svg className={`w-3 h-3 shrink-0 transition-transform text-gray-400 ${isKatExp ? 'rotate-180' : ''}`}
+                                            fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                                          </svg>
+                                        </p>
+                                        <p className="text-[9px] text-gray-300 font-mono mt-0.5">{t.kodSekolah}</p>
+                                      </button>
                                     </td>
                                     {/* Medal counts */}
                                     {[
@@ -1782,6 +2067,83 @@ export default function Home() {
                                       <span className={`text-xs font-black ${jumlah > 0 ? 'text-gray-700' : 'text-gray-200'}`}>{jumlah}</span>
                                     </td>
                                   </tr>
+                                  {/* ── Expand: breakdown by kategori ── */}
+                                  {isKatExp && (
+                                    <tr key={`kat_${t.kodSekolah}`} className="bg-blue-50/40 border-b border-blue-100">
+                                      <td colSpan={totalCols} className="px-4 py-3">
+                                        {(
+                                          <div className="overflow-x-auto">
+                                            <table className="w-full text-[10px]">
+                                              <thead>
+                                                <tr className="text-gray-400 font-bold uppercase tracking-wide border-b border-blue-100">
+                                                  <th className="py-1.5 pr-3 text-left w-16">Kat</th>
+                                                  <th className="py-1.5 px-2 text-center">
+                                                    <span className="inline-block w-2.5 h-2.5 rounded-full bg-yellow-400 border border-yellow-500" />
+                                                  </th>
+                                                  <th className="py-1.5 px-2 text-center">
+                                                    <span className="inline-block w-2.5 h-2.5 rounded-full bg-gray-300 border border-gray-400" />
+                                                  </th>
+                                                  <th className="py-1.5 px-2 text-center">
+                                                    <span className="inline-block w-2.5 h-2.5 rounded-full bg-orange-300 border border-orange-400" />
+                                                  </th>
+                                                  {extraCols.map(c => (
+                                                    <th key={c.key} className="py-1.5 px-2 text-center text-gray-300">{c.label}</th>
+                                                  ))}
+                                                  <th className="py-1.5 pl-2 text-center text-gray-400">Jum</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody>
+                                                {katKombos.map(({ umur, j, label }) => {
+                                                  // Cari semua kods dalam kategoriMap dengan umurHad sama + jenisSekolah sama
+                                                  // Sum medals dari semua kods berkenaan
+                                                  const matchingKods = Object.entries(kategoriMap)
+                                                    .filter(([, info]) =>
+                                                      (info.umurHad || info.kod) === umur &&
+                                                      info.jenisSekolah === (t.jenisSekolah || 'SR')
+                                                    )
+                                                    .map(([k]) => k)
+                                                  const sumField = field => matchingKods.reduce((s, k) => s + (detail?.rows?.[`${j}_${k}`]?.[field] || 0), 0)
+                                                  const emas  = sumField('emas')
+                                                  const perak = sumField('perak')
+                                                  const gsa   = sumField('gangsa')
+                                                  const t4    = sumField('tempat4')
+                                                  const t5    = sumField('tempat5')
+                                                  const jum   = emas + perak + gsa
+                                                  const ada   = jum > 0 || t4 > 0 || t5 > 0
+                                                  return (
+                                                    <tr key={`${j}_${umur}`} className={`border-b border-blue-50/50 ${ada ? '' : 'opacity-40'}`}>
+                                                      <td className="py-1 pr-3 font-bold text-gray-600">{label}</td>
+                                                      <td className="py-1 px-2 text-center">
+                                                        <span className={`font-black ${emas > 0 ? 'text-yellow-600' : 'text-gray-200'}`}>{emas}</span>
+                                                      </td>
+                                                      <td className="py-1 px-2 text-center">
+                                                        <span className={`font-black ${perak > 0 ? 'text-gray-500' : 'text-gray-200'}`}>{perak}</span>
+                                                      </td>
+                                                      <td className="py-1 px-2 text-center">
+                                                        <span className={`font-black ${gsa > 0 ? 'text-orange-500' : 'text-gray-200'}`}>{gsa}</span>
+                                                      </td>
+                                                      {extraCols.map(c => {
+                                                        const v = c.key === 'tempat4' ? t4 : t5
+                                                        return (
+                                                          <td key={c.key} className="py-1 px-2 text-center">
+                                                            <span className={`font-bold ${v > 0 ? 'text-gray-500' : 'text-gray-200'}`}>{v}</span>
+                                                          </td>
+                                                        )
+                                                      })}
+                                                      <td className="py-1 pl-2 text-center">
+                                                        <span className={`font-black ${jum > 0 ? 'text-gray-600' : 'text-gray-200'}`}>{jum}</span>
+                                                      </td>
+                                                    </tr>
+                                                  )
+                                                })}
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  )}
+                                  </>
                                 )
                               })}
                             </tbody>

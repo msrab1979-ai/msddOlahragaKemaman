@@ -41,6 +41,13 @@ service cloud.firestore {
         allow update: if true;
         allow delete: if true; // pengurus boleh buang atlet
       }
+
+      match /pengesahan/{kodSekolah} {
+        allow read:   if true;
+        allow create: if true;
+        allow update: if true;
+        allow delete: if false; // pengesahan kekal sebagai audit trail
+      }
     }
 
     // ─── Sekolah ──────────────────────────────────────────────────────────────
@@ -59,12 +66,12 @@ service cloud.firestore {
       allow delete: if true; // reset sistem perlu padam atlet
     }
 
-    // ─── Rekod — LARANG delete (rekod sukan kekal) ────────────────────────────
+    // ─── Rekod — delete dibenar (ResetSistem admin padam rekod kejohanan) ────
     match /rekod/{id} {
       allow read:   if true;
       allow create: if true;
       allow update: if true;
-      allow delete: if false;
+      allow delete: if true; // ResetSistem admin — upgrade ke Firebase Auth untuk hadkan
     }
 
     match /rekod_tuntutan/{id} {
@@ -95,6 +102,22 @@ service cloud.firestore {
       allow create: if true;
       allow update: if true;
       allow delete: if true; // ResetSistem admin — upgrade ke Firebase Auth untuk hadkan
+    }
+
+    // ─── Pilihan Olahragawan — delete dibenar (ResetSistem admin perlu padam) ─
+    match /pilihan_olahragawan/{id} {
+      allow read:   if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true; // ResetSistem admin — upgrade ke Firebase Auth untuk hadkan
+    }
+
+    // ─── Log Reset — audit trail reset sistem ────────────────────────────────
+    match /log_reset/{id} {
+      allow read:   if true;
+      allow create: if true;
+      allow update: if false;
+      allow delete: if false; // audit trail kekal
     }
 
     // ─── Tetapan sistem ───────────────────────────────────────────────────────
@@ -129,12 +152,12 @@ service cloud.firestore {
       allow delete: if true;
     }
 
-    // ─── Bantahan — LARANG delete (audit trail) ───────────────────────────────
+    // ─── Bantahan — delete dibenar untuk ResetSistem admin ──────────────────
     match /bantahan/{id} {
       allow read:   if true;
       allow create: if true;
       allow update: if true;
-      allow delete: if false;
+      allow delete: if true; // ResetSistem admin — upgrade ke Firebase Auth untuk hadkan
     }
 
     // ─── Pendaftaran Counter — noBib auto-increment per sekolah ─────────────────
@@ -151,6 +174,14 @@ service cloud.firestore {
       allow create: if true;  // rekod pertama
       allow update: if true;  // kemas kini kiraan
       allow delete: if false; // rekod kekal sebagai audit trail
+    }
+
+    // ─── Anugerah Custom — admin cipta/padam anugerah khas kejohanan ─────────
+    match /anugerah_custom/{id} {
+      allow read:   if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;
     }
 
     // ─── TIADA wildcard catch-all ─────────────────────────────────────────────

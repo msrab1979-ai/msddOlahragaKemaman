@@ -307,6 +307,154 @@ function cetakKertasJuruhebah({ acara, pesertaFinal, rekodSemasa, rekodTuntutan,
   pdf.save(`Juruhebah_${acara.noAcara || acara.namaAcara}.pdf`)
 }
 
+// ─── PDF: Borang Teknikal Padang ──────────────────────────────────────────────
+
+function cetakBorangTeknikal({ acara, allHeatsList, namaKej, cfg }) {
+  const bilanganCubaan = acara.bilanganCubaan || 6
+  const pdf     = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+  const pageW   = pdf.internal.pageSize.getWidth()   // 297
+  const pageH   = pdf.internal.pageSize.getHeight()  // 210
+  const M       = 10
+
+  const heatsWithPeserta = allHeatsList.filter(h => (h.peserta || []).length > 0)
+  if (heatsWithPeserta.length === 0) return
+
+  const fasaLabel = (fasa) => {
+    if (fasa === 'saringan')    return 'Saringan'
+    if (fasa === 'final')       return 'Final'
+    if (fasa === 'terus_final') return 'Terus Final'
+    return fasa || ''
+  }
+
+  heatsWithPeserta.forEach((heat, idx) => {
+    if (idx > 0) pdf.addPage([297, 210])
+
+    let y = M
+
+    // ── Logo ──
+    const logoH = 14
+    if (cfg.logoKiriBase64) {
+      try { pdf.addImage(cfg.logoKiriBase64, 'PNG', M, y, logoH, logoH) } catch {}
+    }
+    if (cfg.logoKananBase64) {
+      try { pdf.addImage(cfg.logoKananBase64, 'PNG', pageW - M - logoH, y, logoH, logoH) } catch {}
+    }
+
+    // ── Header ──
+    pdf.setFontSize(11)
+    pdf.setFont('helvetica', 'bold')
+    pdf.text(namaKej || 'Kejohanan Olahraga', pageW / 2, y + 5, { align: 'center' })
+    pdf.setFontSize(9)
+    pdf.setFont('helvetica', 'normal')
+    pdf.text('BORANG TEKNIKAL PADANG', pageW / 2, y + 11, { align: 'center' })
+
+    y += logoH + 3
+
+    pdf.setDrawColor(0, 51, 153)
+    pdf.setLineWidth(0.5)
+    pdf.line(M, y, pageW - M, y)
+    y += 4
+
+    // ── Nama Acara ──
+    pdf.setFontSize(12)
+    pdf.setFont('helvetica', 'bold')
+    pdf.text(`No. ${acara.noAcara || '—'}  —  ${acara.namaAcara}`, pageW / 2, y, { align: 'center' })
+    y += 6
+
+    pdf.setFontSize(9)
+    pdf.setFont('helvetica', 'normal')
+    pdf.text(
+      `Kat ${acara.kategoriKod} · ${acara.jantina === 'L' ? 'Lelaki' : 'Perempuan'}` +
+      `  ·  ${fasaLabel(heat.fasa)}  (Kumpulan ${heat.heatKe || idx + 1})`,
+      pageW / 2, y, { align: 'center' }
+    )
+    y += 4
+
+    pdf.setDrawColor(200, 200, 200)
+    pdf.setLineWidth(0.2)
+    pdf.line(M, y, pageW - M, y)
+    y += 3
+
+    // ── Table ──
+    const cubaanHeaders = Array.from({ length: bilanganCubaan }, (_, i) => `C${i + 1}`)
+    const headers = ['Bil', 'Nama Atlet / Sekolah', 'BIB', ...cubaanHeaders, 'Terbaik']
+
+    const contentW = pageW - M * 2           // 277
+    const bilW     = 10
+    const namaW    = 72
+    const bibW     = 14
+    const remW     = contentW - bilW - namaW - bibW
+    const cubW     = remW / (bilanganCubaan + 1)  // +1 for Terbaik col
+
+    const peserta = (heat.peserta || [])
+      .slice()
+      .sort((a, b) => (a.lorong || 999) - (b.lorong || 999))
+
+    const rows = peserta.map((p, pi) => [
+      String(pi + 1),
+      (p.namaAtlet || '—') + '\n' + (p.namaSekolah || p.kodSekolah || ''),
+      p.noBib || p.lorong || '—',
+      ...Array(bilanganCubaan).fill(''),
+      '',
+    ])
+
+    const cubaanColStyles = Object.fromEntries(
+      Array.from({ length: bilanganCubaan + 1 }, (_, i) => [
+        i + 3,
+        { halign: 'center', cellWidth: cubW, minCellHeight: 14 },
+      ])
+    )
+
+    autoTable(pdf, {
+      startY: y,
+      head: [headers],
+      body: rows,
+      styles: {
+        fontSize: 9,
+        cellPadding: { top: 3, right: 2, bottom: 3, left: 3 },
+        minCellHeight: 14,
+        lineColor: [140, 140, 140],
+        lineWidth: 0.3,
+        overflow: 'linebreak',
+      },
+      headStyles: {
+        fillColor: [0, 51, 153],
+        textColor: 255,
+        fontStyle: 'bold',
+        fontSize: 8,
+        halign: 'center',
+        minCellHeight: 8,
+      },
+      alternateRowStyles: { fillColor: [248, 249, 255] },
+      columnStyles: {
+        0: { halign: 'center', cellWidth: bilW },
+        1: { cellWidth: namaW, fontStyle: 'bold' },
+        2: { halign: 'center', cellWidth: bibW, fontStyle: 'bold' },
+        ...cubaanColStyles,
+      },
+      margin: { left: M, right: M },
+    })
+
+    // ── Footer ──
+    const footY = pageH - 12
+    pdf.setDrawColor(150, 150, 150)
+    pdf.setLineWidth(0.2)
+    pdf.line(M, footY - 2, pageW - M, footY - 2)
+
+    pdf.setFontSize(8)
+    pdf.setFont('helvetica', 'normal')
+    pdf.setTextColor(70, 70, 70)
+
+    pdf.text('Pegawai Teknikal: _________________________________', M, footY + 3)
+    pdf.text('Tandatangan: ____________________________________', pageW / 2, footY + 3)
+    pdf.text(`Halaman ${idx + 1} / ${heatsWithPeserta.length}`, pageW - M, footY + 3, { align: 'right' })
+
+    pdf.setTextColor(0, 0, 0)
+  })
+
+  pdf.save(`BorangTeknikal_${acara.noAcara || acara.namaAcara}.pdf`)
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function CetakAcara() {
@@ -324,9 +472,11 @@ export default function CetakAcara() {
   const [rekodSemasa,   setRekodSemasa]   = useState(null)
   const [rekodTuntutan, setRekodTuntutan] = useState(null)
 
+  const [allHeats,      setAllHeats]      = useState([])
   const [loadingKej,   setLoadingKej]   = useState(true)
   const [loadingAcara, setLoadingAcara] = useState(false)
   const [printing,     setPrinting]     = useState(false)
+  const [printingBorang, setPrintingBorang] = useState(false)
 
   const PERINGKAT_KOD = { daerah: 'D', negeri: 'N', kebangsaan: 'K' }
 
@@ -373,6 +523,7 @@ export default function CetakAcara() {
   async function handleSelectAcara(jadual) {
     setSelectedAcara(jadual)
     setFinalHeat(null)
+    setAllHeats([])
     setRekodSemasa(null)
     setRekodTuntutan(null)
     setLoadingAcara(true)
@@ -387,11 +538,13 @@ export default function CetakAcara() {
 
       // Load final heat
       const heatSnap = await getDocs(collection(db, 'kejohanan', kejohanan.id, 'acara', aceraId, 'heat'))
-      const allHeats = heatSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-      const fHeat = allHeats.find(h => ['final', 'terus_final'].includes(h.fasa)) ||
-                    (allHeats.length === 1 ? allHeats[0] : null)
+      const loadedHeats = heatSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (a.heatKe || 0) - (b.heatKe || 0))
+      const fHeat = loadedHeats.find(h => ['final', 'terus_final'].includes(h.fasa)) ||
+                    (loadedHeats.length === 1 ? loadedHeats[0] : null)
 
       setSelectedAcara({ ...jadual, ...acaraData })
+      setAllHeats(loadedHeats)
       setFinalHeat(fHeat || null)
 
       // Load rekod
@@ -437,6 +590,22 @@ export default function CetakAcara() {
     }
   }
 
+  // ── Cetak Borang Teknikal ──
+  async function handleCetakBorang() {
+    if (!selectedAcara || allHeats.length === 0) return
+    setPrintingBorang(true)
+    try {
+      cetakBorangTeknikal({
+        acara:        selectedAcara,
+        allHeatsList: allHeats,
+        namaKej,
+        cfg,
+      })
+    } finally {
+      setPrintingBorang(false)
+    }
+  }
+
   // ─── Render ───────────────────────────────────────────────────────────────────
 
   if (loadingKej) return (
@@ -452,6 +621,8 @@ export default function CetakAcara() {
   )
 
   const acaraHari = selectedDay ? (jadualByDay[selectedDay] || []) : []
+  const isPadangAcara = ['padang_lompat', 'padang_balin'].includes(selectedAcara?.jenisAcara)
+  const heatsAdaData  = allHeats.filter(h => (h.peserta || []).length > 0).length > 0
   const pesertaPreview = finalHeat
     ? (finalHeat.peserta || [])
         .filter(p => p.rankDalamHeat && p.status === 'selesai')
@@ -551,20 +722,38 @@ export default function CetakAcara() {
                   </div>
 
                   {/* Butang Cetak */}
-                  <button
-                    onClick={handleCetak}
-                    disabled={printing || !finalHeat || pesertaPreview.length === 0}
-                    className="flex items-center gap-2 px-4 py-2 bg-[#003399] hover:bg-[#002277] text-white text-xs font-bold rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
-                  >
-                    {printing ? (
-                      <span>Mencetak...</span>
-                    ) : (
-                      <>
-                        <span>🖨️</span>
-                        <span>Cetak Acara</span>
-                      </>
+                  <div className="flex flex-col gap-2 shrink-0">
+                    <button
+                      onClick={handleCetak}
+                      disabled={printing || !finalHeat || pesertaPreview.length === 0}
+                      className="flex items-center gap-2 px-4 py-2 bg-[#003399] hover:bg-[#002277] text-white text-xs font-bold rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {printing ? (
+                        <span>Mencetak...</span>
+                      ) : (
+                        <>
+                          <span>🖨️</span>
+                          <span>Cetak Acara</span>
+                        </>
+                      )}
+                    </button>
+                    {isPadangAcara && (
+                      <button
+                        onClick={handleCetakBorang}
+                        disabled={printingBorang || !heatsAdaData}
+                        className="flex items-center gap-2 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {printingBorang ? (
+                          <span>Mencetak...</span>
+                        ) : (
+                          <>
+                            <span>📋</span>
+                            <span>Borang Teknikal</span>
+                          </>
+                        )}
+                      </button>
                     )}
-                  </button>
+                  </div>
                 </div>
 
                 {!finalHeat && (
@@ -635,11 +824,20 @@ export default function CetakAcara() {
 
               {/* Info PDF */}
               <div className="bg-gray-50 rounded-xl border border-gray-200 px-4 py-3">
-                <p className="text-xs text-gray-500 font-medium mb-1">Butang Cetak akan jana 2 PDF:</p>
+                <p className="text-xs text-gray-500 font-medium mb-1">Butang Cetak Acara akan jana 2 PDF:</p>
                 <div className="space-y-1">
                   <p className="text-xs text-gray-600">📄 <span className="font-semibold">Slip Hadiah</span> — compact, untuk majlis penyampaian hadiah</p>
                   <p className="text-xs text-gray-600">📄 <span className="font-semibold">Kertas Juruhebah</span> — font besar, untuk bacaan mikrofon</p>
                 </div>
+                {isPadangAcara && (
+                  <div className="mt-2 pt-2 border-t border-gray-200">
+                    <p className="text-xs text-gray-500 font-medium mb-1">Butang Borang Teknikal:</p>
+                    <p className="text-xs text-gray-600">
+                      📋 <span className="font-semibold">Borang Teknikal Padang</span> — landscape, {selectedAcara?.bilanganCubaan || 6} cubaan,
+                      satu halaman per kumpulan (saringan + final), ruang tulis tangan
+                    </p>
+                  </div>
+                )}
               </div>
 
             </div>
