@@ -162,6 +162,11 @@ export default function BukuKejohanan() {
       const katSnap = await getDocs(query(collection(db, 'kategori'), orderBy('urutan')))
       const katList = katSnap.docs.map(d => ({ id: d.id, ...d.data() }))
 
+      // 11. Pendaftaran (untuk analisis)
+      setProgress('Memuatkan data pendaftaran…')
+      const daftarSnap = await getDocs(collection(db, 'kejohanan', kejId, 'pendaftaran'))
+      const pendaftaranDocs = daftarSnap.docs.map(d => d.data())
+
       // ── Preview ringkasan ──
       setPreview({
         namaKej,
@@ -170,6 +175,7 @@ export default function BukuKejohanan() {
         jumlahRasmi:    Object.keys(finalHeatMap).length,
         jumlahRekod:    rekodList.length,
         jumlahPilihan:  Object.keys(pilihan).length,
+        jumlahAtlet:    pendaftaranDocs.length,
       })
 
       // ── Jana PDF ──
@@ -177,7 +183,7 @@ export default function BukuKejohanan() {
       await janaPDF({
         cfg, kej, kejId, namaKej, peringkatKej,
         sekolahList, jadualList, acaraList, acaraMap,
-        finalHeatMap, rekodMap, pilihan, mataMap, katList,
+        finalHeatMap, rekodMap, pilihan, mataMap, katList, pendaftaranDocs,
       })
 
       setMsg({ type: 'ok', text: 'Buku Kejohanan berjaya dijana dan dimuat turun.' })
@@ -192,10 +198,63 @@ export default function BukuKejohanan() {
 
   // ── Jana PDF ─────────────────────────────────────────────────────────────────
 
+  // ── Helper: bina data analisis pendaftaran ──────────────────────────────────
+
+  function buildAnalisisPendaftaran(acaraList, pendaftaranDocs, katList) {
+    const katMeta = Object.fromEntries(
+      katList.map(k => [k.id, { label: k.label || k.id, urutan: k.urutan ?? 99 }])
+    )
+    const countMap = {}
+    pendaftaranDocs.forEach(p => {
+      ;(p.acaraIds || []).forEach(aid => { countMap[aid] = (countMap[aid] || 0) + 1 })
+    })
+    const acaraColMap = {}
+    acaraList.forEach(a => {
+      const { label } = katMeta[a.kategoriKod] || { label: a.kategoriKod || '?' }
+      acaraColMap[a.id] = `${a.jantina || '?'}${label}`
+    })
+    const colSet = new Set(Object.values(acaraColMap))
+    const colHeaders = Array.from(colSet).sort((a, b) => {
+      const ja = a[0], jb = b[0]
+      if (ja !== jb) return ja === 'L' ? -1 : 1
+      const la = a.slice(1), lb = b.slice(1)
+      const ua = katList.find(k => (k.label || k.id) === la)?.urutan ?? 99
+      const ub = katList.find(k => (k.label || k.id) === lb)?.urutan ?? 99
+      return ua - ub || la.localeCompare(lb)
+    })
+    const byNamaPendek = {}
+    acaraList.forEach(a => {
+      const key = a.namaAcaraPendek || a.namaAcara || '—'
+      if (!byNamaPendek[key]) byNamaPendek[key] = []
+      byNamaPendek[key].push(a)
+    })
+    const rows = Object.entries(byNamaPendek)
+      .map(([namaPendek, acList]) => {
+        const minNo = Math.min(...acList.map(a => Number(a.noAcara) || 9999))
+        const cols = {}
+        let total = 0
+        acList.forEach(a => {
+          const col = acaraColMap[a.id]
+          const cnt = countMap[a.id] || 0
+          cols[col] = (cols[col] || 0) + cnt
+          total += cnt
+        })
+        return { namaPendek, minNo, cols, total }
+      })
+      .sort((a, b) => a.minNo - b.minNo)
+    const colTotals = {}
+    let grandTotal = 0
+    rows.forEach(r => {
+      colHeaders.forEach(c => { colTotals[c] = (colTotals[c] || 0) + (r.cols[c] || 0) })
+      grandTotal += r.total
+    })
+    return { colHeaders, rows, colTotals, grandTotal }
+  }
+
   async function janaPDF({
     cfg, kej, namaKej, peringkatKej,
     sekolahList, jadualList, acaraList, acaraMap,
-    finalHeatMap, rekodMap, pilihan, mataMap, katList,
+    finalHeatMap, rekodMap, pilihan, mataMap, katList, pendaftaranDocs,
   }) {
     const { jsPDF }         = await import('jspdf')
     const { default: autoTable } = await import('jspdf-autotable')
@@ -371,6 +430,79 @@ export default function BukuKejohanan() {
       },
       theme: 'striped',
     })
+
+    // ════════════════════════════════════════════════════════════
+    // HALAMAN — ANALISIS PENDAFTARAN
+    // ════════════════════════════════════════════════════════════
+    if (pendaftaranDocs && pendaftaranDocs.length > 0) {
+      const analisis = buildAnalisisPendaftaran(acaraList, pendaftaranDocs, katList)
+      const { colHeaders, rows: analRows, colTotals, grandTotal } = analisis
+
+      pdf.addPage()
+      hdrHalaman('Analisis Pendaftaran', 'ANALISIS PENDAFTARAN ATLET')
+      y = 26
+
+      // Stat ringkas
+      pdf.setFontSize(8)
+      pdf.setFont('helvetica', 'normal')
+      pdf.setTextColor(80, 80, 80)
+      pdf.text(
+        `Jumlah Atlet Daftar: ${pendaftaranDocs.length}   |   Jenis Acara: ${analRows.length}   |   Jumlah Pendaftaran: ${grandTotal}`,
+        M, y
+      )
+      y += 8
+
+      // Bina jadual — head 2 baris: baris 1 = "Acara" + "Jumlah", baris 2 = kolum dinamik
+      const HEAD_1 = [
+        { content: 'Acara', rowSpan: 2, styles: { valign: 'middle', halign: 'left' } },
+        ...colHeaders.map(c => ({
+          content: c,
+          styles: { halign: 'center', fontSize: 7, fontStyle: 'bold' },
+        })),
+        { content: 'Jumlah', rowSpan: 2, styles: { valign: 'middle', halign: 'center', fontStyle: 'bold' } },
+      ]
+
+      const tableRows = analRows.map(r => [
+        r.namaPendek,
+        ...colHeaders.map(c => (r.cols[c] || 0) > 0 ? String(r.cols[c]) : '—'),
+        String(r.total),
+      ])
+      // Baris jumlah
+      tableRows.push([
+        'JUMLAH',
+        ...colHeaders.map(c => String(colTotals[c] || 0)),
+        String(grandTotal),
+      ])
+
+      // Lebar kolum: nama auto, setiap kolum dinamik ~12mm, jumlah 16mm
+      const dynColW = Math.min(16, Math.floor((W - M * 2 - 40 - 16) / Math.max(colHeaders.length, 1)))
+      const colStyles = {
+        0: { cellWidth: 'auto' },
+        [colHeaders.length + 1]: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
+      }
+      colHeaders.forEach((_, i) => {
+        colStyles[i + 1] = { cellWidth: dynColW, halign: 'center' }
+      })
+
+      autoTable(pdf, {
+        startY: y,
+        head: [HEAD_1],
+        body: tableRows,
+        styles:      { fontSize: 7.5, cellPadding: 2 },
+        headStyles:  { fillColor: BLUE, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7 },
+        columnStyles: colStyles,
+        theme: 'striped',
+        didParseCell: (data) => {
+          // Baris terakhir = baris JUMLAH — warnakan
+          if (data.section === 'body' && data.row.index === tableRows.length - 1) {
+            data.cell.styles.fillColor = [220, 225, 245]
+            data.cell.styles.fontStyle = 'bold'
+            data.cell.styles.textColor = [0, 30, 100]
+          }
+        },
+      })
+      y = pdf.lastAutoTable.finalY + 6
+    }
 
     // ════════════════════════════════════════════════════════════
     // HALAMAN — JADUAL ACARA (per hari)
@@ -719,6 +851,7 @@ export default function BukuKejohanan() {
           {[
             { icon: '📄', label: 'Muka Depan', desc: 'Logo, nama kejohanan, tarikh, lokasi, statistik ringkas' },
             { icon: '🏫', label: 'Senarai Sekolah', desc: 'Semua sekolah peserta grouped by kategori' },
+            { icon: '📊', label: 'Analisis Pendaftaran', desc: 'Bilangan atlet mendaftar per acara, dikelompok ikut kategori' },
             { icon: '📅', label: 'Jadual Acara', desc: 'Jadual lengkap per hari — masa, nama acara, lokasi' },
             { icon: '🏆', label: 'Keputusan Rasmi', desc: 'Tempat 1-3 per acara yang telah RASMI, grouped by hari' },
             { icon: '⭐', label: 'Rekod Semasa', desc: 'Semua rekod aktif, grouped by kategori' },
@@ -743,6 +876,7 @@ export default function BukuKejohanan() {
             {[
               { label: 'Sekolah',       val: preview.jumlahSekolah },
               { label: 'Acara',         val: preview.jumlahAcara },
+              { label: 'Atlet Daftar',  val: preview.jumlahAtlet },
               { label: 'Acara Rasmi',   val: preview.jumlahRasmi },
               { label: 'Rekod',         val: preview.jumlahRekod },
               { label: 'Pilihan Atlet', val: preview.jumlahPilihan },

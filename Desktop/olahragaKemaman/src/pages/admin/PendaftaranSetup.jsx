@@ -3855,12 +3855,22 @@ function PPPendaftaranView({ sekolahList }) {
   }
 
   const PP_TABS = [
-    { k: 'atlet',  l: 'Atlet Saya', icon: <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg> },
-    { k: 'daftar', l: 'Daftar Acara', icon: <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg> },
-    { k: 'status', l: 'Status', icon: <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg> },
-    { k: 'cetak',  l: 'Cetak', icon: <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg> },
-    { k: 'startlist', l: 'Start List', icon: <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg> },
+    { k: 'atlet',    l: 'Atlet Saya',    icon: <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg> },
+    { k: 'daftar',   l: 'Daftar Acara',  icon: <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg> },
+    { k: 'analisa',  l: 'Analisa',        icon: <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg> },
+    { k: 'status',   l: 'Status',         icon: <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg> },
+    { k: 'cetak',    l: 'Cetak',          icon: <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg> },
+    { k: 'startlist', l: 'Pengesahan Pendaftaran', icon: <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg> },
   ]
+
+  // Semak sama ada tab Pengesahan boleh aktif (ada heat dijana)
+  const pengesahanReady = useMemo(() => {
+    const myAcaraIds = new Set(myPendaftaran.flatMap(p => p.acaraIds || []))
+    return acaraList.some(a => {
+      const aid = a.aceraId || a.id
+      return heatDijanaMap[aid] === true && myAcaraIds.has(aid) && a.isAktif !== false
+    })
+  }, [myPendaftaran, acaraList, heatDijanaMap])
 
   // ── Tab: Atlet Saya ──────────────────────────────────────────────────────────
   function renderTabAtlet() {
@@ -4795,7 +4805,151 @@ function PPPendaftaranView({ sekolahList }) {
     )
   }
 
-  // ── Tab: Start List ──────────────────────────────────────────────────────────
+  // ── Tab: Analisa Pendaftaran ─────────────────────────────────────────────────
+  function renderTabAnalisa() {
+    // Kumpul acara by kategoriKod (hanya acara berkenaan sekolah ini)
+    const acaraAktif = acaraIkutSekolah
+      .filter(a => a.isAktif !== false)
+      .sort((a, b) => (a.noAcara || 0) - (b.noAcara || 0))
+
+    const byKat = {}
+    acaraAktif.forEach(a => {
+      const k = a.kategoriKod || '?'
+      if (!byKat[k]) byKat[k] = []
+      byKat[k].push(a)
+    })
+    // Susun kod kategori ikut urutan (dari kategoriList)
+    const katKeys = Object.keys(byKat).sort((a, b) => {
+      const ua = kategoriList.find(k => (k.kod || k.id) === a)?.urutan ?? 99
+      const ub = kategoriList.find(k => (k.kod || k.id) === b)?.urutan ?? 99
+      return ua - ub || a.localeCompare(b)
+    })
+
+    const totalAcara   = acaraAktif.length
+    const totalDaftar  = acaraAktif.filter(a => (pesertaSekolahByAcara[a.aceraId || a.id] || []).length > 0).length
+    const totalBelum   = totalAcara - totalDaftar
+
+    return (
+      <div className="space-y-4">
+
+        {/* Ringkasan */}
+        <div className="grid grid-cols-3 gap-2">
+          <div className="bg-blue-50 rounded-xl px-3 py-3 text-center">
+            <p className="text-2xl font-black text-[#003399]">{totalAcara}</p>
+            <p className="text-[9px] text-gray-500 uppercase tracking-wide mt-0.5">Jumlah Acara</p>
+          </div>
+          <div className="bg-green-50 rounded-xl px-3 py-3 text-center">
+            <p className="text-2xl font-black text-green-700">{totalDaftar}</p>
+            <p className="text-[9px] text-gray-500 uppercase tracking-wide mt-0.5">Sudah Daftar</p>
+          </div>
+          <div className="bg-red-50 rounded-xl px-3 py-3 text-center">
+            <p className="text-2xl font-black text-red-600">{totalBelum}</p>
+            <p className="text-[9px] text-gray-500 uppercase tracking-wide mt-0.5">Belum Daftar</p>
+          </div>
+        </div>
+
+        {acaraAktif.length === 0 ? (
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm py-12 text-center">
+            <p className="text-xs text-gray-400">Tiada acara untuk kategori sekolah ini.</p>
+          </div>
+        ) : (
+          katKeys.map(katKod => {
+            const acaraKat = byKat[katKod]
+            const katObj   = kategoriList.find(k => (k.kod || k.id) === katKod)
+            const katNama  = katObj?.nama || katObj?.label || katKod
+
+            return (
+              <div key={katKod} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                {/* Header kategori */}
+                <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
+                  <KategoriBadge kat={katKod} kategoriList={kategoriList} />
+                  <span className="text-xs font-bold text-gray-700">{katNama}</span>
+                  <span className="ml-auto text-[10px] text-gray-400">{acaraKat.length} acara</span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-gray-100 bg-white">
+                        <th className="px-3 py-2 text-left text-[9px] font-bold text-gray-400 uppercase tracking-wide">Acara</th>
+                        <th className="px-3 py-2 text-center text-[9px] font-bold text-gray-400 uppercase tracking-wide w-24">Status</th>
+                        <th className="px-3 py-2 text-center text-[9px] font-bold text-gray-400 uppercase tracking-wide w-16">Atlet</th>
+                        <th className="px-3 py-2 text-left text-[9px] font-bold text-gray-400 uppercase tracking-wide">Catatan</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {acaraKat.map(a => {
+                        const aid      = a.aceraId || a.id
+                        const peserta  = pesertaSekolahByAcara[aid] || []
+                        const ada      = peserta.length > 0
+                        const isRelay  = a.jenisAcara === 'relay' || a.isRelay === true
+                        // Relay: hadAtletPerSekolah = bilangan PASUKAN (bukan atlet individu)
+                        // Jangan bandingkan kiraan atlet individu vs had pasukan
+                        const had     = (!isRelay) ? (a.hadAtletPerSekolah ?? a.hadAtlet ?? null) : null
+                        const lebih   = !isRelay && had !== null && peserta.length > had
+                        let catatan   = ada ? (lebih ? 'Melebihi had' : 'Cukup kuota') : 'Belum daftar'
+
+                        return (
+                          <tr key={aid} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50">
+                            <td className="px-3 py-2.5">
+                              <span className="text-[9px] font-mono text-gray-400 mr-1.5">[{a.noAcara || '—'}]</span>
+                              <span className="font-medium text-gray-800">{a.namaAcara}</span>
+                              <span className={`ml-1.5 text-[9px] font-black px-1.5 py-0.5 rounded-full ${a.jantina === 'L' ? 'bg-blue-100 text-blue-700' : 'bg-pink-100 text-pink-700'}`}>
+                                {a.jantina}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5 text-center">
+                              {ada ? (
+                                <span className="inline-flex items-center gap-1 text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full text-[10px] font-bold">
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                  </svg>
+                                  Daftar
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full text-[10px] font-bold">
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                  </svg>
+                                  Belum
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 text-center text-gray-700 font-mono">
+                              {isRelay ? (
+                                // Relay: tunjuk "X ahli" tanpa bandingkan had
+                                <span className={ada ? 'text-green-700 font-bold' : 'text-gray-400'}>
+                                  {peserta.length > 0 ? `${peserta.length} ahli` : '—'}
+                                </span>
+                              ) : (
+                                <>
+                                  <span className={ada ? 'text-green-700 font-bold' : 'text-gray-400'}>
+                                    {peserta.length}
+                                  </span>
+                                  {had !== null && <span className="text-gray-400">/{had}</span>}
+                                </>
+                              )}
+                            </td>
+                            <td className={`px-3 py-2.5 text-[10px] ${
+                              lebih ? 'text-red-600 font-bold' : ada ? 'text-green-700' : 'text-gray-400'
+                            }`}>
+                              {catatan}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )
+          })
+        )}
+      </div>
+    )
+  }
+
+  // ── Tab: Start List (Pengesahan Pendaftaran) ─────────────────────────────────
   function renderTabStartList() {
     // Acara sekolah ini yang ada heat dijana
     const myAcaraIds = new Set(
@@ -4874,14 +5028,39 @@ function PPPendaftaranView({ sekolahList }) {
           </div>
         ) : null}
 
-        {/* ── Tiada start list lagi ── */}
+        {/* ── Tiada start list lagi — tunjuk aliran proses ── */}
         {acaraDenganHeat.length === 0 ? (
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm py-16 text-center space-y-2">
-            <svg className="w-8 h-8 text-gray-200 mx-auto" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-            </svg>
-            <p className="text-xs font-semibold text-gray-400">Start list belum tersedia</p>
-            <p className="text-[10px] text-gray-300">Penganjur belum jana heat untuk acara anda.</p>
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-5">
+            <div className="text-center space-y-1">
+              <svg className="w-8 h-8 text-gray-200 mx-auto" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              </svg>
+              <p className="text-xs font-bold text-gray-500">Belum Bersedia untuk Pengesahan</p>
+              <p className="text-[10px] text-gray-400">Butang tab berwarna <strong>kelabu</strong> bermaksud start list belum dijana oleh penganjur.</p>
+            </div>
+
+            {/* Aliran proses */}
+            <div className="space-y-0">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-3">Aliran Pengesahan Pendaftaran</p>
+              {[
+                { no: 1, label: 'Daftar semua atlet ke acara',         done: myPendaftaran.length > 0,  sub: myPendaftaran.length > 0 ? `${myPendaftaran.length} atlet sudah didaftarkan` : 'Pergi ke tab "Daftar Acara"' },
+                { no: 2, label: 'Penganjur jana start list (heat)',     done: false,                     sub: 'Menunggu penganjur jana heat — tiada tindakan diperlukan dari anda', waiting: true },
+                { no: 3, label: 'Semak Start List pasukan anda',        done: false,                     sub: 'Tab ini akan bertukar BIRU apabila start list tersedia' },
+                { no: 4, label: 'Klik "Sahkan & Kunci" pendaftaran',    done: false,                     sub: 'Pendaftaran akan dikunci selepas disahkan' },
+              ].map(step => (
+                <div key={step.no} className="flex gap-3 py-2.5 border-b border-gray-50 last:border-0">
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-[10px] font-black ${
+                    step.done ? 'bg-green-500 text-white' : step.waiting ? 'bg-amber-400 text-white animate-pulse' : 'bg-gray-200 text-gray-500'
+                  }`}>
+                    {step.done ? '✓' : step.no}
+                  </div>
+                  <div>
+                    <p className={`text-xs font-semibold ${step.done ? 'text-green-700' : 'text-gray-600'}`}>{step.label}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">{step.sub}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
           <>
@@ -5003,19 +5182,36 @@ function PPPendaftaranView({ sekolahList }) {
 
       {/* Tab switcher */}
       <div className="flex gap-1 p-1 bg-gray-100 rounded-xl w-fit overflow-x-auto">
-        {PP_TABS.map(t => (
-          <button key={t.k} onClick={() => setPpTab(t.k)}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-all whitespace-nowrap ${
-              ppTab === t.k ? 'bg-white text-[#003399] shadow-sm' : 'text-gray-500 hover:text-gray-700'
-            }`}>
-            {t.icon}{t.l}
-          </button>
-        ))}
+        {PP_TABS.map(t => {
+          const isActive = ppTab === t.k
+          // Pengesahan tab: biru jika ready, hijau jika sudah dikunci, kelabu jika belum
+          let tabCls = isActive
+            ? 'bg-white text-[#003399] shadow-sm'
+            : t.k === 'startlist'
+              ? isDikunci
+                ? 'bg-green-50 text-green-700 hover:bg-green-100'
+                : pengesahanReady
+                  ? 'bg-blue-50 text-[#003399] hover:bg-blue-100'
+                  : 'text-gray-400 hover:text-gray-600'
+              : 'text-gray-500 hover:text-gray-700'
+          return (
+            <button key={t.k} onClick={() => setPpTab(t.k)}
+              className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-all whitespace-nowrap ${tabCls}`}>
+              {t.icon}{t.l}
+              {t.k === 'startlist' && !isActive && (
+                <span className={`w-2 h-2 rounded-full shrink-0 ${
+                  isDikunci ? 'bg-green-500' : pengesahanReady ? 'bg-[#003399] animate-pulse' : 'bg-gray-300'
+                }`} />
+              )}
+            </button>
+          )
+        })}
       </div>
 
       {/* Tab content */}
       {ppTab === 'atlet'     && renderTabAtlet()}
       {ppTab === 'daftar'    && renderTabDaftar()}
+      {ppTab === 'analisa'   && renderTabAnalisa()}
       {ppTab === 'status'    && renderTabStatus()}
       {ppTab === 'cetak'     && renderTabCetak()}
       {ppTab === 'startlist' && renderTabStartList()}

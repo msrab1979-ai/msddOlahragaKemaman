@@ -177,7 +177,7 @@ export default function ManualPendaftaran() {
 
         <div className="space-y-0 mb-4">
           <Langkah bil="1" teks='Pergi ke menu "Pendaftaran Atlet" di bar sisi.' />
-          <Langkah bil="2" teks='Pilih tab "Urus Atlet" (Tab 1).' />
+          <Langkah bil="2" teks='Pilih tab "Atlet Saya" (tab pertama).' />
           <Langkah bil="3" teks='Klik butang "+ Tambah Atlet".' />
           <Langkah
             bil="4"
@@ -209,7 +209,7 @@ export default function ManualPendaftaran() {
 
         <div className="space-y-0 mb-4">
           <Langkah bil="1" teks='Pergi ke menu "Pendaftaran Atlet" di bar sisi.' />
-          <Langkah bil="2" teks='Pilih tab "Daftar Acara" (Tab 2).' />
+          <Langkah bil="2" teks='Pilih tab "Daftar Acara".' />
           <Langkah bil="3" teks="Pilih kejohanan dari senarai (jika ada lebih dari satu)." />
           <Langkah bil="4" teks="Cari atlet anda — taip nama atau No. BIB dalam kotak carian." />
           <Langkah bil="5" teks='Klik nama atlet, kemudian klik "Daftar ke Acara".' />
@@ -232,11 +232,121 @@ export default function ManualPendaftaran() {
       </div>
 
       {/* ════════════════════════════════════════════════
-          SEKSYEN 3 — PERATURAN NO. DADA (BIB)
+          SEKSYEN 3 — ANALISA PENDAFTARAN
       ════════════════════════════════════════════════ */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <SeksyenHdr
           nombor="3"
+          tajuk='Tab "Analisa Pendaftaran"'
+          sub="Semak status pendaftaran atlet anda bagi setiap acara"
+        />
+
+        <div className="space-y-0 mb-4">
+          <Langkah bil="1" teks='Pergi ke menu "Pendaftaran Atlet" di bar sisi.' />
+          <Langkah bil="2" teks='Klik tab "Analisa".' />
+          <Langkah
+            bil="3"
+            teks="Jadual akan tunjukkan semua acara yang berkenaan dengan kategori sekolah anda, dikumpulkan mengikut kategori."
+          />
+        </div>
+
+        {/* Penjelasan status */}
+        <div className="rounded-xl border border-gray-200 overflow-hidden mb-4">
+          <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
+            <p className="text-[10px] font-bold text-gray-600 uppercase tracking-wide">Status dalam Jadual Analisa</p>
+          </div>
+          <div className="divide-y divide-gray-100">
+            <div className="px-4 py-3 flex items-start gap-3">
+              <span className="inline-flex items-center gap-1 text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 mt-0.5">
+                ✓ Daftar
+              </span>
+              <p className="text-[11px] text-gray-600">
+                Sekolah anda <strong>sudah mendaftarkan atlet</strong> ke acara ini. Catatan "Cukup kuota" bermaksud bilangan atlet masih dalam had yang ditetapkan.
+              </p>
+            </div>
+            <div className="px-4 py-3 flex items-start gap-3">
+              <span className="inline-flex items-center gap-1 text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 mt-0.5">
+                ✗ Belum
+              </span>
+              <p className="text-[11px] text-gray-600">
+                Tiada atlet dari sekolah anda yang didaftarkan ke acara ini. Pergi ke tab <strong>"Daftar Acara"</strong> untuk mendaftar.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <InfoKotak icon="📋">
+          Jadual ini <strong>automatik dikemaskini</strong> mengikut pendaftaran semasa.
+          Gunakan tab ini untuk semak sama ada semua acara yang disasarkan sudah didaftarkan sebelum tarikh tutup.
+        </InfoKotak>
+      </div>
+
+      {/* ════════════════════════════════════════════════
+          SEKSYEN 4 — PENGESAHAN PENDAFTARAN
+      ════════════════════════════════════════════════ */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <SeksyenHdr
+          nombor="4"
+          tajuk='Tab "Pengesahan Pendaftaran"'
+          sub='Sahkan dan kunci pendaftaran sekolah anda — langkah akhir sebelum kejohanan'
+        />
+
+        {/* Warna tab */}
+        <div className="rounded-xl border border-gray-200 overflow-hidden mb-4">
+          <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
+            <p className="text-[10px] font-bold text-gray-600 uppercase tracking-wide">Warna Tab Pengesahan Pendaftaran</p>
+          </div>
+          <div className="divide-y divide-gray-100">
+            <div className="px-4 py-3 flex items-center gap-3">
+              <span className="px-3 py-1.5 text-[10px] font-bold rounded-lg bg-blue-50 text-[#003399] shrink-0 border border-blue-200">
+                Biru ●
+              </span>
+              <p className="text-[11px] text-gray-600">
+                <strong>Bersedia.</strong> Start list telah dijana oleh penganjur. Anda boleh semak senarai giliran (heat) pasukan anda, kemudian klik "Sahkan &amp; Kunci".
+              </p>
+            </div>
+            <div className="px-4 py-3 flex items-center gap-3">
+              <span className="px-3 py-1.5 text-[10px] font-bold rounded-lg bg-gray-100 text-gray-400 shrink-0 border border-gray-200">
+                Kelabu
+              </span>
+              <p className="text-[11px] text-gray-600">
+                <strong>Belum bersedia.</strong> Penganjur belum jana start list. Tiada tindakan diperlukan — sila tunggu notifikasi dari penganjur.
+              </p>
+            </div>
+            <div className="px-4 py-3 flex items-center gap-3">
+              <span className="px-3 py-1.5 text-[10px] font-bold rounded-lg bg-green-50 text-green-700 shrink-0 border border-green-200">
+                Hijau ✓
+              </span>
+              <p className="text-[11px] text-gray-600">
+                <strong>Dikunci.</strong> Anda telah mengesahkan. Pendaftaran dikunci — hubungi penganjur untuk sebarang perubahan.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-0 mb-4">
+          <Langkah bil="1" teks='Tunggu tab "Pengesahan Pendaftaran" bertukar warna BIRU.' nota="Tab berwarna kelabu bermaksud start list belum tersedia. Tiada tindakan perlu." />
+          <Langkah bil="2" teks='Klik tab "Pengesahan Pendaftaran" dan semak senarai giliran (heat) atlet anda.' />
+          <Langkah bil="3" teks='Pastikan semua maklumat (nama atlet, no. BIB, giliran) adalah betul.' />
+          <Langkah
+            bil="4"
+            teks='Klik butang "Sahkan & Kunci".'
+            nota="AMARAN: Tindakan ini akan mengunci pendaftaran. Tiada perubahan boleh dibuat melalui sistem selepas pengesahan."
+          />
+        </div>
+
+        <AmaranKotak>
+          Pengesahan adalah <strong>tidak boleh dibatalkan</strong> melalui sistem. Setelah disahkan,
+          hubungi terus penganjur kejohanan untuk sebarang pembetulan.
+        </AmaranKotak>
+      </div>
+
+      {/* ════════════════════════════════════════════════
+          SEKSYEN 5 — PERATURAN NO. DADA (BIB)
+      ════════════════════════════════════════════════ */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <SeksyenHdr
+          nombor="5"
           tajuk="Peraturan No. Dada (BIB)"
           sub="No. dada adalah identiti fizikal atlet di padang"
         />
@@ -264,11 +374,11 @@ export default function ManualPendaftaran() {
       </div>
 
       {/* ════════════════════════════════════════════════
-          SEKSYEN 4 — HAD ACARA PER INDIVIDU (LIVE)
+          SEKSYEN 6 — HAD ACARA PER INDIVIDU (LIVE)
       ════════════════════════════════════════════════ */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <SeksyenHdr
-          nombor="4"
+          nombor="6"
           tajuk="Had Acara Per Individu"
           sub="Bilangan acara maksimum yang boleh disertai oleh seorang atlet"
         />
@@ -354,11 +464,11 @@ export default function ManualPendaftaran() {
       </div>
 
       {/* ════════════════════════════════════════════════
-          SEKSYEN 5 — HAD PESERTA PER ACARA (LIVE)
+          SEKSYEN 7 — HAD PESERTA PER ACARA (LIVE)
       ════════════════════════════════════════════════ */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <SeksyenHdr
-          nombor="5"
+          nombor="7"
           tajuk="Had Peserta Per Acara"
           sub="Bilangan atlet maksimum dari sekolah anda bagi setiap acara"
         />

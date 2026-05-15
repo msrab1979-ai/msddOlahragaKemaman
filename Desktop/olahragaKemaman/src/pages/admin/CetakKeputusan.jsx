@@ -50,10 +50,11 @@ export default function CetakKeputusan() {
   const [msg,         setMsg]         = useState(null)
 
   // Data asas
-  const [cfg,         setCfg]         = useState({})
-  const [kejId,       setKejId]       = useState('')
-  const [namaKej,     setNamaKej]     = useState('')
-  const [peringkatKej, setPeringkatKej] = useState('D')
+  const [cfg,              setCfg]              = useState({})
+  const [kejId,            setKejId]            = useState('')
+  const [namaKej,          setNamaKej]          = useState('')
+  const [peringkatKej,     setPeringkatKej]     = useState('D')
+  const [bilanganKedudukan, setBilanganKedudukan] = useState(8)
   const [days,        setDays]        = useState([])       // ['2025-05-01', ...]
   const [acaraByDay,  setAcaraByDay]  = useState({})       // date → [{ acara, masaMula, lokasi }]
   const [acaraMap,    setAcaraMap]    = useState({})       // acaraId → acara data
@@ -82,6 +83,7 @@ export default function CetakKeputusan() {
         setKejId(kej.id)
         setNamaKej(kData.namaKejohanan || cfgData.namaKejohanan || 'Kejohanan Olahraga')
         setPeringkatKej({ daerah: 'D', negeri: 'N', kebangsaan: 'K' }[kData.peringkat] || 'D')
+        setBilanganKedudukan(kData.bilanganKedudukan ?? 8)
 
         // Jadual & acara
         const [jadualSnap, acaraSnap, rekodSnap] = await Promise.all([
@@ -228,23 +230,20 @@ export default function CetakKeputusan() {
         const isPadang = ['padang_lompat', 'padang_balin'].includes(acara.jenisAcara)
         const isRelay  = acara.jenisAcara === 'relay'
 
-        // Peserta: semua yang ada rank, sorted
+        // Peserta: had kepada bilanganKedudukan (dari tetapan kejohanan), sorted
         const peserta = (heat.peserta || [])
           .filter(p => p.rankDalamHeat)
           .sort((a, b) => (a.rankDalamHeat || 99) - (b.rankDalamHeat || 99))
+          .slice(0, bilanganKedudukan)
 
         if (peserta.length === 0) continue
 
-        // Semak rekod pecah
-        const rKey    = rekodKey(acara.namaAcara, acara.jantina, acara.kategoriKod, peringkatKej)
+        // Rekod: rujuk koleksi rekod base acara + kategori
+        const rKey     = rekodKey(acara.namaAcara, acara.jantina, acara.kategoriKod, peringkatKej)
         const rekodDoc = rekodMap[rKey] || null
-        const top1    = peserta[0]
-        let rekodPecah = false
-        if (rekodDoc && top1?.keputusan != null && top1.status === 'selesai') {
-          const np = Number(top1.keputusan)
-          const rp = Number(rekodDoc.prestasi)
-          rekodPecah = isPadang ? np > rp : np < rp
-        }
+        const top1     = peserta[0]
+        // rekodBaru = rekod dipecah dalam kejohanan ini (postRasmi dah jalankan)
+        const rekodBaru = rekodDoc && rekodDoc.kejohananId === kejId
 
         // Baris peserta
         const rows = peserta.map(p => {
@@ -270,7 +269,7 @@ export default function CetakKeputusan() {
         ].filter(Boolean).join('  ')
 
         // Perlu halaman baru?
-        const estH = 8 + rows.length * 7 + (rekodPecah ? 14 : 0)
+        const estH = 8 + rows.length * 7 + (rekodDoc ? (rekodBaru ? 20 : 12) : 0)
         if (y + estH > 270) {
           y = addHdr(false)
           isFirst = false
@@ -331,32 +330,77 @@ export default function CetakKeputusan() {
         })
         y = pdf.lastAutoTable.finalY
 
-        // ── Rekod dipecahkan & rekod terkini ──
-        if (rekodPecah && top1) {
-          const newP = fmtPrestasi(top1.keputusan, acara.jenisAcara)
-          const oldP = fmtPrestasi(rekodDoc.prestasi, rekodDoc.unit === 'm' ? 'padang_lompat' : 'lorong')
-          const PERINGKAT_LABEL = { D: 'Daerah', N: 'Negeri', K: 'Kebangsaan' }
-          const pLabel = PERINGKAT_LABEL[peringkatKej] || peringkatKej
+        // ── Kotak rekod ──
+        // Case A: rekod baru dipecah dalam kejohanan ini (postRasmi dah run)
+        // Case B: rekod lama dari koleksi (untuk rujukan juruhebah)
+        const PERINGKAT_LABEL_MAP = { D: 'Daerah', N: 'Negeri', K: 'Kebangsaan' }
+        const pLabel = PERINGKAT_LABEL_MAP[peringkatKej] || peringkatKej
 
-          pdf.setFillColor(255, 243, 205)
-          pdf.setDrawColor(200, 150, 0)
+        if (rekodDoc) {
           pdf.setLineWidth(0.3)
-          pdf.roundedRect(M, y + 2, W - M * 2, 12, 2, 2, 'FD')
-
           pdf.setFontSize(8)
-          pdf.setFont('helvetica', 'bold')
-          pdf.setTextColor(120, 80, 0)
-          pdf.text(`★ REKOD ${pLabel.toUpperCase()} DIPECAHKAN!`, M + 3, y + 7)
 
-          pdf.setFont('helvetica', 'normal')
-          pdf.setFontSize(7.5)
-          pdf.setTextColor(60, 40, 0)
-          pdf.text(
-            `Baru: ${newP}  (${top1.namaAtlet || '—'}, ${top1.kodSekolah || '—'})   Lama: ${oldP}  (${rekodDoc.namaAtlet || '—'}, ${rekodDoc.tarikhRekod || '—'})`,
-            M + 3, y + 12
-          )
-          pdf.setTextColor(0, 0, 0)
-          y += 16
+          if (rekodBaru) {
+            // ── Case A: Rekod baru dipecah ──
+            const hasLama = rekodDoc.prestasiLama != null
+            const boxH    = hasLama ? 18 : 14
+            pdf.setFillColor(255, 243, 205)
+            pdf.setDrawColor(200, 150, 0)
+            pdf.roundedRect(M, y + 2, W - M * 2, boxH, 2, 2, 'FD')
+
+            // Baris 1: rekod baru
+            pdf.setFont('helvetica', 'bold')
+            pdf.setTextColor(120, 80, 0)
+            const newNama  = rekodDoc.namaAtlet  || (top1?.namaAtlet || '—')
+            const newSkol  = rekodDoc.namaSekolah || rekodDoc.kodSekolah || (top1?.kodSekolah || '—')
+            const newP     = fmtPrestasi(rekodDoc.prestasi, acara.jenisAcara)
+            pdf.text(
+              '[REKOD ' + pLabel.toUpperCase() + ' BARU]  ' + newP + '  --  ' + newNama + '  (' + newSkol + ')',
+              M + 3, y + 8
+            )
+
+            // Baris 2: rekod lama
+            pdf.setFont('helvetica', 'normal')
+            pdf.setFontSize(7.5)
+            pdf.setTextColor(80, 55, 10)
+            if (hasLama) {
+              const oldP    = fmtPrestasi(rekodDoc.prestasiLama, acara.jenisAcara)
+              const oldNama = rekodDoc.namaLama    || '—'
+              const oldLok  = rekodDoc.lokasiLama  || '—'
+              const oldThn  = rekodDoc.tahunLama   || ''
+              pdf.text(
+                'Rekod Lama: ' + oldP + '  --  ' + oldNama + '  (' + oldLok + ')' +
+                (oldThn ? '  ' + oldThn : ''),
+                M + 3, y + 14
+              )
+            } else {
+              pdf.text('Rekod Pertama Ditetapkan', M + 3, y + 14)
+            }
+
+            pdf.setTextColor(0, 0, 0)
+            y += boxH + 6
+
+          } else {
+            // ── Case B: Tunjuk rekod semasa untuk rujukan juruhebah ──
+            pdf.setFillColor(235, 242, 255)
+            pdf.setDrawColor(150, 170, 220)
+            pdf.roundedRect(M, y + 2, W - M * 2, 10, 2, 2, 'FD')
+
+            pdf.setFont('helvetica', 'normal')
+            pdf.setTextColor(40, 60, 130)
+            const rP    = fmtPrestasi(rekodDoc.prestasi, acara.jenisAcara)
+            const rNama = rekodDoc.namaAtlet  || '—'
+            const rSkol = rekodDoc.namaSekolah || rekodDoc.lokasiLama || '—'
+            const rThn  = rekodDoc.tarikhRekod ? String(rekodDoc.tarikhRekod).slice(0, 4) : ''
+            pdf.text(
+              'Rekod ' + pLabel + ':  ' + rP + '  --  ' + rNama + '  (' + rSkol + ')' +
+              (rThn ? '  ' + rThn : ''),
+              M + 3, y + 8
+            )
+
+            pdf.setTextColor(0, 0, 0)
+            y += 16
+          }
         } else {
           y += 4
         }
@@ -406,6 +450,7 @@ export default function CetakKeputusan() {
         const peserta = (heat.peserta || [])
           .filter(p => p.rankDalamHeat)
           .sort((a, b) => (a.rankDalamHeat || 99) - (b.rankDalamHeat || 99))
+          .slice(0, bilanganKedudukan)
 
         const rKey     = rekodKey(acara.namaAcara, acara.jantina, acara.kategoriKod, peringkatKej)
         const rekodDoc = rekodMap[rKey] || null

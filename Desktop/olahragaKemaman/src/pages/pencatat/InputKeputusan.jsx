@@ -12,10 +12,12 @@ import {
   collection, getDocs, getDoc, doc, updateDoc, setDoc, deleteField,
   query, orderBy, where, serverTimestamp, Timestamp, onSnapshot, runTransaction, increment,
 } from 'firebase/firestore'
-import { selectFinalists as _selectFinalists, assignLorong as _assignLorong } from '../../utils/finalistUtils'
+import { selectFinalists as _selectFinalists, assignLorong as _assignLorong, getFinalistSetup as _getFinalistSetup } from '../../utils/finalistUtils'
 import { runPostRasmi } from '../../utils/postRasmiUtils'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -74,25 +76,30 @@ function jadualMasaInfo(masaMula, nowMs) {
 
 function AcaraCard({ acara, masa, nowMs, onClick }) {
   const masaInfo  = masa ? jadualMasaInfo(masa, nowMs || Date.now()) : null
-  const hasRasmi  = (acara._rasmiHeat || 0) > 0
-  const hasDraf   = (acara._drafHeat  || 0) > 0
-  const total     = acara._totalHeat  || 0
+  const selesai   = acara._rasmiHeat || 0
+  const draf      = acara._drafHeat  || 0
+  const total     = acara._totalHeat || 0
+  const allDone   = total > 0 && selesai === total
+  const anyDone   = selesai > 0
+  const anyDraf   = draf > 0
 
-  // Left accent colour
-  const accent = hasRasmi ? 'bg-green-500' : hasDraf ? 'bg-amber-400' : total > 0 ? 'bg-gray-200' : 'bg-transparent'
+  const accent = allDone ? 'bg-green-500' : anyDone ? 'bg-green-400' : anyDraf ? 'bg-amber-400' : total > 0 ? 'bg-gray-200' : 'bg-transparent'
 
-  // Status badge
-  const badge = hasRasmi
-    ? { text: `✓ ${acara._rasmiHeat} Rasmi${acara._drafHeat > 0 ? ` + ${acara._drafHeat} Draf` : ''}`, cls: 'bg-green-100 text-green-700' }
-    : hasDraf
-    ? { text: `⏳ ${acara._drafHeat} Tidak Rasmi`, cls: 'bg-amber-100 text-amber-700' }
+  const badge = allDone
+    ? { text: `✓ Selesai`, cls: 'bg-green-500 text-white' }
+    : anyDone
+    ? { text: `✓ ${selesai}/${total} Heat`, cls: 'bg-green-100 text-green-700' }
+    : anyDraf
+    ? { text: `⏳ ${draf} Draf`, cls: 'bg-amber-100 text-amber-700' }
     : total > 0
     ? { text: `${total} heat · Belum`, cls: 'bg-gray-100 text-gray-400' }
     : null
 
   return (
     <button onClick={onClick}
-      className="w-full text-left bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md transition-all active:scale-[0.98] overflow-hidden">
+      className={`w-full text-left border rounded-2xl shadow-sm hover:shadow-md transition-all active:scale-[0.98] overflow-hidden ${
+        allDone ? 'bg-green-50/60 border-green-200' : 'bg-white border-gray-100'
+      }`}>
       <div className="flex">
         {/* Left accent bar */}
         <div className={`w-1.5 shrink-0 ${accent}`} />
@@ -100,33 +107,41 @@ function AcaraCard({ acara, masa, nowMs, onClick }) {
         <div className="flex-1 px-3.5 py-3">
           <div className="flex items-start gap-3">
             {/* No. Acara */}
-            <div className="shrink-0 w-9 h-9 rounded-xl bg-[#003399]/8 flex items-center justify-center mt-0.5">
-              <span className="text-[11px] font-black text-[#003399]">{acara.noAcara ?? '—'}</span>
+            <div className={`shrink-0 w-9 h-9 rounded-xl flex items-center justify-center mt-0.5 ${
+              allDone ? 'bg-green-100' : 'bg-[#003399]/8'
+            }`}>
+              {allDone
+                ? <span className="text-base text-green-600">✓</span>
+                : <span className="text-[11px] font-black text-[#003399]">{acara.noAcara ?? '—'}</span>
+              }
             </div>
 
             {/* Nama + info */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <p className="text-sm font-bold text-gray-800 leading-tight">{acara.namaAcara}</p>
-                {badge && (
+                <p className={`text-sm font-bold leading-tight ${allDone ? 'text-gray-400' : 'text-gray-800'}`}>
+                  {acara.namaAcara}
+                  {allDone && <span className="ml-1.5 text-[9px] font-black text-green-600 uppercase tracking-wide">Siap</span>}
+                </p>
+                {badge && !allDone && (
                   <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full leading-none ${badge.cls}`}>
                     {badge.text}
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-gray-400 mt-0.5">
+              <p className={`text-[11px] mt-0.5 ${allDone ? 'text-gray-300' : 'text-gray-400'}`}>
                 {acara.jantina === 'L' ? 'Lelaki' : acara.jantina === 'P' ? 'Perempuan' : acara.jantina}
                 {' · '}{acara.kategoriKod || acara.kategori}
                 {' · '}{JENIS_LABEL[acara.jenisAcara] || acara.jenisAcara}
               </p>
-              {masaInfo && (
+              {masaInfo && !allDone && (
                 <p className={`text-[10px] mt-0.5 ${masaInfo.cls}`}>{masaInfo.label}</p>
               )}
             </div>
 
             {/* Heat dots */}
             <div className="shrink-0 pt-1">
-              <HeatDots total={total} rasmi={acara._rasmiHeat || 0} draf={acara._drafHeat || 0} />
+              <HeatDots total={total} rasmi={selesai} draf={draf} />
             </div>
           </div>
         </div>
@@ -137,53 +152,76 @@ function AcaraCard({ acara, masa, nowMs, onClick }) {
 
 // ─── Acara row (flat table row for home screen) ───────────────────────────────
 
-function AcaraRow({ acara, masa, nowMs, isLast, onClick }) {
+function AcaraRow({ acara, masa, nowMs, isLast, jenisRound, onClick }) {
   const masaInfo = masa ? jadualMasaInfo(masa, nowMs || Date.now()) : null
 
-  const hasRasmi = (acara._rasmiHeat || 0) > 0
-  const hasDraf  = (acara._drafHeat  || 0) > 0
-  const total    = acara._totalHeat  || 0
+  const selesai  = acara._rasmiHeat || 0
+  const draf     = acara._drafHeat  || 0
+  const total    = acara._totalHeat || 0
+  const allDone  = total > 0 && selesai === total
+  const anyDone  = selesai > 0
 
-  // Left border colour
-  const borderCls = hasRasmi ? 'border-l-green-500'
-    : hasDraf ? 'border-l-amber-400'
+  const borderCls = allDone ? 'border-l-green-500'
+    : anyDone ? 'border-l-green-400'
+    : draf > 0 ? 'border-l-amber-400'
     : total > 0 ? 'border-l-gray-200'
     : 'border-l-transparent'
 
-  // Status badge
-  const badge = hasRasmi
-    ? { text: `✓ Rasmi${hasDraf ? `+${acara._drafHeat}` : ''}`, cls: 'bg-green-100 text-green-700' }
-    : hasDraf
+  const badge = allDone
+    ? { text: '✓ Siap', cls: 'bg-green-500 text-white' }
+    : anyDone
+    ? { text: `✓ ${selesai}/${total}`, cls: 'bg-green-100 text-green-700' }
+    : draf > 0
     ? { text: '⏳ Draf', cls: 'bg-amber-100 text-amber-700' }
     : total > 0
     ? { text: `${total}H Belum`, cls: 'bg-gray-100 text-gray-400' }
-    : { text: 'Tiada Heat', cls: 'bg-gray-50 text-gray-300' }
+    : { text: 'Belum', cls: 'bg-gray-100 text-gray-400' }
+
+  const jenisBadge = jenisRound === 'saringan'
+    ? { text: 'Saringan', cls: 'bg-blue-50 text-blue-600 border border-blue-100' }
+    : jenisRound === 'final'
+    ? { text: 'Final', cls: 'bg-amber-50 text-amber-600 border border-amber-100' }
+    : { text: 'Terus Final', cls: 'bg-purple-50 text-purple-500 border border-purple-100' }
 
   return (
     <button onClick={onClick}
-      className={`w-full text-left border-l-4 ${borderCls} ${!isLast ? 'border-b border-gray-50' : ''} hover:bg-blue-50/30 active:bg-blue-50/60 transition-colors`}>
-      <div className="grid px-3 py-2.5 items-center gap-2"
-        style={{ gridTemplateColumns: '40px 48px 1fr 72px' }}>
+      className={`w-full text-left border-l-4 ${borderCls} ${!isLast ? 'border-b border-gray-50' : ''} ${
+        allDone ? 'bg-green-50/40 hover:bg-green-50/60' : 'hover:bg-blue-50/30'
+      } active:bg-blue-50/60 transition-colors`}>
+      <div className="grid px-3 py-2.5 items-center gap-1.5"
+        style={{ gridTemplateColumns: '36px 44px 1fr 58px 64px' }}>
 
         {/* No. Acara */}
         <div className="flex items-center justify-center">
-          <span className="text-xs font-black text-[#003399]">{acara.noAcara ?? '—'}</span>
+          {allDone
+            ? <span className="text-sm text-green-500 font-black">✓</span>
+            : <span className="text-xs font-black text-[#003399]">{acara.noAcara ?? '—'}</span>
+          }
         </div>
 
         {/* Masa */}
         <div className="flex items-center">
           {masaInfo
-            ? <span className={`text-[10px] font-semibold leading-tight ${masaInfo.cls}`}>{masaInfo.label}</span>
+            ? <span className={`text-[10px] font-semibold leading-tight ${allDone ? 'text-gray-300' : masaInfo.cls}`}>{masaInfo.label}</span>
             : <span className="text-[10px] text-gray-300">—</span>}
         </div>
 
         {/* Nama + subtitle */}
         <div className="min-w-0">
-          <p className="text-[11px] font-bold text-gray-800 leading-tight truncate">{acara.namaAcara}</p>
+          <p className={`text-[11px] font-bold leading-tight truncate ${allDone ? 'text-gray-400' : 'text-gray-800'}`}>
+            {acara.namaAcara}
+          </p>
           <p className="text-[9px] text-gray-400 leading-tight mt-0.5 truncate">
             {acara.jantina === 'L' ? 'Lelaki' : acara.jantina === 'P' ? 'Perempuan' : (acara.jantina || '')}
             {(acara.kategoriKod || acara.kategori) ? ` · ${acara.kategoriKod || acara.kategori}` : ''}
           </p>
+        </div>
+
+        {/* Jenis Round badge */}
+        <div className="flex items-center justify-center">
+          <span className={`text-[8px] font-bold px-1 py-0.5 rounded whitespace-nowrap ${jenisBadge.cls}`}>
+            {jenisBadge.text}
+          </span>
         </div>
 
         {/* Status badge */}
@@ -256,6 +294,43 @@ function HeatSelector({ heats, selectedHeat, onSelect }) {
             <p className="text-[10px] text-gray-400 capitalize">
               {h.peringkat || '—'}
             </p>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// ─── Heat Tab Bar (tukar heat tanpa navigate) ─────────────────────────────────
+
+function HeatTabBar({ heats, selectedHeat, onSelect }) {
+  if (!heats || heats.length <= 1) return null
+  return (
+    <div className="flex gap-1.5 overflow-x-auto py-0.5">
+      {heats.map(h => {
+        const isSelected  = selectedHeat?.heatId === h.heatId
+        const isFinalHeat = h.peringkat === 'final' || h.fasa === 'terus_final'
+        const dotCls = ['rasmi', 'diterima'].includes(h.statusKeputusan)
+          ? 'bg-green-400'
+          : h.statusKeputusan === 'tidak_rasmi' ? 'bg-amber-400'
+          : h.statusKeputusan === 'dalam_bantahan' ? 'bg-red-400'
+          : 'bg-gray-300'
+        return (
+          <button key={h.heatId} onClick={() => onSelect(h)}
+            className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95 ${
+              isFinalHeat
+                ? isSelected
+                  ? 'bg-amber-500 text-white shadow-sm'
+                  : 'bg-amber-50 border border-amber-300 text-amber-700 hover:border-amber-400'
+                : isSelected
+                  ? 'bg-[#003399] text-white shadow-sm'
+                  : 'bg-white border border-gray-200 text-gray-600 hover:border-[#003399]/30 hover:text-[#003399]'
+            }`}>
+            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isSelected ? 'bg-white/60' : dotCls}`} />
+            {isFinalHeat
+              ? <span className="font-black tracking-wide">FINAL</span>
+              : <span>Heat {h.noHeat}</span>
+            }
           </button>
         )
       })}
@@ -608,11 +683,11 @@ function RankBadge({ rank }) {
 }
 
 function InputPadang({ acara, peserta, keputusan, onChange, sekolahMap = {} }) {
-  const bil     = acara.bilanganCubaan || 6
   const rankMap = kiraPadangRank(peserta, keputusan)
   const bilPes  = peserta.length
+  const unit    = acara.jenisAcara === 'padang_balin' ? 'm' : 'm'
 
-  // Live leaderboard strip
+  // Live leaderboard
   const board = peserta
     .map((p, idx) => {
       const key = p.noBib || idx
@@ -624,9 +699,6 @@ function InputPadang({ acara, peserta, keputusan, onChange, sekolahMap = {} }) {
       if (a.best !== null && b.best !== null) return b.best - a.best
       if (a.best !== null) return -1; return 1
     })
-
-  // Grid: No | BIB+Atlet | C1..CN | Best | Kddk | DQ
-  const colTemplate = `32px 1fr ${Array(bil).fill('48px').join(' ')} 56px 44px 36px`
 
   return (
     <div className="space-y-3">
@@ -640,7 +712,7 @@ function InputPadang({ acara, peserta, keputusan, onChange, sekolahMap = {} }) {
                 <div className="w-6 flex justify-center shrink-0"><RankBadge rank={r.rank} /></div>
                 <span className="text-xs font-semibold text-gray-700 flex-1 truncate">{r.nama}</span>
                 <span className="text-xs font-mono font-bold text-gray-800 shrink-0">
-                  {r.best ? `${r.best.toFixed(2)} m` : <span className="text-red-400">{r.status}</span>}
+                  {r.best ? `${r.best.toFixed(2)} ${unit}` : <span className="text-red-400">{r.status}</span>}
                 </span>
               </div>
             ))}
@@ -648,98 +720,71 @@ function InputPadang({ acara, peserta, keputusan, onChange, sekolahMap = {} }) {
         </div>
       )}
 
-      {/* Table */}
-      <div className="rounded-xl border border-gray-200 overflow-x-auto">
-        {/* Header */}
-        <div className="grid bg-[#003399] text-white text-[10px] font-bold uppercase tracking-wider min-w-max"
-          style={{ gridTemplateColumns: colTemplate }}>
-          <div className="px-1.5 py-2.5 text-center">No</div>
+      {/* Jadual ringkas: No | Atlet/Sekolah | Jarak | Kddk | DQ/DNS */}
+      <div className="rounded-xl border border-gray-200 overflow-hidden">
+        <div className="grid bg-[#003399] text-white text-[10px] font-bold uppercase tracking-wider"
+          style={{ gridTemplateColumns: '40px 1fr 88px 52px 72px' }}>
+          <div className="px-2 py-2.5 text-center">No</div>
           <div className="px-2 py-2.5">Atlet / Sekolah</div>
-          {Array.from({ length: bil }, (_, c) => (
-            <div key={c} className="px-1 py-2.5 text-center">C{c+1}</div>
-          ))}
-          <div className="px-1 py-2.5 text-center">Best</div>
-          <div className="px-1 py-2.5 text-center">Kddk</div>
-          <div className="px-1 py-2.5 text-center">DQ</div>
+          <div className="px-2 py-2.5 text-center">Jarak ({unit})</div>
+          <div className="px-2 py-2.5 text-center">Kddk</div>
+          <div className="px-2 py-2.5 text-center">Catatan</div>
         </div>
 
         {peserta.map((p, idx) => {
-          const key    = p.noBib || idx
-          const kp     = keputusan[key] || {}
-          const cubaan = kp.cubaan || {}
-          const vals   = Object.values(cubaan).map(Number).filter(v => !isNaN(v) && v > 0)
-          const best   = vals.length ? Math.max(...vals) : null
-          const rank   = rankMap[key]
-          const isDQ   = kp.status === 'DQ'
-          const isDNS  = ['DNS', 'DNF'].includes(kp.status)
+          const key     = p.noBib || idx
+          const kp      = keputusan[key] || {}
+          const rank    = rankMap[key]
+          const isDQ    = kp.status === 'DQ'
+          const isDNS   = ['DNS', 'DNF'].includes(kp.status)
+          const flagged = isDQ || isDNS
           const usedByOthers = new Set(
-            peserta.filter((_, i) => i !== idx).map(pp => keputusan[pp.noBib || i]?.kedudukan).filter(v => v !== '' && v != null)
+            peserta.filter((_, i) => i !== idx)
+              .map(pp => keputusan[pp.noBib || i]?.kedudukan)
+              .filter(v => v !== '' && v != null)
           )
-          const rowBg = isDQ || isDNS ? 'bg-red-50' :
+          const rowBg = flagged ? 'bg-red-50' :
                         rank === 1 ? 'bg-yellow-50' :
                         rank === 2 ? 'bg-gray-50' :
                         rank === 3 ? 'bg-orange-50' :
                         idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
 
           return (
-            <div key={key} className={`grid border-t border-gray-100 min-w-max ${rowBg}`}
-              style={{ gridTemplateColumns: colTemplate }}>
+            <div key={key} className={`grid border-t border-gray-100 ${rowBg}`}
+              style={{ gridTemplateColumns: '40px 1fr 88px 52px 72px' }}>
 
-              {/* No */}
+              {/* No / Rank */}
               <div className="px-1 py-2 flex items-center justify-center">
-                <div className="w-5 flex justify-center"><RankBadge rank={rank} /></div>
+                <div className="w-6 flex justify-center"><RankBadge rank={rank} /></div>
               </div>
 
               {/* Atlet + Sekolah */}
-              <div className="px-2 py-1.5 flex flex-col justify-center min-w-0">
-                <p className="text-[11px] font-semibold text-gray-700 truncate leading-tight">{p.namaAtlet || `#${idx+1}`}</p>
-                <p className="text-[9px] text-gray-400 truncate leading-tight">
+              <div className="px-2 py-2 flex flex-col justify-center min-w-0">
+                <p className="text-xs font-semibold text-gray-800 truncate leading-tight">{p.namaAtlet || `#${idx+1}`}</p>
+                <p className="text-[9px] text-gray-400 truncate leading-tight mt-0.5">
                   {p.noBib && <span className="font-mono">{p.noBib} · </span>}
                   {(p.kodSekolah && (sekolahMap[p.kodSekolah] || p.kodSekolah)) || ''}
                 </p>
               </div>
 
-              {/* Cubaan C1..CN */}
-              {Array.from({ length: bil }, (_, c) => {
-                const val  = cubaan[c + 1] ?? ''
-                const isX  = val === 'X' || val === 'x'
-                const isDash = val === '-'
-                return (
-                  <div key={c} className="px-0.5 py-1.5 flex items-center">
-                    <input type="text" value={val}
-                      disabled={isDQ || isDNS}
-                      onChange={e => {
-                        const nc = { ...cubaan, [c + 1]: e.target.value }
-                        const v2 = Object.values(nc).map(Number).filter(v => !isNaN(v) && v > 0)
-                        onChange(key, 'cubaan', nc)
-                        onChange(key, 'keputusan', v2.length ? Math.max(...v2) : '')
-                      }}
-                      placeholder="—"
-                      className={`w-full border rounded-md px-0.5 py-1 text-[10px] font-mono text-center focus:outline-none transition-colors ${
-                        isX    ? 'bg-red-50 border-red-200 text-red-600' :
-                        isDash ? 'bg-gray-100 border-gray-200 text-gray-400' :
-                        val    ? 'bg-white border-[#003399] text-gray-800' :
-                                 'bg-white border-gray-200 focus:border-[#003399]'
-                      } disabled:bg-gray-100 disabled:text-gray-300`} />
-                  </div>
-                )
-              })}
-
-              {/* Best */}
-              <div className="px-1 py-1.5 flex items-center justify-center">
-                <span className={`text-[10px] font-black font-mono ${best ? 'text-[#003399]' : 'text-gray-300'}`}>
-                  {best ? best.toFixed(2) : '—'}
-                </span>
+              {/* Jarak — satu input sahaja */}
+              <div className="px-2 py-1.5 flex items-center">
+                <input type="number" step="0.01" min="0"
+                  value={kp.keputusan ?? ''}
+                  disabled={flagged}
+                  onChange={e => onChange(key, 'keputusan', e.target.value)}
+                  placeholder="0.00"
+                  className="w-full border-2 border-gray-200 rounded-lg px-2 py-2 text-sm font-mono font-bold text-center focus:outline-none focus:border-[#003399] bg-white disabled:bg-gray-100 disabled:text-gray-300 transition-colors" />
               </div>
 
-              {/* Kddk */}
-              <div className="px-0.5 py-1.5 flex items-center justify-center">
-                {isDQ || isDNS ? (
+              {/* Kedudukan */}
+              <div className="px-1 py-1.5 flex items-center justify-center">
+                {flagged ? (
                   <span className="text-[10px] font-bold text-red-400">—</span>
                 ) : (
                   <select value={kp.kedudukan ?? ''}
                     onChange={e => onChange(key, 'kedudukan', e.target.value !== '' ? Number(e.target.value) : '')}
-                    className="w-full border border-gray-200 rounded px-0.5 py-1 text-[10px] font-mono text-center focus:outline-none focus:border-[#003399] bg-white">
+                    className="w-full border border-gray-200 rounded-lg px-0.5 py-1.5 text-[11px] font-mono text-center focus:outline-none focus:border-[#003399] bg-white">
                     <option value="">{rank ? `(${rank})` : '—'}</option>
                     {Array.from({ length: bilPes }, (_, i) => {
                       const v = i + 1
@@ -751,12 +796,12 @@ function InputPadang({ acara, peserta, keputusan, onChange, sekolahMap = {} }) {
               </div>
 
               {/* DQ / DNS */}
-              <div className="px-0.5 py-1.5 flex flex-col items-center gap-0.5">
+              <div className="px-1 py-1.5 flex flex-col items-center gap-0.5">
                 {['DQ', 'DNS'].map(flag => (
                   <button key={flag} type="button"
                     onClick={() => onChange(key, 'status', kp.status === flag ? '' : flag)}
-                    className={`w-full py-0.5 text-[8px] font-bold rounded transition-colors ${
-                      kp.status === flag ? 'bg-red-500 text-white' : 'bg-white border border-gray-200 text-gray-400 hover:border-red-300'
+                    className={`w-full py-1 text-[9px] font-bold rounded transition-colors ${
+                      kp.status === flag ? 'bg-red-500 text-white' : 'bg-white border border-gray-200 text-gray-400 hover:border-red-300 hover:text-red-400'
                     }`}>{flag}</button>
                 ))}
               </div>
@@ -864,26 +909,33 @@ function InputRelay({ heat, acara, keputusan, onChange, sekolahMap = {} }) {
 
 // ─── Jana Final Panel ─────────────────────────────────────────────────────────
 
-function JanaFinalPanel({ finalists, acara, sekolahMap, onJana, loading }) {
+function JanaFinalPanel({ finalists, acara, sekolahMap, onJana, loading, finalSetup, finalDijanaKe }) {
   const isPadang = ['padang_lompat', 'padang_balin'].includes(acara?.jenisAcara)
-  const cara     = acara?.caraPilihFinal || 'hybrid'
+  const { bestHeat, bestTime } = _getFinalistSetup(acara || {}, finalSetup)
 
   return (
-    <div className="bg-[#003399]/5 border border-[#003399]/20 rounded-2xl p-4 space-y-3">
+    <div className={`border rounded-2xl p-4 space-y-3 ${finalDijanaKe ? 'bg-green-50/60 border-green-200' : 'bg-[#003399]/5 border-[#003399]/20'}`}>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-black text-[#003399] uppercase tracking-widest">Semua Heat Rasmi</p>
+          <p className={`text-xs font-black uppercase tracking-widest ${finalDijanaKe ? 'text-green-700' : 'text-[#003399]'}`}>
+            {finalDijanaKe ? `✓ Final Dijana → Acara #${finalDijanaKe}` : 'Semua Heat Rasmi'}
+          </p>
           <p className="text-[11px] text-gray-600 mt-0.5 font-semibold">
-            Jana senarai final — {finalists.length} finalis
+            {finalists.length} finalis
           </p>
           <p className="text-[10px] text-gray-400 mt-0.5">
-            Kaedah: <span className="font-semibold capitalize">{cara}</span>
-            {!isPadang && ` · Lorong ditentukan auto`}
+            <span className="font-semibold text-gray-600">{bestHeat} terbaik/heat</span>
+            {bestTime > 0 && <span> + <span className="font-semibold text-gray-600">{bestTime} wildcard masa</span></span>}
+            {!isPadang && <span className="text-gray-400"> · Lorong auto</span>}
           </p>
         </div>
         <button onClick={() => onJana(finalists)} disabled={loading}
-          className="shrink-0 px-4 py-2.5 bg-[#003399] text-white text-sm font-bold rounded-xl hover:bg-[#002277] disabled:opacity-50 transition-all active:scale-95">
-          {loading ? 'Menjana…' : 'Jana Final ▶'}
+          className={`shrink-0 px-4 py-2.5 text-white text-sm font-bold rounded-xl disabled:opacity-50 transition-all active:scale-95 ${
+            finalDijanaKe
+              ? 'bg-green-600 hover:bg-green-700'
+              : 'bg-[#003399] hover:bg-[#002277]'
+          }`}>
+          {loading ? 'Menjana…' : finalDijanaKe ? '↺ Jana Semula' : 'Jana Final ▶'}
         </button>
       </div>
 
@@ -978,6 +1030,8 @@ export default function InputKeputusan() {
   const [jadualAll,     setJadualAll]     = useState([]) // semua jadual semua hari
   const [selectedHari,  setSelectedHari]  = useState(null)
   const [sekolahMap,    setSekolahMap]    = useState({})
+  const [kategoriMap,   setKategoriMap]   = useState({}) // kod → label (L12/P15...)
+  const [cetakLoading,  setCetakLoading]  = useState(false)
   const [finalSetup,    setFinalSetup]    = useState(null) // tetapan/finalSetup
   const [loading,       setLoading]       = useState(true)
 
@@ -1022,6 +1076,13 @@ export default function InputKeputusan() {
           setSekolahMap(map)
         }).catch(err => console.warn('[InputKeputusan] gagal load sekolah map:', err))
 
+        // Load kategori untuk label (L12/P15...)
+        getDocs(collection(db, 'kategori')).then(snap => {
+          const map = {}
+          snap.docs.forEach(d => { map[d.id] = d.data().label || d.id })
+          setKategoriMap(map)
+        }).catch(() => {})
+
         // Load tetapan finalSetup untuk pilih finalis
         getDoc(doc(db, 'tetapan', 'finalSetup')).then(snap => {
           if (snap.exists()) setFinalSetup(snap.data())
@@ -1042,7 +1103,7 @@ export default function InputKeputusan() {
             const hSnap = await getDocs(
               collection(db, 'kejohanan', kejId, 'acara', aceraKey, 'heat')
             )
-            const rasmi = hSnap.docs.filter(h => h.data().statusKeputusan === 'rasmi').length
+            const rasmi = hSnap.docs.filter(h => ['rasmi','diterima'].includes(h.data().statusKeputusan)).length
             const draf  = hSnap.docs.filter(h => h.data().statusKeputusan === 'tidak_rasmi').length
             return { acaraId: a.acaraId, total: hSnap.size, rasmi, draf }
           })
@@ -1154,36 +1215,59 @@ export default function InputKeputusan() {
 
   // ── Navigation ─────────────────────────────────────────────────────────────
 
-  function selectAcara(acara) {
+  async function selectAcara(acara) {
     setSelectedAcara(acara)
     setSelectedHeat(null)
     setHeats([])
     setKeputusan({})
     setWindSpeed('')
     setSaved(false)
-    setStep('heat')
-    loadHeats(acara)
+    setStep('input')
+    setHeatsLoading(true)
+
+    if (!kejohananId) { setHeatsLoading(false); return }
+    const aceraKey = acara.aceraId || acara.acaraId
+    try {
+      const snap = await getDocs(
+        collection(db, 'kejohanan', kejohananId, 'acara', aceraKey, 'heat')
+      )
+      const list = snap.docs
+        .map(d => ({ heatId: d.id, ...d.data() }))
+        .sort((a, b) => (a.noHeat ?? 0) - (b.noHeat ?? 0))
+      setHeats(list)
+      // Auto-pilih: utamakan heat yang belum selesai, kemudian heat pertama
+      const firstPending = list.find(h => !['rasmi', 'diterima'].includes(h.statusKeputusan))
+      const toSelect = firstPending || list[0]
+      if (toSelect) await selectHeat(toSelect, acara, list)
+    } catch (e) {
+      console.error('selectAcara error:', e)
+      setHeats([])
+    } finally {
+      setHeatsLoading(false)
+    }
   }
 
-  async function selectHeat(heat) {
+  async function selectHeat(heat, _acara = null, _allHeats = null) {
+    const acara    = _acara    || selectedAcara
+    const allHeats = _allHeats || heats
     let h = heat
 
     // Auto-rasmi: semak jika timer sudah luput
     // BUG1 FIX: jangan auto-rasmi heat FINAL — biarkan KeputusanRasmi handle (postRasmi perlu jalan)
-    const isFinalHeat = ['final', 'terus_final'].includes(h.fasa) || heats.length === 1
+    const isFinalHeat = ['final', 'terus_final'].includes(h.fasa) || allHeats.length === 1
     if (h.statusKeputusan === 'tidak_rasmi' && h.publishedAt && kejohananId && !isFinalHeat) {
-      const timer = selectedAcara?.timerAutoRasmi ?? kejohananData?.timerAutoRasmi ?? 15
+      const timer = acara?.timerAutoRasmi ?? kejohananData?.timerAutoRasmi ?? 15
       const pubMs = tsToMs(h.publishedAt)
       const elapsedMin = pubMs > 0 ? (Date.now() - pubMs) / 60000 : 0
       if (elapsedMin >= timer) {
         try {
-          const aceraKey = selectedAcara.aceraId || selectedAcara.acaraId
+          const aceraKey = acara.aceraId || acara.acaraId
           await updateDoc(
             doc(db, 'kejohanan', kejohananId, 'acara', aceraKey, 'heat', h.heatId),
             { statusKeputusan: 'rasmi', autoRasmiAt: serverTimestamp() }
           )
           h = { ...h, statusKeputusan: 'rasmi' }
-          const updatedHeats = heats.map(x => x.heatId === h.heatId ? { ...x, statusKeputusan: 'rasmi' } : x)
+          const updatedHeats = allHeats.map(x => x.heatId === h.heatId ? { ...x, statusKeputusan: 'rasmi' } : x)
           setHeats(updatedHeats)
           // Update statusAcara
           const finalHeat = updatedHeats.find(x => x.peringkat === 'final' || x.fasa === 'terus_final')
@@ -1197,16 +1281,16 @@ export default function InputKeputusan() {
             doc(db, 'kejohanan', kejohananId, 'acara', aceraKey),
             { statusAcara: newAcaraStatus }
           ).catch(() => {})
-        } catch { /* ignore, akan cuba semula lain kali */ }
+        } catch { /* ignore */ }
       }
     }
 
     setSelectedHeat(h)
     setSaved(false)
     setWindSpeed(h.windSpeed != null ? String(h.windSpeed) : '')
-    setKeputusan(initKeputusanDariPeserta(selectedAcara, h))
+    setKeputusan(initKeputusanDariPeserta(acara, h))
     setPeserta(h.peserta || [])
-    setStep('input')
+    // setStep handled by caller (selectAcara sets 'input', tab click stays in 'input')
   }
 
   // ── Fix 1: Real-time listener untuk status heat semasa ───────────────────────
@@ -1245,25 +1329,21 @@ export default function InputKeputusan() {
   }, [kejohananId, selectedAcara?.aceraId, selectedHeat?.heatId])
 
   function goBack() {
-    if (step === 'input') {
-      setStep('heat')
-      setSelectedHeat(null)
-      setKeputusan({})
-    } else if (step === 'heat') {
-      // Refresh acaraList counts dari heats state semasa (fix: counts stale selepas save)
-      if (selectedAcara) {
-        const rasmi = heats.filter(h => h.statusKeputusan === 'rasmi').length
-        const draf  = heats.filter(h => h.statusKeputusan === 'tidak_rasmi').length
-        setAcaraList(prev => prev.map(a =>
-          a.acaraId === selectedAcara.acaraId
-            ? { ...a, _rasmiHeat: rasmi, _drafHeat: draf, _totalHeat: heats.length }
-            : a
-        ))
-      }
-      setStep('home')
-      setSelectedAcara(null)
-      setHeats([])
+    // Refresh acaraList counts dari heats state semasa
+    if (selectedAcara && heats.length > 0) {
+      const rasmi = heats.filter(h => ['rasmi','diterima'].includes(h.statusKeputusan)).length
+      const draf  = heats.filter(h => h.statusKeputusan === 'tidak_rasmi').length
+      setAcaraList(prev => prev.map(a =>
+        a.acaraId === selectedAcara.acaraId
+          ? { ...a, _rasmiHeat: rasmi, _drafHeat: draf, _totalHeat: heats.length }
+          : a
+      ))
     }
+    setStep('home')
+    setSelectedAcara(null)
+    setSelectedHeat(null)
+    setHeats([])
+    setKeputusan({})
   }
 
   // ── Handlers ───────────────────────────────────────────────────────────────
@@ -1296,7 +1376,7 @@ export default function InputKeputusan() {
         const val = kp.keputusan !== '' && kp.keputusan !== undefined
           ? (Number(kp.keputusan) || null) : p.keputusan
 
-        let cubaan = p.cubaan
+        let cubaan = p.cubaan ?? null
         if ((jenisAcara === 'padang_lompat' || jenisAcara === 'padang_balin') && kp.cubaan) {
           const bil = selectedAcara.bilanganCubaan || 6
           cubaan = Array.from({ length: bil }, (_, c) => {
@@ -1550,53 +1630,363 @@ export default function InputKeputusan() {
     await handleHantar()
   }
 
+  // ── Cetak Hasil Final (3 salinan: Juruhebah / Hadiah / Fail) ──────────────
+
+  async function handleCetakHasil() {
+    if (!selectedAcara || !selectedHeat) return
+    setCetakLoading(true)
+    try {
+      const isPadangAcara = ['padang_lompat', 'padang_balin'].includes(selectedAcara.jenisAcara)
+
+      // Fetch rekod — rujuk koleksi rekod base acara + kategori
+      const PKOD = { daerah: 'D', negeri: 'N', kebangsaan: 'K' }
+      const peringkatKej = PKOD[(kejohananData?.peringkat || '').toLowerCase()] || 'D'
+      const rKey = [selectedAcara.namaAcara, selectedAcara.jantina, selectedAcara.kategoriKod, peringkatKej]
+        .join('_').toUpperCase().replace(/[^A-Z0-9_]/g, '_')
+      let rekodDoc = null
+      try {
+        const rSnap = await getDoc(doc(db, 'rekod', rKey))
+        if (rSnap.exists() && rSnap.data().statusRekod === 'aktif') rekodDoc = rSnap.data()
+      } catch {}
+      // rekodBaru = rekod dipecah dalam kejohanan ini (postRasmi dah run)
+      const isRekodBaru = rekodDoc && rekodDoc.kejohananId === kejohananId
+
+      // Peserta final — had kepada bilanganKedudukan, sort by rank
+      const bilanganKedudukan = kejohananData?.bilanganKedudukan ?? 8
+      const pesertaFinal = (selectedHeat.peserta || [])
+        .filter(p => p.rankDalamHeat && (p.status === 'selesai' || p.keputusan != null))
+        .sort((a, b) => a.rankDalamHeat - b.rankDalamHeat)
+        .slice(0, bilanganKedudukan)
+
+      // Helpers
+      function fmtPrestasi(val) {
+        if (val == null || val === '') return '—'
+        const n = Number(val)
+        if (isNaN(n)) return String(val)
+        if (isPadangAcara) return `${n.toFixed(2)} m`
+        const min = Math.floor(n / 60)
+        const sek = (n % 60).toFixed(2).padStart(5, '0')
+        return min > 0 ? `${min}:${sek}` : `${Number(sek).toFixed(2)}s`
+      }
+
+      function fmtTarikh(t) {
+        if (!t) return '—'
+        return new Date(t + 'T00:00:00').toLocaleDateString('ms-MY', {
+          weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+        })
+      }
+
+      const namaKej  = kejohananData?.namaKejohanan || 'Kejohanan Olahraga'
+      const katLabel = kategoriMap[selectedAcara.kategoriKod] || selectedAcara.kategoriKod || '—'
+      const tarikh   = fmtTarikh(selectedAcara.tarikhAcara)
+      const now      = new Date().toLocaleString('ms-MY')
+
+      const SALINAN = [
+        { label: 'JURUHEBAH', clr: [0, 51, 153],  tblSize: 13 },
+        { label: 'HADIAH',    clr: [0, 120, 50],  tblSize: 10 },
+        { label: 'FAIL',      clr: [70, 70, 70],  tblSize: 10 },
+      ]
+
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const M = 15
+      const W = pdf.internal.pageSize.getWidth()
+      let isFirst = true
+
+      for (const sal of SALINAN) {
+        if (!isFirst) pdf.addPage()
+        isFirst = false
+
+        let y = M
+
+        // ── Label salinan (kanan atas) ──
+        const lblW = 36, lblH = 8
+        const lblX = W - M - lblW
+        pdf.setFillColor(...sal.clr)
+        pdf.rect(lblX, y, lblW, lblH, 'F')
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(8)
+        pdf.setTextColor(255, 255, 255)
+        pdf.text(sal.label, lblX + lblW / 2, y + 5.5, { align: 'center' })
+        pdf.setTextColor(0, 0, 0)
+
+        // ── Nama kejohanan (tengah, kiri label) ──
+        const cx = (M + lblX - 4) / 2
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(11)
+        pdf.text(namaKej, cx, y + 7, { align: 'center' })
+        y += 14
+
+        // ── Garisan ──
+        pdf.setDrawColor(...sal.clr)
+        pdf.setLineWidth(0.6)
+        pdf.line(M, y, W - M, y)
+        y += 6
+
+        // ── Info 4 baris ──
+        const col2 = M + 32
+        const rows = [
+          ['No. Acara', String(selectedAcara.noAcara || '—')],
+          ['Kategori',  katLabel],
+          ['Acara',     selectedAcara.namaAcara || '—'],
+          ['Tarikh',    tarikh],
+        ]
+        pdf.setFontSize(9.5)
+        rows.forEach(([lbl, val]) => {
+          pdf.setFont('helvetica', 'normal')
+          pdf.setTextColor(110, 110, 110)
+          pdf.text(lbl, M, y)
+          pdf.text(':', col2 - 4, y)
+          pdf.setFont('helvetica', 'bold')
+          pdf.setTextColor(0, 0, 0)
+          pdf.text(val, col2, y)
+          y += 6.5
+        })
+        y += 3
+
+        // ── Garisan nipis ──
+        pdf.setDrawColor(200, 200, 200)
+        pdf.setLineWidth(0.3)
+        pdf.line(M, y, W - M, y)
+        y += 4
+
+        // ── Jadual keputusan ──
+        autoTable(pdf, {
+          startY: y,
+          head: [['No.', 'Nama Atlet', 'Sekolah', 'Prestasi', 'Status']],
+          body: pesertaFinal.map(p => {
+            const flagged = ['DNS', 'DNF', 'DQ'].includes(p.status)
+            return [
+              String(p.rankDalamHeat),
+              p.namaAtlet || '—',
+              sekolahMap[p.kodSekolah] || p.namaSekolah || p.kodSekolah || '—',
+              flagged ? '—' : fmtPrestasi(p.keputusan),
+              flagged ? p.status : '',
+            ]
+          }),
+          styles: {
+            fontSize: sal.tblSize,
+            cellPadding: sal.tblSize >= 12 ? 3 : 2.5,
+            minCellHeight: sal.tblSize >= 12 ? 8 : 7,
+          },
+          headStyles: {
+            fillColor: sal.clr,
+            textColor: [255, 255, 255],
+            fontStyle: 'bold',
+            fontSize: sal.tblSize - 1,
+            halign: 'center',
+            minCellHeight: 8,
+          },
+          columnStyles: {
+            0: { halign: 'center', cellWidth: 16, fontStyle: 'bold' },
+            1: { cellWidth: 56 },
+            2: { cellWidth: 66 },
+            3: { halign: 'center', cellWidth: 28, fontStyle: 'bold', textColor: [0, 51, 153] },
+            4: { halign: 'center', cellWidth: 14, fontSize: sal.tblSize - 2, textColor: [180, 60, 60] },
+          },
+          alternateRowStyles: { fillColor: [248, 248, 252] },
+          margin: { left: M, right: M },
+          didParseCell: (data) => {
+            if (data.section === 'body') {
+              const rank = pesertaFinal[data.row.index]?.rankDalamHeat
+              if (rank === 1) data.cell.styles.fillColor = [255, 248, 210]
+              else if (rank === 2) data.cell.styles.fillColor = [242, 242, 248]
+              else if (rank === 3) data.cell.styles.fillColor = [255, 244, 232]
+            }
+          },
+        })
+
+        y = pdf.lastAutoTable.finalY + 5
+
+        // ── Kotak rekod ──
+        // Case A: rekod baru dipecah dalam kejohanan ini
+        // Case B: rekod semasa dari koleksi (untuk rujukan juruhebah)
+        if (rekodDoc) {
+          const PLAB = { D: 'Daerah', N: 'Negeri', K: 'Kebangsaan' }
+          const pLabel = PLAB[peringkatKej] || peringkatKej
+          pdf.setLineWidth(0.3)
+          pdf.setFontSize(8)
+
+          if (isRekodBaru) {
+            // ── Case A: Rekod baru ──
+            const hasLama = rekodDoc.prestasiLama != null
+            const boxH   = hasLama ? 18 : 14
+            pdf.setFillColor(255, 248, 215)
+            pdf.setDrawColor(200, 145, 30)
+            pdf.rect(M, y, W - M * 2, boxH, 'FD')
+
+            // Baris 1: rekod baru
+            pdf.setFont('helvetica', 'bold')
+            pdf.setTextColor(130, 60, 0)
+            const newNama = rekodDoc.namaAtlet  || '—'
+            const newSkol = rekodDoc.namaSekolah || sekolahMap[rekodDoc.kodSekolah] || ''
+            pdf.text(
+              '[REKOD ' + pLabel.toUpperCase() + ' BARU]  ' + fmtPrestasi(rekodDoc.prestasi) +
+              '  --  ' + newNama + (newSkol ? ' (' + newSkol + ')' : ''),
+              M + 3, y + 5.5
+            )
+
+            // Baris 2: rekod lama
+            pdf.setFont('helvetica', 'normal')
+            pdf.setFontSize(7.5)
+            pdf.setTextColor(100, 70, 20)
+            if (hasLama) {
+              const oldP    = fmtPrestasi(rekodDoc.prestasiLama)
+              const oldNama = rekodDoc.namaLama   || '—'
+              const oldLok  = rekodDoc.lokasiLama || ''
+              const oldThn  = rekodDoc.tahunLama  || ''
+              pdf.text(
+                'Rekod Lama: ' + oldP + '  --  ' + oldNama +
+                (oldLok ? ' (' + oldLok + ')' : '') +
+                (oldThn ? '  ' + oldThn : ''),
+                M + 3, y + 12
+              )
+            } else {
+              pdf.text('Rekod Pertama Ditetapkan', M + 3, y + 12)
+            }
+
+            pdf.setTextColor(0, 0, 0)
+            y += boxH + 4
+
+          } else {
+            // ── Case B: Rekod semasa untuk rujukan ──
+            pdf.setFillColor(235, 242, 255)
+            pdf.setDrawColor(150, 170, 220)
+            pdf.rect(M, y, W - M * 2, 10, 'FD')
+
+            pdf.setFont('helvetica', 'normal')
+            pdf.setTextColor(40, 60, 130)
+            const rP    = fmtPrestasi(rekodDoc.prestasi)
+            const rNama = rekodDoc.namaAtlet  || '—'
+            const rSkol = rekodDoc.namaSekolah || sekolahMap[rekodDoc.kodSekolah] || ''
+            const rThn  = rekodDoc.tarikhRekod ? String(rekodDoc.tarikhRekod).slice(0, 4) : ''
+            pdf.text(
+              'Rekod ' + pLabel + ':  ' + rP + '  --  ' + rNama +
+              (rSkol ? ' (' + rSkol + ')' : '') + (rThn ? '  ' + rThn : ''),
+              M + 3, y + 7
+            )
+
+            pdf.setTextColor(0, 0, 0)
+            y += 14
+          }
+        }
+
+        // ── Footer ──
+        const H = pdf.internal.pageSize.getHeight()
+        const footY = H - 18
+        pdf.setDrawColor(...sal.clr)
+        pdf.setLineWidth(0.4)
+        pdf.line(M, footY, W - M, footY)
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(8)
+        pdf.setTextColor(80, 80, 80)
+        pdf.text('Pegawai Teknikal: _______________________', M, footY + 6)
+        pdf.text('Tandatangan: _______________________', W / 2, footY + 6)
+        pdf.setFontSize(7)
+        pdf.setTextColor(170, 170, 170)
+        pdf.text(`Dicetak: ${now}`, M, footY + 12)
+        pdf.setTextColor(0, 0, 0)
+      }
+
+      pdf.save(`Keputusan_No${selectedAcara.noAcara || 'Acara'}_${katLabel}.pdf`)
+    } catch (e) {
+      alert('Ralat cetak: ' + e.message)
+    } finally {
+      setCetakLoading(false)
+    }
+  }
+
   // ── Jana Final ─────────────────────────────────────────────────────────────
 
   async function handleJanaFinal(finalists) {
     if (!kejohananId || !selectedAcara) return
     setJanaFinalLoading(true)
     try {
-      const aceraKey = selectedAcara.aceraId || selectedAcara.acaraId
-
-      // Padam heat final lama jika ada (re-jana selepas bantahan)
       const { deleteDoc } = await import('firebase/firestore')
-      const finalLama = heats.filter(h => h.peringkat === 'final')
+      const _getDocs = getDocs
+      const saringanKey = selectedAcara.aceraId || selectedAcara.acaraId
+
+      // Cari linked final acara — acara yang ada parentAcaraId === noAcara saringan
+      const linkedFinalAcara = acaraList.find(a =>
+        String(a.parentAcaraId) === String(selectedAcara.noAcara)
+      )
+      const targetAcara    = linkedFinalAcara || selectedAcara
+      const targetAceraKey = targetAcara.aceraId || targetAcara.acaraId
+
+      // Padam heat final lama dari TARGET acara (betul)
+      const targetHeatSnap = await _getDocs(
+        collection(db, 'kejohanan', kejohananId, 'acara', targetAceraKey, 'heat')
+      )
+      const finalLama = targetHeatSnap.docs.filter(d => d.data().peringkat === 'final')
       for (const lama of finalLama) {
-        await deleteDoc(doc(db, 'kejohanan', kejohananId, 'acara', aceraKey, 'heat', lama.heatId))
+        await deleteDoc(doc(db, 'kejohanan', kejohananId, 'acara', targetAceraKey, 'heat', lama.id))
           .catch(() => {})
       }
+      // Padam juga dari saringan acara kalau ada (data lama sebelum fix)
+      if (linkedFinalAcara) {
+        const saringanFinalLama = heats.filter(h => h.peringkat === 'final')
+        for (const lama of saringanFinalLama) {
+          await deleteDoc(doc(db, 'kejohanan', kejohananId, 'acara', saringanKey, 'heat', lama.heatId))
+            .catch(() => {})
+        }
+      }
 
-      const nonFinalHeats = heats.filter(h => h.peringkat !== 'final')
-      const maxHeatNo = Math.max(0, ...nonFinalHeats.map(h => h.noHeat || 0))
       const newHeatId = `final_${Date.now()}`
       const isPadang  = ['padang_lompat', 'padang_balin'].includes(selectedAcara.jenisAcara)
+      const saringanHeatIds = heats.filter(h => h.peringkat !== 'final').map(h => h.heatId)
 
-      const finalPeserta = finalists.map(f => ({
-        lorong:     !isPadang ? (f.lorong || null) : null,
-        noBib:      f.noBib,
-        namaAtlet:  f.namaAtlet,
-        kodSekolah: f.kodSekolah,
-        keputusan:  null,
-        kedudukan:  null,
-        status:     'belum',
-        dariHeat:   f.noHeat,
-        masaHeat:   f.keputusan,
-      }))
+      const finalPeserta = finalists.map(f => {
+        const masaHeat = (f.keputusan != null && !isNaN(f.keputusan)) ? Number(f.keputusan) : null
+        return {
+          lorong:     (!isPadang && f.lorong != null && !isNaN(f.lorong)) ? Number(f.lorong) : null,
+          noBib:      f.noBib      || '',
+          namaAtlet:  f.namaAtlet  || '',
+          kodSekolah: f.kodSekolah || '',
+          noKP:       f.noKP       || null,
+          keputusan:  null,
+          kedudukan:  null,
+          status:     'belum',
+          dariHeat:   f.noHeat     ?? null,
+          masaHeat,
+        }
+      })
 
+      // Jana heat final dalam TARGET acara
       await setDoc(
-        doc(db, 'kejohanan', kejohananId, 'acara', aceraKey, 'heat', newHeatId),
+        doc(db, 'kejohanan', kejohananId, 'acara', targetAceraKey, 'heat', newHeatId),
         {
-          noHeat:          maxHeatNo + 1,
+          noHeat:          1,
           peringkat:       'final',
           statusKeputusan: 'belum',
           peserta:         finalPeserta,
           bilanganLorong:  finalists.length,
           createdAt:       serverTimestamp(),
           caraPilih:       selectedAcara.caraPilihFinal || 'hybrid',
-          janaFinalDari:   heats.filter(h => h.peringkat !== 'final').map(h => h.heatId),
+          janaFinalDari:   saringanHeatIds,
+          dariSaringan:    saringanKey,
         }
       )
-      await loadHeats(selectedAcara)
+
+      // Mark acara saringan — final dah dijana ke acara mana
+      await updateDoc(
+        doc(db, 'kejohanan', kejohananId, 'acara', saringanKey),
+        { finalDijanaKe: String(targetAcara.noAcara || targetAceraKey) }
+      ).catch(() => {})
+
+      // Update local state
+      setAcaraList(prev => prev.map(a =>
+        (a.aceraId || a.acaraId) === saringanKey
+          ? { ...a, finalDijanaKe: String(targetAcara.noAcara || targetAceraKey) }
+          : a
+      ))
+
+      if (linkedFinalAcara) {
+        // Reload heats saringan (padam final lama)
+        await loadHeats(selectedAcara)
+        setSaved({ type: 'final', noAcara: String(linkedFinalAcara.noAcara), namaAcara: linkedFinalAcara.namaAcara })
+      } else {
+        // Tiada linked final acara — heat dalam saringan sendiri
+        await loadHeats(selectedAcara)
+      }
     } catch (e) {
       alert(`Ralat jana final: ${e.message}`)
     } finally {
@@ -1699,6 +2089,19 @@ export default function InputKeputusan() {
     acaraList.filter(a => !jadualAcaraIds.has(a.aceraId) && !jadualAcaraIds.has(a.acaraId)),
   [acaraList, jadualAcaraIds])
 
+  // Set of noAcara yang menjadi SARINGAN (ada acara lain yg parentAcaraId = noAcara ini)
+  const saringanNoAcaraSet = useMemo(() => {
+    const s = new Set()
+    acaraList.forEach(a => { if (a.parentAcaraId) s.add(String(a.parentAcaraId)) })
+    return s
+  }, [acaraList])
+
+  function getJenisRound(acara) {
+    if (acara.parentAcaraId) return 'final'
+    if (saringanNoAcaraSet.has(String(acara.noAcara))) return 'saringan'
+    return 'terus'
+  }
+
   // ── Jana Final computations ────────────────────────────────────────────────
 
   const janaFinalEligible = useMemo(() => {
@@ -1710,9 +2113,12 @@ export default function InputKeputusan() {
     if (!isSaringan) return false
     const nonFinal = heats.filter(h => h.peringkat !== 'final')
     if (nonFinal.length === 0) return false
-    // Semua heat saringan mesti ada keputusan (tidak_rasmi atau rasmi)
-    return nonFinal.every(h => ['rasmi', 'tidak_rasmi'].includes(h.statusKeputusan))
+    // Semua heat saringan mesti ada keputusan (rasmi / tidak_rasmi / diterima)
+    return nonFinal.every(h => ['rasmi', 'tidak_rasmi', 'diterima'].includes(h.statusKeputusan))
   }, [heats, selectedAcara])
+
+  // Semak jika final sudah dijana ke acara lain
+  const finalDijanaKe = selectedAcara?.finalDijanaKe || null
 
   // Set noBib yang layak final — dari heat final jika ada, atau kira dari saringan results
   const finalisBibs = useMemo(() => {
@@ -1787,23 +2193,16 @@ export default function InputKeputusan() {
           )}
           <div className="flex-1 min-w-0">
             {step === 'home' && <p className="text-sm font-bold text-gray-800">Input Keputusan</p>}
-            {step === 'heat' && (
-              <div>
-                <p className="text-sm font-bold text-gray-800 truncate">
-                  {selectedAcara?.noAcara ? `No.${selectedAcara.noAcara} · ` : ''}{selectedAcara?.namaAcara}
-                </p>
-                <p className="text-[10px] text-gray-400">Pilih Heat</p>
-              </div>
-            )}
             {step === 'input' && (
               <div>
                 <p className="text-sm font-bold text-gray-800 truncate">
                   {selectedAcara?.noAcara ? `No.${selectedAcara.noAcara} · ` : ''}{selectedAcara?.namaAcara}
                 </p>
                 <p className="text-[10px] text-gray-400">
-                  Heat {selectedHeat?.noHeat} · {selectedHeat?.peringkat || '—'}
-                  {isRasmi && ' · 🔒 Rasmi'}
-                  {isDalamBantahan && ' · ⚠️ Bantahan'}
+                  {heatsLoading ? 'Memuatkan…'
+                    : selectedHeat
+                    ? `Heat ${selectedHeat.noHeat}${selectedHeat.peringkat ? ' · ' + selectedHeat.peringkat : ''}${isRasmi ? ' · 🔒 Rasmi' : isDalamBantahan ? ' · ⚠️ Bantahan' : ''}`
+                    : heats.length === 0 ? 'Tiada heat' : 'Pilih heat di bawah'}
                 </p>
               </div>
             )}
@@ -1884,7 +2283,7 @@ export default function InputKeputusan() {
               {searchResults.length === 0
                 ? <p className="text-sm text-gray-400 text-center py-10">Tiada acara dijumpai.</p>
                 : searchResults.map(a => (
-                  <AcaraRow key={a.acaraId} acara={a} nowMs={now} onClick={() => selectAcara(a)} />
+                  <AcaraRow key={a.acaraId} acara={a} nowMs={now} jenisRound={getJenisRound(a)} onClick={() => selectAcara(a)} />
                 ))
               }
             </div>
@@ -1939,11 +2338,12 @@ export default function InputKeputusan() {
               {/* ── Jadual Acara Table ── */}
               <div className="bg-white">
                 {/* Table header */}
-                <div className="grid px-4 py-1.5 bg-gray-50 border-b border-gray-100 text-[9px] font-bold text-gray-400 uppercase tracking-widest"
-                  style={{ gridTemplateColumns: '40px 48px 1fr 72px' }}>
+                <div className="grid px-3 py-1.5 bg-gray-50 border-b border-gray-100 text-[9px] font-bold text-gray-400 uppercase tracking-widest"
+                  style={{ gridTemplateColumns: '36px 44px 1fr 58px 64px' }}>
                   <div>No.</div>
                   <div>Masa</div>
                   <div>Acara</div>
+                  <div className="text-center">Jenis</div>
                   <div className="text-right">Status</div>
                 </div>
 
@@ -1963,6 +2363,7 @@ export default function InputKeputusan() {
                   acaraHariFiltered.map((j, idx) => (
                     <AcaraRow key={j.jadualId || j.acara.acaraId}
                       acara={j.acara} masa={j.masaMula} nowMs={now}
+                      jenisRound={getJenisRound(j.acara)}
                       isLast={idx === acaraHariFiltered.length - 1}
                       onClick={() => selectAcara(j.acara)} />
                   ))
@@ -1988,15 +2389,17 @@ export default function InputKeputusan() {
                   </button>
                   {tanpaJadualOpen && (
                     <div>
-                      <div className="grid px-4 py-1.5 bg-gray-50 border-y border-gray-100 text-[9px] font-bold text-gray-400 uppercase tracking-widest"
-                        style={{ gridTemplateColumns: '40px 48px 1fr 72px' }}>
+                      <div className="grid px-3 py-1.5 bg-gray-50 border-y border-gray-100 text-[9px] font-bold text-gray-400 uppercase tracking-widest"
+                        style={{ gridTemplateColumns: '36px 44px 1fr 58px 64px' }}>
                         <div>No.</div>
                         <div>—</div>
                         <div>Acara</div>
+                        <div className="text-center">Jenis</div>
                         <div className="text-right">Status</div>
                       </div>
                       {acaraTanpaJadual.map((a, idx) => (
                         <AcaraRow key={a.acaraId} acara={a} nowMs={now}
+                          jenisRound={getJenisRound(a)}
                           isLast={idx === acaraTanpaJadual.length - 1}
                           onClick={() => selectAcara(a)} />
                       ))}
@@ -2010,59 +2413,70 @@ export default function InputKeputusan() {
       )}
 
       {/* ══════════════════════════════════════════════
-          STEP: PILIH HEAT
-      ══════════════════════════════════════════════ */}
-      {step === 'heat' && (
-        <div className="max-w-2xl mx-auto px-4 pt-4 space-y-4">
-          <div className="bg-[#003399]/5 rounded-2xl p-4 border border-[#003399]/10">
-            <p className="text-xs font-bold text-[#003399] uppercase tracking-widest mb-1">
-              {JENIS_LABEL[selectedAcara?.jenisAcara] || selectedAcara?.jenisAcara}
-            </p>
-            <p className="text-base font-black text-gray-800">{selectedAcara?.namaAcara}</p>
-            <p className="text-xs text-gray-500 mt-0.5">
-              {selectedAcara?.jantina === 'L' ? 'Lelaki' : 'Perempuan'} · {selectedAcara?.kategoriKod || selectedAcara?.kategori}
-            </p>
-          </div>
-
-          {heatsLoading ? (
-            <p className="text-sm text-gray-400 text-center py-6">Memuatkan heat…</p>
-          ) : (
-            <>
-              <HeatSelector heats={heats} selectedHeat={selectedHeat} onSelect={selectHeat} />
-
-              {/* Jana Final panel — muncul bila semua heat rasmi & tiada final lagi */}
-              {janaFinalEligible && janaFinalists.length > 0 && (
-                <JanaFinalPanel
-                  finalists={janaFinalists}
-                  acara={selectedAcara}
-                  sekolahMap={sekolahMap}
-                  onJana={handleJanaFinal}
-                  loading={janaFinalLoading}
-                />
-              )}
-            </>
-          )}
-        </div>
-      )}
-
-      {/* ══════════════════════════════════════════════
           STEP: INPUT KEPUTUSAN
       ══════════════════════════════════════════════ */}
-      {step === 'input' && selectedAcara && selectedHeat && (
+      {step === 'input' && selectedAcara && (
         <div className="max-w-2xl mx-auto px-4 pt-4 space-y-4">
 
-          {/* Heat info bar */}
-          <div className="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-3 border border-gray-100">
-            <div className="flex-1">
-              <p className="text-xs text-gray-500">
-                Heat <span className="font-bold text-gray-800">{selectedHeat.noHeat}</span>
-                {' · '}<span className="capitalize">{selectedHeat.peringkat || '—'}</span>
-              </p>
+          {/* ── Acara header + Heat tab bar ── */}
+          <div className="bg-[#003399]/5 rounded-2xl p-3.5 border border-[#003399]/10 space-y-2.5">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-[10px] font-black text-[#003399] uppercase tracking-widest">
+                  No.{selectedAcara.noAcara} · {JENIS_LABEL[selectedAcara.jenisAcara] || selectedAcara.jenisAcara}
+                </p>
+                <p className="text-sm font-black text-gray-800 mt-0.5 leading-snug">{selectedAcara.namaAcara}</p>
+                <p className="text-[11px] text-gray-500 mt-0.5">
+                  {selectedAcara.jantina === 'L' ? 'Lelaki' : selectedAcara.jantina === 'P' ? 'Perempuan' : selectedAcara.jantina}
+                  {' · '}{selectedAcara.kategoriKod || selectedAcara.kategori}
+                </p>
+              </div>
+              {selectedHeat && (() => {
+                const isFH = selectedHeat.peringkat === 'final' || selectedHeat.fasa === 'terus_final'
+                const sCls = ['rasmi', 'diterima'].includes(selectedHeat.statusKeputusan)
+                  ? 'bg-green-100 text-green-700'
+                  : selectedHeat.statusKeputusan === 'tidak_rasmi' ? 'bg-amber-100 text-amber-700'
+                  : selectedHeat.statusKeputusan === 'dalam_bantahan' ? 'bg-red-100 text-red-700'
+                  : isFH ? 'bg-amber-100 text-amber-700'
+                  : 'bg-gray-100 text-gray-500'
+                const sLabel = selectedHeat.statusKeputusan === 'rasmi' ? '✓ Rasmi'
+                  : selectedHeat.statusKeputusan === 'diterima' ? '✓ Diterima'
+                  : selectedHeat.statusKeputusan === 'tidak_rasmi' ? '⏳ Draf'
+                  : selectedHeat.statusKeputusan === 'dalam_bantahan' ? '⚠ Bantahan'
+                  : isFH ? 'FINAL' : `Heat ${selectedHeat.noHeat}`
+                return (
+                  <div className={`shrink-0 px-2.5 py-1 rounded-lg text-[10px] font-bold leading-none ${sCls}`}>
+                    {sLabel}
+                  </div>
+                )
+              })()}
             </div>
-            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-[#003399]/10 text-[#003399]">
-              {JENIS_LABEL[selectedAcara.jenisAcara] || selectedAcara.jenisAcara}
-            </span>
+            {/* Heat tabs — papar jika lebih 1 heat */}
+            <HeatTabBar heats={heats} selectedHeat={selectedHeat} onSelect={selectHeat} />
           </div>
+
+          {/* ── Loading heat ── */}
+          {heatsLoading && (
+            <div className="flex items-center justify-center py-10 gap-2">
+              <svg className="w-5 h-5 animate-spin text-[#003399]" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+              </svg>
+              <span className="text-sm text-gray-400">Memuatkan heat…</span>
+            </div>
+          )}
+
+          {/* ── Tiada heat ── */}
+          {!heatsLoading && heats.length === 0 && (
+            <div className="text-center py-10">
+              <p className="text-2xl mb-2">📋</p>
+              <p className="text-sm text-gray-400">Tiada heat untuk acara ini.</p>
+              <p className="text-xs text-gray-300 mt-1">Sila jana heat melalui Tetapan Acara.</p>
+            </div>
+          )}
+
+          {/* ── Kandungan utama — papar apabila heat dipilih ── */}
+          {!heatsLoading && selectedHeat && (<>
 
           {/* ── Status Banner ── */}
 
@@ -2211,6 +2625,37 @@ export default function InputKeputusan() {
             </div>
           )}
 
+          {/* ── Cetak Hasil Final ── */}
+          {(() => {
+            const isFinalHeatType = ['final', 'terus_final'].includes(selectedHeat?.fasa) || heats.length === 1
+            const isSaringanAcara = (selectedAcara?.peringkat || '').toLowerCase().includes('saringan')
+            const bolehCetak = isRasmi && isFinalHeatType && !isSaringanAcara
+            if (!bolehCetak) return null
+            return (
+              <div className="pb-4">
+                <div className="bg-green-50 border border-green-200 rounded-2xl px-4 py-3 space-y-2">
+                  <p className="text-xs font-bold text-green-800">✓ Keputusan Rasmi — Sedia untuk Cetak</p>
+                  <button
+                    onClick={handleCetakHasil}
+                    disabled={cetakLoading}
+                    className="w-full py-3 text-sm font-bold rounded-xl bg-[#003399] hover:bg-[#002277] text-white disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+                  >
+                    {cetakLoading ? (
+                      <span>Menjana PDF…</span>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                        </svg>
+                        <span>Cetak Keputusan (Juruhebah / Hadiah / Fail)</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )
+          })()}
+
           {/* ── Jana Final Panel — tunjuk bila semua heat saringan selesai ── */}
           {janaFinalEligible && janaFinalists.length > 0 && (
             <div className="pb-6">
@@ -2220,9 +2665,28 @@ export default function InputKeputusan() {
                 sekolahMap={sekolahMap}
                 onJana={handleJanaFinal}
                 loading={janaFinalLoading}
+                finalSetup={finalSetup}
+                finalDijanaKe={finalDijanaKe}
               />
             </div>
           )}
+
+          {/* ── Final sudah dijana — makluman ── */}
+          {finalDijanaKe && !janaFinalEligible && (
+            <div className="pb-6">
+              <div className="bg-green-50 border border-green-200 rounded-2xl px-4 py-3 flex items-center gap-3">
+                <span className="text-green-500 text-lg">✓</span>
+                <div>
+                  <p className="text-xs font-black text-green-700">Final Sudah Dijana</p>
+                  <p className="text-[11px] text-green-600 mt-0.5">
+                    Pergi <span className="font-bold">Acara #{finalDijanaKe}</span> untuk masukkan keputusan final
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          </>)} {/* end: selectedHeat content */}
         </div>
       )}
     </div>

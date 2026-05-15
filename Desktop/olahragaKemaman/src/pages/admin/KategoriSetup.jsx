@@ -29,11 +29,6 @@ import { db } from '../../firebase/config'
 
 const JENIS_DEFAULTS = ['SR', 'SM', 'PPKI']
 
-const JENIS_BADGE_COLORS = {
-  SR:   'bg-blue-100 text-blue-700',
-  SM:   'bg-green-100 text-green-700',
-  PPKI: 'bg-purple-100 text-purple-700',
-}
 
 const EMPTY_FORM = {
   kod: '', label: '', nama: '', jenisSekolah: 'SR',
@@ -100,167 +95,147 @@ const DualField = ({ labelL, labelP, valL, valP, onL, onP, suffix = '', hint }) 
   </div>
 )
 
-// ─── InfoRow dalam kad ────────────────────────────────────────────────────────
+// ─── KategoriTable ────────────────────────────────────────────────────────────
 
-function InfoRow({ icon, label, children }) {
+function KategoriTable({ items, tahun, onEdit, onDelete, onToggle }) {
   return (
-    <div className="flex items-start gap-2">
-      <div className="w-5 h-5 rounded-md bg-gray-100 flex items-center justify-center shrink-0 mt-0.5">
-        {icon}
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-[9px] text-gray-400 uppercase tracking-wide font-bold leading-none mb-0.5">{label}</p>
-        {children}
-      </div>
-    </div>
-  )
-}
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="bg-gray-50 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-wide">
+            <th className="px-3 py-3 text-left w-12">Kod</th>
+            <th className="px-3 py-3 text-left">Nama</th>
+            <th className="px-3 py-3 text-left">Kelayakan</th>
+            <th className="px-3 py-3 text-center">
+              Atlet / Sekolah
+              <p className="text-[9px] font-normal normal-case text-gray-300 mt-0.5">L | P</p>
+            </th>
+            <th className="px-3 py-3 text-center">
+              Individu
+              <p className="text-[9px] font-normal normal-case text-gray-300 mt-0.5">acara/atlet</p>
+            </th>
+            <th className="px-3 py-3 text-center">
+              Berkump.
+              <p className="text-[9px] font-normal normal-case text-gray-300 mt-0.5">acara/atlet</p>
+            </th>
+            <th className="px-3 py-3 text-center">
+              Pasukan
+              <p className="text-[9px] font-normal normal-case text-gray-300 mt-0.5">L | P | saiz</p>
+            </th>
+            <th className="px-3 py-3 text-center w-14">Aktif</th>
+            <th className="px-3 py-3 w-16"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((k, i) => {
+            const tLabel = tahunLahirLabel(k.umurHad, k.umurMin, tahun)
+            return (
+              <tr key={k.id}
+                className={`border-b border-gray-50 last:border-0 transition-colors hover:bg-blue-50/20 ${
+                  !k.isAktif ? 'opacity-50' : ''
+                } ${i % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
 
-// ─── KategoriCard ──────────────────────────────────────────────────────────────
+                {/* Kod */}
+                <td className="px-3 py-3">
+                  <div className="w-9 h-9 rounded-lg flex items-center justify-center text-white font-black text-sm shadow-sm"
+                    style={{ backgroundColor: k.warna }}>
+                    {k.label || k.kod}
+                  </div>
+                </td>
 
-function KategoriCard({ k, tahun, onEdit, onDelete, onToggle }) {
-  const tLabel = tahunLahirLabel(k.umurHad, k.umurMin, tahun)
+                {/* Nama */}
+                <td className="px-3 py-3 min-w-[140px]">
+                  <p className="font-semibold text-gray-800 leading-tight">{k.nama}</p>
+                  {k.catatan && (
+                    <p className="text-[10px] text-gray-400 mt-0.5 italic">{k.catatan}</p>
+                  )}
+                </td>
 
-  const IconCal = <svg className="w-3 h-3 text-orange-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-  const IconPpl = <svg className="w-3 h-3 text-blue-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-  const IconRun = <svg className="w-3 h-3 text-green-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-  const IconTeam = <svg className="w-3 h-3 text-purple-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
+                {/* Kelayakan */}
+                <td className="px-3 py-3 min-w-[120px]">
+                  {k.isTerbuka ? (
+                    <div>
+                      <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full">Terbuka</span>
+                      <p className="text-[10px] text-gray-500 mt-1">{tLabel}</p>
+                    </div>
+                  ) : k.umurHad ? (
+                    <div>
+                      <p className="text-[10px] font-semibold text-orange-600">Bawah {k.umurHad} Thn</p>
+                      <p className="text-[10px] text-gray-400">{tLabel}</p>
+                    </div>
+                  ) : (
+                    <span className="text-[10px] text-gray-400">—</span>
+                  )}
+                </td>
 
-  return (
-    <div className={`bg-white rounded-xl border shadow-sm overflow-hidden ${!k.isAktif ? 'opacity-55' : ''}`}>
-      {/* Jalur warna atas */}
-      <div className="h-1.5" style={{ backgroundColor: k.warna }} />
+                {/* Atlet L/P */}
+                <td className="px-3 py-3 text-center">
+                  <div className="flex items-center justify-center gap-1.5">
+                    <div className="flex items-center gap-0.5">
+                      <span className="w-4 h-4 rounded-full bg-blue-100 text-[8px] font-black text-blue-700 flex items-center justify-center">L</span>
+                      <span className="font-bold text-gray-700">{k.hadAtletL ?? '—'}</span>
+                    </div>
+                    <span className="text-gray-300">|</span>
+                    <div className="flex items-center gap-0.5">
+                      <span className="w-4 h-4 rounded-full bg-pink-100 text-[8px] font-black text-pink-700 flex items-center justify-center">P</span>
+                      <span className="font-bold text-gray-700">{k.hadAtletP ?? '—'}</span>
+                    </div>
+                  </div>
+                </td>
 
-      <div className="p-4">
-        {/* Header kad */}
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-black text-xl shadow-sm shrink-0"
-              style={{ backgroundColor: k.warna }}>
-              {k.kod}
-            </div>
-            <div>
-              <p className="text-sm font-bold text-gray-800 leading-tight">{k.nama}</p>
-              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
-                  JENIS_BADGE_COLORS[k.jenisSekolah] || 'bg-gray-100 text-gray-600'
-                }`}>{k.jenisSekolah}</span>
-                {k.isTerbuka ? (
-                  <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full border border-amber-300">
-                    Terbuka {k.umurMin && k.umurHad ? `${k.umurMin}–${k.umurHad} Thn` : k.umurHad ? `≤${k.umurHad} Thn` : ''}
-                  </span>
-                ) : k.umurHad ? (
-                  <span className="text-[9px] font-semibold text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded-full">
-                    Bawah {k.umurHad} Thn
-                  </span>
-                ) : null}
-                {!k.isAktif && <span className="text-[9px] text-gray-400">• Tidak Aktif</span>}
-              </div>
-            </div>
-          </div>
-          <div className="flex gap-1 shrink-0">
-            <button onClick={() => onEdit(k)} title="Edit"
-              className="p-1.5 text-gray-300 hover:text-[#003399] hover:bg-blue-50 rounded-lg transition-colors">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-              </svg>
-            </button>
-            <button onClick={() => onDelete(k)} title="Padam"
-              className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-            </button>
-          </div>
-        </div>
+                {/* Individu */}
+                <td className="px-3 py-3 text-center">
+                  <span className="text-base font-black text-green-700">{k.hadAcaraIndividu ?? '—'}</span>
+                </td>
 
-        {/* Tahun lahir */}
-        <div className="bg-indigo-50 rounded-lg px-3 py-2 mb-3">
-          <p className="text-[9px] text-indigo-400 font-bold uppercase tracking-wide mb-0.5">Kelayakan Tahun {tahun}</p>
-          <p className="text-xs font-bold text-indigo-700">{tLabel}</p>
-        </div>
+                {/* Berkumpulan */}
+                <td className="px-3 py-3 text-center">
+                  <span className="text-base font-black text-purple-700">{k.hadAcaraBeregu ?? '—'}</span>
+                </td>
 
-        {/* 4 blok had — grid 2×2 */}
-        <div className="grid grid-cols-2 gap-2 mb-3">
+                {/* Pasukan */}
+                <td className="px-3 py-3 text-center">
+                  <div className="flex items-center justify-center gap-1 text-[11px] text-gray-600">
+                    <span className="w-4 h-4 rounded-full bg-blue-100 text-[8px] font-black text-blue-700 flex items-center justify-center">L</span>
+                    <span className="font-semibold">{k.hadPasukanL ?? 1}</span>
+                    <span className="text-gray-300">|</span>
+                    <span className="w-4 h-4 rounded-full bg-pink-100 text-[8px] font-black text-pink-700 flex items-center justify-center">P</span>
+                    <span className="font-semibold">{k.hadPasukanP ?? 1}</span>
+                  </div>
+                  <p className="text-[9px] text-gray-400 mt-0.5">{k.saizPasukan ?? 4} atlet/pskmn</p>
+                </td>
 
-          {/* Blok 1: Kuota atlet per sekolah */}
-          <div className="bg-blue-50 rounded-lg p-2.5 col-span-2">
-            <InfoRow icon={IconPpl} label="Kuota Atlet Per Sekolah">
-              <div className="flex gap-3 mt-1">
-                <div className="flex items-center gap-1">
-                  <span className="w-4 h-4 rounded-full bg-blue-200 text-[8px] font-black text-blue-800 flex items-center justify-center">L</span>
-                  <span className="text-sm font-black text-blue-900">{k.hadAtletL ?? '—'}</span>
-                  <span className="text-[9px] text-blue-400">atlet</span>
-                </div>
-                <div className="w-px bg-blue-200" />
-                <div className="flex items-center gap-1">
-                  <span className="w-4 h-4 rounded-full bg-pink-200 text-[8px] font-black text-pink-800 flex items-center justify-center">P</span>
-                  <span className="text-sm font-black text-pink-900">{k.hadAtletP ?? '—'}</span>
-                  <span className="text-[9px] text-pink-400">atlet</span>
-                </div>
-              </div>
-            </InfoRow>
-          </div>
+                {/* Aktif toggle */}
+                <td className="px-3 py-3 text-center">
+                  <button onClick={() => onToggle(k)}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${k.isAktif ? 'bg-[#003399]' : 'bg-gray-300'}`}>
+                    <span className="inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform"
+                      style={{ transform: k.isAktif ? 'translateX(18px)' : 'translateX(2px)' }} />
+                  </button>
+                </td>
 
-          {/* Blok 2: Had acara individu */}
-          <div className="bg-green-50 rounded-lg p-2.5">
-            <InfoRow icon={IconRun} label="Acara Individu">
-              <p className="text-lg font-black text-green-800 leading-none mt-0.5">
-                {k.hadAcaraIndividu ?? '—'}
-              </p>
-              <p className="text-[9px] text-green-500">acara / atlet</p>
-            </InfoRow>
-          </div>
-
-          {/* Blok 3: Had acara berkumpulan */}
-          <div className="bg-purple-50 rounded-lg p-2.5">
-            <InfoRow icon={IconTeam} label="Acara Berkumpulan">
-              <p className="text-lg font-black text-purple-800 leading-none mt-0.5">
-                {k.hadAcaraBeregu ?? '—'}
-              </p>
-              <p className="text-[9px] text-purple-500">berkumpulan / atlet</p>
-            </InfoRow>
-          </div>
-
-          {/* Blok 4: Kuota pasukan berkumpulan */}
-          <div className="bg-orange-50 rounded-lg p-2.5 col-span-2">
-            <InfoRow icon={IconCal} label="Pasukan Berkumpulan Per Sekolah">
-              <div className="flex gap-3 mt-1 flex-wrap">
-                <div className="flex items-center gap-1">
-                  <span className="w-4 h-4 rounded-full bg-blue-200 text-[8px] font-black text-blue-800 flex items-center justify-center">L</span>
-                  <span className="text-sm font-black text-orange-900">{k.hadPasukanL ?? 1}</span>
-                  <span className="text-[9px] text-orange-400">pasukan</span>
-                </div>
-                <div className="w-px bg-orange-200" />
-                <div className="flex items-center gap-1">
-                  <span className="w-4 h-4 rounded-full bg-pink-200 text-[8px] font-black text-pink-800 flex items-center justify-center">P</span>
-                  <span className="text-sm font-black text-orange-900">{k.hadPasukanP ?? 1}</span>
-                  <span className="text-[9px] text-orange-400">pasukan</span>
-                </div>
-                <div className="w-px bg-orange-200" />
-                <div className="flex items-center gap-1">
-                  <span className="text-[9px] text-orange-500 font-semibold">{k.saizPasukan ?? 4} atlet/pasukan</span>
-                </div>
-              </div>
-            </InfoRow>
-          </div>
-        </div>
-
-        {/* Catatan */}
-        {k.catatan && (
-          <p className="text-[10px] text-gray-400 italic mb-3">{k.catatan}</p>
-        )}
-
-        {/* Toggle aktif */}
-        <div className="flex items-center justify-between pt-2.5 border-t border-gray-50">
-          <span className="text-[10px] text-gray-400">{k.isAktif ? 'Aktif dalam kejohanan ini' : 'Tidak aktif'}</span>
-          <button onClick={() => onToggle(k)}
-            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${k.isAktif ? 'bg-[#003399]' : 'bg-gray-300'}`}>
-            <span className="inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform"
-              style={{ transform: k.isAktif ? 'translateX(18px)' : 'translateX(2px)' }} />
-          </button>
-        </div>
-      </div>
+                {/* Tindakan */}
+                <td className="px-3 py-3 text-center">
+                  <div className="flex items-center justify-center gap-1">
+                    <button onClick={() => onEdit(k)} title="Edit"
+                      className="p-1.5 text-gray-300 hover:text-[#003399] hover:bg-blue-50 rounded-lg transition-colors">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
+                    <button onClick={() => onDelete(k)} title="Padam"
+                      className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
     </div>
   )
 }
@@ -1287,9 +1262,7 @@ export default function KategoriSetup() {
                   <h2 className="text-xs font-bold text-gray-600 uppercase tracking-widest">{g.label}</h2>
                   {g.sub && <span className="text-[10px] text-gray-400">— {g.sub}</span>}
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {items.map(k => <KategoriCard key={k.id} k={k} {...cardProps} />)}
-                </div>
+                <KategoriTable items={items} tahun={tahun} {...cardProps} />
               </div>
             )
           })}

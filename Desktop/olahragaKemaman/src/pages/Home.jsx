@@ -361,8 +361,10 @@ function AdminModal({ onClose }) {
 
 const PERINGKAT_LABEL_M = { D: 'Daerah', N: 'Negeri', K: 'Kebangsaan' }
 
+// Mesti sama dengan rekodKeyStr() dalam postRasmiUtils.js
 function rekodKeyHome(namaAcara, jantina, kategoriKod, peringkat) {
-  return [namaAcara, jantina, kategoriKod, peringkat].map(s => String(s || '').replace(/\s+/g, '_')).join('_')
+  return [namaAcara, jantina, kategoriKod, peringkat]
+    .join('_').toUpperCase().replace(/[^A-Z0-9_]/g, '_')
 }
 
 function RekodModal({ peserta, acara, onClose }) {
@@ -405,13 +407,23 @@ function RekodModal({ peserta, acara, onClose }) {
   const t = data?.tuntutan
   const r = data?.rekodAsal
 
-  // Rekod lama: ambil dari tuntutan.prestasiLama (jika ada) atau dari rekodAsal
-  const prestasiLama = t?.prestasiLama ?? (r ? Number(r.prestasi) : null)
-  const tahunLama    = t?.tahunLama    ?? (r ? String(r.tarikhRekod || '').slice(0, 4) : null)
-  const namaLama     = t?.namaLama     ?? r?.namaAtlet  ?? null
-  const lokasiLama   = t?.lokasiLama   ?? r?.namaSekolah ?? r?.namaDaerah ?? r?.namaNegeri ?? null
+  // Rekod lama: jika tuntutan wujud → ambil prestasiLama dari tuntutan (null = rekod pertama)
+  //             jika tiada tuntutan tapi ada rekodAsal → rekodAsal itu sendiri adalah rekod lama (rujukan)
+  const prestasiLama = t != null
+    ? (t.prestasiLama ?? null)
+    : (r ? Number(r.prestasi) : null)
+  const tahunLama = t != null
+    ? (t.tahunLama ?? (r ? String(r.tarikhRekod || '').slice(0, 4) : null))
+    : (r ? String(r.tarikhRekod || '').slice(0, 4) : null)
+  const namaLama  = t != null
+    ? (t.namaLama  ?? (prestasiLama == null ? null : r?.namaAtlet ?? null))
+    : (r?.namaAtlet ?? null)
+  const lokasiLama = t != null
+    ? (t.lokasiLama ?? (prestasiLama == null ? null : (r?.namaSekolah ?? r?.namaDaerah ?? r?.namaNegeri ?? null)))
+    : (r?.namaSekolah ?? r?.namaDaerah ?? r?.namaNegeri ?? null)
 
-  const prestasiStatus = t?.statusRekod || 'tuntutan'
+  // Auto-approve: rekod dari postRasmi sentiasa dianggap sah
+  const prestasiStatus = 'aktif'
   const delta = (() => {
     if (!t?.prestasi || !prestasiLama) return null
     const diff = Math.abs(Number(t.prestasi) - prestasiLama)
@@ -451,9 +463,9 @@ function RekodModal({ peserta, acara, onClose }) {
               {/* Rekod Baru */}
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
                 <p className="text-[9px] font-bold text-amber-500 uppercase tracking-widest mb-1">Rekod Baru</p>
-                <p className="text-2xl font-black text-amber-700 font-mono">{fmtP(t?.prestasi)}</p>
+                <p className="text-2xl font-black text-amber-700 font-mono">{fmtP(t?.prestasi ?? peserta.keputusan)}</p>
                 <p className="text-xs font-semibold text-gray-800 mt-1">{t?.namaAtlet || peserta.namaAtlet || '—'}</p>
-                <p className="text-[10px] text-gray-500">{t?.namaSekolah || '—'}</p>
+                <p className="text-[10px] text-gray-500">{t?.namaSekolah || peserta.namaSekolah || peserta.kodSekolah || '—'}</p>
                 <div className="flex items-center gap-2 mt-2">
                   <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border border-amber-300 text-amber-700">
                     {PERINGKAT_LABEL_M[peringkat] || peringkat}
@@ -597,8 +609,141 @@ function KeputusanExpanded({ heats, acara, sekolahMap, isLoading, finalSetup }) 
       ? (saringanHeats.length > 1 ? `${saringanHeats.length} Heat Saringan` : 'Saringan')
       : (heatsWithResult.length > 1 ? `${heatsWithResult.length} Heat` : 'Heat')
 
+  // Helper: render satu jadual untuk satu heat
+  function renderHeatTable(heat, heatPeserta, labelOverride) {
+    const isFinalHeat = heat.peringkat === 'final' || heat.fasa === 'terus_final'
+    const label = labelOverride || (isFinalHeat ? 'Final' : `Heat ${heat.noHeat}`)
+    const labelCls = isFinalHeat
+      ? 'bg-amber-100 text-amber-700 border-amber-200'
+      : 'bg-white text-gray-500 border-gray-200'
+
+    return (
+      <div key={heat.heatId} className="border-b border-gray-100 last:border-b-0">
+        {/* Sub-header heat */}
+        <div className="px-3 py-1.5 flex items-center gap-2 bg-gray-50/60 border-b border-gray-100">
+          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${labelCls}`}>
+            {label}
+          </span>
+          {isFinalHeat && (
+            <span className="text-[9px] font-black tracking-widest uppercase text-teal-600">Keputusan</span>
+          )}
+        </div>
+        <table className="w-full text-xs min-w-max">
+          <thead>
+            <tr className="text-[10px] text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50/30">
+              <th className="px-3 py-1.5 text-center w-8">#</th>
+              {!isRelay && <th className="px-2 py-1.5 text-center w-12">BIB</th>}
+              <th className="px-3 py-1.5 text-left">{isRelay ? 'Pasukan' : 'Nama Atlet'}</th>
+              {!isRelay && <th className="px-3 py-1.5 text-left">Sekolah</th>}
+              <th className="px-3 py-1.5 text-right">{isPadang ? 'Jarak' : 'Masa'}</th>
+              {showCatatanCol && <th className="px-2 py-1.5 text-center">Catatan</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {heatPeserta.map((p, idx) => {
+              const flagged     = ['DNS', 'DNF', 'DQ'].includes(p.status)
+              const namaSkl     = (p.kodSekolah && (sekolahMap[p.kodSekolah] || p.kodSekolah)) || p.kodSekolah || '—'
+              const kddk        = p.kedudukan || p.rankDalamHeat
+              const isSementara = !p.kedudukan && !!p.rankDalamHeat
+              const hasil       = isPadang ? fmtJarak(p.keputusan) : fmtMasa(p.keputusan)
+              const medal       = isFinalHeat && (kddk === 1 ? '🥇' : kddk === 2 ? '🥈' : kddk === 3 ? '🥉' : null)
+              const layakFinal  = showCatatanCol && !flagged && finalistBibs.has(p.noBib)
+
+              return (
+                <tr key={idx} className={`border-t border-gray-50 ${
+                  layakFinal ? 'bg-blue-50/30' :
+                  flagged    ? 'bg-red-50/30' :
+                  kddk === 1 ? 'bg-amber-50/40' :
+                  idx % 2 === 1 ? 'bg-gray-50/20' : ''
+                }`}>
+                  <td className="px-3 py-2 text-center">
+                    {medal
+                      ? <span className={`text-sm ${isSementara ? 'opacity-50' : ''}`}>{medal}</span>
+                      : <span className="text-[10px] text-gray-400 font-bold">{kddk || (idx + 1)}</span>
+                    }
+                  </td>
+                  {!isRelay && (
+                    <td className="px-2 py-2 text-center font-mono text-gray-500 text-[11px]">{p.noBib || '—'}</td>
+                  )}
+                  <td className="px-3 py-2">
+                    {isRelay
+                      ? <p className="font-semibold text-gray-800">{namaSkl}</p>
+                      : <div className="flex items-center gap-1.5">
+                          <p className={`font-semibold ${flagged ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
+                            {p.namaAtlet || '—'}
+                            {flagged && <span className="ml-1 no-underline text-red-500 font-bold"> {p.status}</span>}
+                          </p>
+                          {p.pecahRekod && (
+                            <button
+                              onClick={e => { e.stopPropagation(); setRekodModal(p) }}
+                              className="shrink-0 text-[8px] font-black px-1.5 py-0.5 rounded bg-amber-400 hover:bg-amber-500 text-white tracking-wide transition-colors"
+                              title="Klik untuk lihat rekod dipecahkan"
+                            >
+                              🏆 REKOD
+                            </button>
+                          )}
+                        </div>
+                    }
+                  </td>
+                  {!isRelay && (
+                    <td className="px-3 py-2 text-gray-500 text-[11px] max-w-[130px] truncate">{namaSkl}</td>
+                  )}
+                  <td className={`px-3 py-2 text-right font-mono font-bold text-[11px] ${flagged ? 'text-red-400' : 'text-gray-800'}`}>
+                    {flagged ? p.status : (hasil || '—')}
+                  </td>
+                  {showCatatanCol && (
+                    <td className="px-2 py-2 text-center">
+                      {layakFinal && (
+                        <span className="inline-block text-[9px] font-black px-1.5 py-0.5 rounded bg-[#003399] text-white tracking-wide">
+                          FINAL
+                        </span>
+                      )}
+                    </td>
+                  )}
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+
+  // Render: kalau final → satu jadual. Kalau saringan → pecah by heat.
+  const renderContent = () => {
+    if (showingFinal) {
+      // Final heat — satu jadual sahaja
+      const finalHeat = finalHeats[0]
+      const peserta   = [...(finalHeat?.peserta || [])]
+        .sort((a, b) => {
+          const ar = a.kedudukan || a.rankDalamHeat, br = b.kedudukan || b.rankDalamHeat
+          if (ar && br) return ar - br
+          if (ar) return -1; if (br) return 1
+          const av = Number(a.keputusan)||0, bv = Number(b.keputusan)||0
+          return isPadang ? bv - av : av - bv
+        })
+      return renderHeatTable(finalHeat, peserta, 'Final')
+    }
+
+    // Saringan — satu jadual per heat
+    return displayHeats
+      .sort((a, b) => (a.noHeat || 0) - (b.noHeat || 0))
+      .map(heat => {
+        const peserta = [...(heat.peserta || [])]
+          .sort((a, b) => {
+            const ar = a.rankDalamHeat, br = b.rankDalamHeat
+            if (ar && br) return ar - br
+            if (ar) return -1; if (br) return 1
+            const av = Number(a.keputusan)||0, bv = Number(b.keputusan)||0
+            return isPadang ? bv - av : av - bv
+          })
+        return renderHeatTable(heat, peserta)
+      })
+  }
+
   return (
     <div className="overflow-x-auto">
+      {/* Top label bar */}
       <div className="px-3 py-1.5 border-b border-gray-100 flex items-center gap-2 bg-gray-50/60">
         <span className="text-[9px] font-bold text-gray-400 bg-white border border-gray-200 px-1.5 py-0.5 rounded">
           {heatLabel}
@@ -607,85 +752,7 @@ function KeputusanExpanded({ heats, acara, sekolahMap, isLoading, finalSetup }) 
           Keputusan
         </span>
       </div>
-      <table className="w-full text-xs min-w-max">
-        <thead>
-          <tr className="text-[10px] text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50/50">
-            <th className="px-3 py-2 text-center w-8">#</th>
-            {!isRelay && <th className="px-2 py-2 text-center w-12">BIB</th>}
-            <th className="px-3 py-2 text-left">{isRelay ? 'Pasukan' : 'Nama Atlet'}</th>
-            {!isRelay && <th className="px-3 py-2 text-left">Sekolah</th>}
-            <th className="px-3 py-2 text-right">{isPadang ? 'Jarak' : 'Masa'}</th>
-            {showCatatanCol && <th className="px-2 py-2 text-center">Catatan</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {allPeserta.map((p, idx) => {
-            const flagged  = ['DNS', 'DNF', 'DQ'].includes(p.status)
-            const namaSkl  = (p.kodSekolah && (sekolahMap[p.kodSekolah] || p.kodSekolah)) || p.kodSekolah || '—'
-            // Soalan 1 FIX: guna rankDalamHeat jika kedudukan belum ada (tidak_rasmi)
-            const kddk        = p.kedudukan || p.rankDalamHeat
-            const isSementara = !p.kedudukan && !!p.rankDalamHeat
-            const hasil       = isPadang ? fmtJarak(p.keputusan) : fmtMasa(p.keputusan)
-            // Medal hanya bila papar final — saringan tunjuk nombor sahaja
-            const medal       = showingFinal && (kddk === 1 ? '🥇' : kddk === 2 ? '🥈' : kddk === 3 ? '🥉' : null)
-            const layakFinal  = showCatatanCol && !flagged && finalistBibs.has(p.noBib)
-
-            return (
-              <tr key={idx} className={`border-t border-gray-50 ${
-                layakFinal ? 'bg-blue-50/30' :
-                flagged ? 'bg-red-50/30' :
-                kddk === 1 ? 'bg-amber-50/40' :
-                idx % 2 === 1 ? 'bg-gray-50/20' : ''
-              }`}>
-                <td className="px-3 py-2 text-center">
-                  {medal
-                    ? <span className={`text-sm ${isSementara ? 'opacity-50' : ''}`} title={isSementara ? 'Sementara' : ''}>{medal}</span>
-                    : <span className="text-[10px] text-gray-400 font-bold">{kddk || (idx + 1)}</span>
-                  }
-                </td>
-                {!isRelay && (
-                  <td className="px-2 py-2 text-center font-mono text-gray-500 text-[11px]">{p.noBib || '—'}</td>
-                )}
-                <td className="px-3 py-2">
-                  {isRelay
-                    ? <p className="font-semibold text-gray-800">{namaSkl}</p>
-                    : <div className="flex items-center gap-1.5">
-                        <p className={`font-semibold ${flagged ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
-                          {p.namaAtlet || '—'}
-                          {flagged && <span className="ml-1 no-underline text-red-500 font-bold"> {p.status}</span>}
-                        </p>
-                        {p.pecahRekod && (
-                          <button
-                            onClick={e => { e.stopPropagation(); setRekodModal(p) }}
-                            className="shrink-0 text-[8px] font-black px-1.5 py-0.5 rounded bg-amber-400 hover:bg-amber-500 text-white tracking-wide transition-colors"
-                            title="Klik untuk lihat rekod dipecahkan"
-                          >
-                            🏆 REKOD
-                          </button>
-                        )}
-                      </div>
-                  }
-                </td>
-                {!isRelay && (
-                  <td className="px-3 py-2 text-gray-500 text-[11px] max-w-[130px] truncate">{namaSkl}</td>
-                )}
-                <td className={`px-3 py-2 text-right font-mono font-bold text-[11px] ${flagged ? 'text-red-400' : 'text-gray-800'}`}>
-                  {flagged ? p.status : (hasil || '—')}
-                </td>
-                {showCatatanCol && (
-                  <td className="px-2 py-2 text-center">
-                    {layakFinal && (
-                      <span className="inline-block text-[9px] font-black px-1.5 py-0.5 rounded bg-[#003399] text-white tracking-wide">
-                        FINAL
-                      </span>
-                    )}
-                  </td>
-                )}
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
+      {renderContent()}
       {rekodModal && (
         <RekodModal
           peserta={rekodModal}
@@ -1047,13 +1114,9 @@ export default function Home() {
       const snap = await getDocs(query(collection(db, 'rekod'), where('kejohananId', '==', kejId)))
       const list = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
-        .filter(r => r.statusRekod === 'aktif' || r.statusRekod === 'tuntutan')
-        .sort((a, b) => {
-          // Aktif dulu, lepas tu tuntutan; dalam setiap kumpulan ikut tarikhRekod
-          if (a.statusRekod !== b.statusRekod)
-            return a.statusRekod === 'aktif' ? -1 : 1
-          return (b.tarikhRekod || '').localeCompare(a.tarikhRekod || '')
-        })
+        // Hanya rekod utama (bukan salinan _tuntutan) supaya tiada duplikat
+        .filter(r => (r.statusRekod === 'aktif' || r.statusRekod === 'tuntutan') && !r.rekodAsal)
+        .sort((a, b) => (b.tarikhRekod || '').localeCompare(a.tarikhRekod || ''))
       setRekodBaru(list)
     } catch { } finally { setRekodLoading(false) }
   }
@@ -1272,7 +1335,7 @@ export default function Home() {
         const isRelay  = item.acara.jenisAcara === 'relay'
 
         const heatsWithResult = heats.filter(h =>
-          h.statusKeputusan === 'tidak_rasmi' || h.statusKeputusan === 'rasmi'
+          ['rasmi', 'tidak_rasmi', 'diterima'].includes(h.statusKeputusan)
         )
         if (heatsWithResult.length === 0) continue
 
@@ -2173,89 +2236,6 @@ export default function Home() {
         )
       })()}
 
-      {/* ── Rekod Baru ── */}
-      {kejohananId && rekodBaru.length > 0 && (() => {
-        const PERINGKAT_LABEL = { D: 'Daerah', N: 'Negeri', K: 'Kebangsaan' }
-        const PERINGKAT_COLOR = {
-          K: 'bg-amber-400 text-white border-amber-500',
-          N: 'bg-blue-500 text-white border-blue-600',
-          D: 'bg-green-500 text-white border-green-600',
-        }
-        const STATUS_STYLE = {
-          aktif:    'bg-green-100 text-green-700 border-green-200',
-          tuntutan: 'bg-orange-100 text-orange-700 border-orange-200',
-        }
-        const STATUS_LABEL = { aktif: 'Disahkan', tuntutan: 'Menunggu' }
-
-        function fmtPrestasi(val, unit) {
-          if (val == null) return '—'
-          const n = Number(val)
-          if (isNaN(n)) return '—'
-          if (unit === 's') {
-            if (n >= 60) { const m = Math.floor(n/60); return `${m}:${(n%60).toFixed(2).padStart(5,'0')}` }
-            return n.toFixed(2) + 's'
-          }
-          if (unit === 'm') return n.toFixed(2) + 'm'
-          return String(n)
-        }
-
-        return (
-          <section className="px-4 pt-2 pb-4">
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-
-              {/* Header */}
-              <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-                <div>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Prestasi</p>
-                  <h2 className="text-base font-black text-gray-800 leading-tight">Rekod Baru</h2>
-                </div>
-                {rekodLoading && (
-                  <svg className="w-4 h-4 animate-spin text-gray-300" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-                  </svg>
-                )}
-              </div>
-
-              {/* List */}
-              <div className="divide-y divide-gray-50">
-                {rekodBaru.map(r => (
-                  <div key={r.id} className="px-4 py-3 flex items-center gap-3">
-                    {/* Peringkat badge */}
-                    <span className={`shrink-0 text-[9px] font-black px-2 py-1 rounded-lg border ${PERINGKAT_COLOR[r.peringkat] || 'bg-gray-100 text-gray-500 border-gray-200'}`}>
-                      {PERINGKAT_LABEL[r.peringkat] || r.peringkat}
-                    </span>
-
-                    {/* Butiran */}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold text-gray-800 truncate">
-                        {r.namaAcara || '—'}
-                        {r.kategoriKod && <span className="ml-1 font-normal text-gray-400">Kat {r.kategoriKod}</span>}
-                        {r.jantina && <span className="ml-1 text-[9px] font-bold px-1 py-0.5 rounded-full bg-gray-100 text-gray-500">{r.jantina}</span>}
-                      </p>
-                      <p className="text-[10px] text-gray-500 truncate">
-                        {r.namaAtlet || '—'} · {r.namaSekolah || r.kodSekolah || '—'}
-                      </p>
-                    </div>
-
-                    {/* Prestasi baru */}
-                    <div className="text-right shrink-0">
-                      <p className="text-sm font-black text-[#003399] font-mono">{fmtPrestasi(r.prestasi, r.unit)}</p>
-                      <p className="text-[9px] text-gray-400">{r.tarikhRekod ? r.tarikhRekod.slice(0, 4) : '—'}</p>
-                    </div>
-
-                    {/* Status */}
-                    <span className={`shrink-0 text-[8px] font-bold px-1.5 py-0.5 rounded border ${STATUS_STYLE[r.statusRekod] || 'bg-gray-100 text-gray-400 border-gray-200'}`}>
-                      {STATUS_LABEL[r.statusRekod] || r.statusRekod}
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-            </div>
-          </section>
-        )
-      })()}
 
       {/* ── Footer ── */}
       <footer className="border-t border-gray-100 py-4 px-5 bg-white">

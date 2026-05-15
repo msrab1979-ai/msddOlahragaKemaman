@@ -101,6 +101,17 @@ function formatSelisih(baru, lama, unit) {
   return unit === 's' ? `-${diff}s (lebih pantas)` : `+${diff}m (lebih jauh)`
 }
 
+function makeRekodKey(namaAcara, jantina, kategoriKod, peringkat) {
+  return [namaAcara, jantina, kategoriKod, peringkat]
+    .join('_').toUpperCase().replace(/[^A-Z0-9_]/g, '_')
+}
+
+const REKOD_PERINGKAT_META = {
+  K: { label: 'Kebangsaan', bg: 'bg-amber-50 border-amber-200', badge: 'bg-amber-500', text: 'text-amber-700' },
+  N: { label: 'Negeri',     bg: 'bg-blue-50 border-blue-200',   badge: 'bg-blue-600',  text: 'text-blue-700' },
+  D: { label: 'Daerah',     bg: 'bg-green-50 border-green-200', badge: 'bg-green-600', text: 'text-green-700' },
+}
+
 // ─── AtletModal ───────────────────────────────────────────────────────────────
 
 function AtletModal({ atlet, namaKej, katLabelFn, onClose }) {
@@ -353,9 +364,30 @@ function AtletModal({ atlet, namaKej, katLabelFn, onClose }) {
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function AtletRow({ atlet, rank, isDipilih, onPilih, onDetail }) {
-  const [expand, setExpand] = useState(false)
+  const [expand,      setExpand]      = useState(false)
+  const [rekodShown,  setRekodShown]  = useState(null)   // 'D' | 'N' | 'K' | null
+  const [rekodCache,  setRekodCache]  = useState({})     // key → { loading, data }
   const acaraList = getAcaraDetail(atlet)
   const rekodList = getRekodDetail(atlet)
+
+  async function toggleRekodPanel(e, peringkat) {
+    e.stopPropagation()
+    if (rekodShown === peringkat) { setRekodShown(null); return }
+    setRekodShown(peringkat)
+    // Fetch semua rekod untuk peringkat ini dari collection
+    const items = rekodList.filter(r => r.peringkat === peringkat)
+    for (const r of items) {
+      const key = makeRekodKey(
+        r.namaAcara, r.jantina || atlet.jantina,
+        r.kategoriKod || atlet.kategoriKod, peringkat
+      )
+      if (rekodCache[key]) continue
+      setRekodCache(prev => ({ ...prev, [key]: { loading: true, data: null } }))
+      getDoc(doc(db, 'rekod', key))
+        .then(snap => setRekodCache(prev => ({ ...prev, [key]: { loading: false, data: snap.exists() ? snap.data() : null } })))
+        .catch(() => setRekodCache(prev => ({ ...prev, [key]: { loading: false, data: null } })))
+    }
+  }
   const isTop3    = rank <= 3
   const rankStyle = RANK_STYLE[rank] || ''
 
@@ -443,26 +475,30 @@ function AtletRow({ atlet, rank, isDipilih, onPilih, onDetail }) {
           </span>
         </td>
 
-        {/* Rekod badge */}
-        <td className="px-1 py-2 text-center">
+        {/* Rekod badge — klik untuk popup inline */}
+        <td className="px-1 py-2 text-center" onClick={e => e.stopPropagation()}>
           {rekodList.length > 0 && (() => {
             const REKOD_COLOR = {
-              K: 'bg-amber-400 text-white border-amber-500',
-              N: 'bg-blue-500 text-white border-blue-600',
-              D: 'bg-green-500 text-white border-green-600',
+              K: 'bg-amber-400 text-white border-amber-500 hover:bg-amber-500',
+              N: 'bg-blue-500 text-white border-blue-600 hover:bg-blue-600',
+              D: 'bg-green-500 text-white border-green-600 hover:bg-green-600',
             }
             const peringkats = [...new Set(rekodList.map(r => r.peringkat).filter(Boolean))]
               .sort((a, b) => ['K','N','D'].indexOf(a) - ['K','N','D'].indexOf(b))
             return (
               <div className="flex flex-col gap-0.5 items-center">
                 {peringkats.map(p => (
-                  <span key={p} className={`text-[7px] font-black px-1 py-0.5 rounded border leading-tight ${REKOD_COLOR[p] || 'bg-red-100 text-red-700 border-red-300'}`}>
+                  <button key={p}
+                    onClick={e => toggleRekodPanel(e, p)}
+                    title={`Lihat Rekod ${REKOD_PERINGKAT_META[p]?.label || p}`}
+                    className={`text-[7px] font-black px-1 py-0.5 rounded border leading-tight transition-colors cursor-pointer ${
+                      rekodShown === p
+                        ? 'ring-2 ring-offset-1 ring-white ' + (REKOD_COLOR[p] || 'bg-red-400 text-white border-red-500')
+                        : REKOD_COLOR[p] || 'bg-red-100 text-red-700 border-red-300'
+                    }`}>
                     R{p}
-                  </span>
+                  </button>
                 ))}
-                {peringkats.length === 0 && (
-                  <span className="text-[7px] font-black px-1 py-0.5 rounded border bg-red-100 text-red-700 border-red-300">R</span>
-                )}
               </div>
             )
           })()}
@@ -577,6 +613,108 @@ function AtletRow({ atlet, rank, isDipilih, onPilih, onDetail }) {
           </td>
         </tr>
       )}
+
+      {/* ── Rekod Popup Row — muncul bila badge RD/RN/RK diklik ── */}
+      {rekodShown && (() => {
+        const pc = REKOD_PERINGKAT_META[rekodShown] || { label: rekodShown, bg: 'bg-gray-50 border-gray-200', badge: 'bg-gray-500', text: 'text-gray-700' }
+        const items = rekodList.filter(r => r.peringkat === rekodShown)
+        return (
+          <tr className="border-b border-gray-100">
+            <td colSpan={10} className="px-4 py-2.5">
+              <div className={`border rounded-xl p-3 ${pc.bg}`}>
+                {/* Header */}
+                <div className="flex items-center gap-2 mb-2.5">
+                  <span className={`text-[8px] font-black px-2.5 py-1 rounded-full text-white ${pc.badge}`}>
+                    🏆 REKOD {pc.label.toUpperCase()}
+                  </span>
+                  <button
+                    onClick={e => { e.stopPropagation(); setRekodShown(null) }}
+                    className="ml-auto text-gray-400 hover:text-gray-700 text-xs font-bold px-1">
+                    ✕
+                  </button>
+                </div>
+
+                {/* Senarai rekod dipecah untuk peringkat ini */}
+                <div className="space-y-3">
+                  {items.map((r, i) => {
+                    const key = makeRekodKey(
+                      r.namaAcara, r.jantina || atlet.jantina,
+                      r.kategoriKod || atlet.kategoriKod, rekodShown
+                    )
+                    const cached    = rekodCache[key]
+                    const isLoading = cached?.loading
+                    const rekodDoc  = cached?.data
+                    const isBrokenNow = rekodDoc?.kejohananId && rekodDoc.kejohananId === atlet.kejohananId
+
+                    return (
+                      <div key={i}>
+                        <p className={`text-[9px] font-bold mb-1.5 ${pc.text}`}>{r.namaAcara}</p>
+                        {isLoading || !cached ? (
+                          <p className="text-[9px] text-gray-400 italic">Memuatkan...</p>
+                        ) : !rekodDoc ? (
+                          <p className="text-[9px] text-gray-400 italic">Tiada rekod dalam sistem untuk acara ini.</p>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-2">
+                            {/* Rekod Baru (kalau dipecah dalam kejohanan ini) */}
+                            {isBrokenNow ? (
+                              <div className="bg-green-50 border border-green-200 rounded-lg px-2.5 py-2">
+                                <p className="text-[7px] font-bold text-green-500 uppercase tracking-wide mb-1">Rekod Baru</p>
+                                <p className="font-black text-green-700 text-sm font-mono">
+                                  {formatPrestasi(rekodDoc.prestasi, rekodDoc.unit)}
+                                </p>
+                                <p className="text-green-600 text-[9px] mt-0.5 font-semibold">{rekodDoc.namaAtlet || '—'}</p>
+                                <p className="text-green-500 text-[9px]">{rekodDoc.namaSekolah || ''}</p>
+                                {rekodDoc.tarikhRekod && <p className="text-green-400 text-[9px]">{rekodDoc.tarikhRekod}</p>}
+                                {rekodDoc.prestasiLama != null && (
+                                  <p className="text-green-600 text-[8px] font-semibold mt-1">
+                                    {formatSelisih(rekodDoc.prestasi, rekodDoc.prestasiLama, rekodDoc.unit)}
+                                  </p>
+                                )}
+                              </div>
+                            ) : null}
+
+                            {/* Rekod Lama / Rekod Semasa */}
+                            <div className={`${isBrokenNow ? '' : 'col-span-2'} bg-white/70 border border-gray-200 rounded-lg px-2.5 py-2`}>
+                              <p className="text-[7px] font-bold text-gray-400 uppercase tracking-wide mb-1">
+                                {isBrokenNow ? 'Rekod Lama' : 'Rekod Semasa (Rujukan)'}
+                              </p>
+                              {isBrokenNow ? (
+                                rekodDoc.prestasiLama != null ? (
+                                  <>
+                                    <p className="font-black text-gray-700 text-sm font-mono">
+                                      {formatPrestasi(rekodDoc.prestasiLama, rekodDoc.unit)}
+                                    </p>
+                                    {rekodDoc.namaLama   && <p className="text-gray-600 text-[9px] mt-0.5 font-semibold">{rekodDoc.namaLama}</p>}
+                                    {rekodDoc.lokasiLama && <p className="text-gray-400 text-[9px]">{rekodDoc.lokasiLama}</p>}
+                                    {rekodDoc.tahunLama  && <p className="text-gray-400 text-[9px]">Tahun: {rekodDoc.tahunLama}</p>}
+                                  </>
+                                ) : (
+                                  <p className="text-gray-400 text-[9px] italic">Rekod pertama ditetapkan</p>
+                                )
+                              ) : (
+                                <>
+                                  <p className="font-black text-gray-700 text-sm font-mono">
+                                    {formatPrestasi(rekodDoc.prestasi, rekodDoc.unit)}
+                                  </p>
+                                  <p className="text-gray-600 text-[9px] mt-0.5 font-semibold">{rekodDoc.namaAtlet || '—'}</p>
+                                  <p className="text-gray-400 text-[9px]">
+                                    {rekodDoc.namaSekolah || rekodDoc.namaDaerah || rekodDoc.namaNegeri || ''}
+                                    {rekodDoc.tarikhRekod ? '  ·  ' + rekodDoc.tarikhRekod.slice(0, 4) : ''}
+                                  </p>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </td>
+          </tr>
+        )
+      })()}
     </>
   )
 }
@@ -1059,6 +1197,161 @@ export default function Olahragawan() {
     pdf.save(`AtletTerbaikKejohanan_${namaKej || 'KOAM'}.pdf`)
   }
 
+  // ── Cetak Best Atlet per Kategori — format paparan umum (satu halaman per kat) ──
+  async function cetakBestAtletUmum() {
+    const { jsPDF } = await import('jspdf')
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+    const W = 210, H = 297, M = 12
+
+    let isFirst = true
+
+    katAda.forEach(kat => {
+      if (!isFirst) pdf.addPage()
+      isFirst = false
+
+      const katInfo = kategoriList.find(k => k.kod === kat)
+      const katNama = katInfo
+        ? `KATEGORI ${kat} — BAWAH ${katInfo.umurHad}`
+        : `KATEGORI ${kat}`
+
+      // ── Header bar ──
+      pdf.setFillColor(0, 51, 153)
+      pdf.rect(0, 0, W, 30, 'F')
+      pdf.setTextColor(255, 255, 255)
+      pdf.setFontSize(9); pdf.setFont('helvetica', 'normal')
+      pdf.text('OLAHRAGAWAN & OLAHRAGAWATI TERBAIK', W / 2, 10, { align: 'center' })
+      pdf.setFontSize(10); pdf.setFont('helvetica', 'bold')
+      pdf.text((namaKej || 'KEJOHANAN OLAHRAGA').toUpperCase(), W / 2, 18, { align: 'center' })
+      pdf.setFontSize(14); pdf.setFont('helvetica', 'bold')
+      pdf.text(katNama, W / 2, 27, { align: 'center' })
+      pdf.setTextColor(0, 0, 0)
+
+      // ── Dua kolum (L dan P) ──
+      const gap  = 6
+      const colW = (W - M * 2 - gap) / 2
+      const colYStart = 38
+
+      ;['L', 'P'].forEach((j, ji) => {
+        const x    = ji === 0 ? M : M + colW + gap
+        const isL  = j === 'L'
+        const fillR = isL ? 0 : 160
+        const fillG = isL ? 51 : 0
+        const fillB = isL ? 153 : 100
+
+        // Dapatkan atlet: pilihan admin atau rank #1
+        const pil  = pilihan[`${kat}_${j}`]
+        const live = pil ? (allData.find(a => a.noKP === pil.noKP) || pil) : null
+        let atlet  = live
+        if (!atlet) {
+          const sorted = rankWithTies(
+            [...allData]
+              .filter(a => a.jantina === j && a.kategoriKod === kat && (a.jumlahMata || 0) > 0)
+              .sort(sortOlahragawan)
+          )
+          atlet = sorted.find(a => a.rank === 1) || null
+        }
+
+        // ── Tajuk kolum ──
+        const hdrH = 12
+        pdf.setFillColor(fillR, fillG, fillB)
+        pdf.rect(x, colYStart, colW, hdrH, 'F')
+        pdf.setTextColor(255, 255, 255)
+        pdf.setFontSize(10); pdf.setFont('helvetica', 'bold')
+        pdf.text(isL ? '\u2642 OLAHRAGAWAN' : '\u2640 OLAHRAGAWATI', x + colW / 2, colYStart + 8, { align: 'center' })
+        pdf.setTextColor(0, 0, 0)
+
+        // ── Kotak kandungan ──
+        const boxY = colYStart + hdrH
+        const boxH = 200
+        pdf.setDrawColor(fillR, fillG, fillB)
+        pdf.setLineWidth(0.4)
+        pdf.rect(x, boxY, colW, boxH)
+        pdf.setFillColor(fillR === 0 ? 240 : 255, fillG === 51 ? 242 : 240, fillB === 153 ? 255 : 248)
+        pdf.rect(x, boxY, colW, boxH, 'F')
+        pdf.setDrawColor(fillR, fillG, fillB)
+        pdf.rect(x, boxY, colW, boxH)
+
+        if (atlet) {
+          const nama   = atlet.namaAtlet || '—'
+          const sekolah = atlet.namaSekolah || atlet.kodSekolah || '—'
+          const emas   = atlet.pingat_emas   || 0
+          const perak  = atlet.pingat_perak  || 0
+          const gangsa = atlet.pingat_gangsa || 0
+          const mata   = atlet.jumlahMata    || 0
+
+          // Bintang (jika dipilih manual)
+          if (pil) {
+            pdf.setFontSize(18)
+            pdf.setTextColor(fillR, fillG, fillB)
+            pdf.text('\u2605', x + colW / 2, boxY + 16, { align: 'center' })
+          }
+
+          // Nama (besar)
+          pdf.setFontSize(15); pdf.setFont('helvetica', 'bold')
+          pdf.setTextColor(20, 20, 20)
+          const namaLines = pdf.splitTextToSize(nama, colW - 8)
+          const namaY = pil ? boxY + 30 : boxY + 20
+          pdf.text(namaLines, x + colW / 2, namaY, { align: 'center' })
+
+          // Sekolah
+          pdf.setFontSize(8); pdf.setFont('helvetica', 'normal')
+          pdf.setTextColor(80, 80, 80)
+          const sklLines = pdf.splitTextToSize(sekolah, colW - 6)
+          pdf.text(sklLines, x + colW / 2, namaY + (namaLines.length * 7) + 2, { align: 'center' })
+
+          // Divider
+          const divY = namaY + (namaLines.length * 7) + (sklLines.length * 5) + 8
+          pdf.setDrawColor(200, 200, 210)
+          pdf.setLineWidth(0.2)
+          pdf.line(x + 10, divY, x + colW - 10, divY)
+
+          // Medal row
+          const mY = divY + 14
+          const coinR = 8
+          const centers = [x + colW/2 - 26, x + colW/2, x + colW/2 + 26]
+          const mColors = [[212,175,55], [180,180,180], [205,127,50]]
+          const mCounts = [emas, perak, gangsa]
+          const mLabels = ['E', 'P', 'G']
+
+          centers.forEach((cx, ci) => {
+            pdf.setFillColor(...mColors[ci])
+            pdf.circle(cx, mY, coinR, 'F')
+            pdf.setTextColor(255, 255, 255)
+            pdf.setFontSize(9); pdf.setFont('helvetica', 'bold')
+            pdf.text(mLabels[ci], cx, mY + 3.5, { align: 'center' })
+            pdf.setTextColor(50, 50, 50)
+            pdf.setFontSize(13); pdf.setFont('helvetica', 'bold')
+            pdf.text(String(mCounts[ci]), cx, mY + 22, { align: 'center' })
+          })
+
+          // Mata (nombor besar)
+          pdf.setTextColor(fillR, fillG, fillB)
+          pdf.setFontSize(52); pdf.setFont('helvetica', 'bold')
+          pdf.text(String(mata), x + colW / 2, boxY + boxH - 28, { align: 'center' })
+          pdf.setFontSize(9); pdf.setFont('helvetica', 'normal')
+          pdf.setTextColor(120, 120, 120)
+          pdf.text('MATA', x + colW / 2, boxY + boxH - 16, { align: 'center' })
+        } else {
+          pdf.setFontSize(9); pdf.setFont('helvetica', 'italic')
+          pdf.setTextColor(160, 160, 160)
+          pdf.text('Tiada data / belum dipilih', x + colW / 2, boxY + boxH / 2, { align: 'center' })
+        }
+        pdf.setTextColor(0, 0, 0)
+      })
+
+      // ── Footer ──
+      pdf.setFontSize(7); pdf.setFont('helvetica', 'normal')
+      pdf.setTextColor(180, 180, 180)
+      pdf.text(
+        new Date().toLocaleDateString('ms-MY', { day: '2-digit', month: 'long', year: 'numeric' }),
+        W / 2, H - 6, { align: 'center' }
+      )
+      pdf.setTextColor(0, 0, 0)
+    })
+
+    pdf.save(`BestAtlet_PerKategori_${(namaKej || 'KOAM').replace(/\s+/g, '_')}.pdf`)
+  }
+
   async function cetakAnugerahKhas() {
     if (anugerahCustom.length === 0) return
     const { jsPDF }             = await import('jspdf')
@@ -1111,6 +1404,10 @@ export default function Olahragawan() {
             <span className="text-[9px] text-gray-400 font-mono">{lastUpdate.toLocaleTimeString('ms-MY', { hour12: true })}</span>
           )}
           <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block" />
+          <button onClick={cetakBestAtletUmum}
+            className="text-[10px] font-bold px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700">
+            Cetak Best Atlet (Per Kat)
+          </button>
           <button onClick={cetakTerbaikKategori}
             className="text-[10px] font-bold px-3 py-1.5 bg-[#003399] text-white rounded-lg hover:bg-[#002288]">
             Cetak Terbaik Kategori

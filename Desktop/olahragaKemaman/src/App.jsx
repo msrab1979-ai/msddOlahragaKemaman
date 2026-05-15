@@ -13,7 +13,6 @@ import PendaftaranSetup from './pages/admin/PendaftaranSetup'
 import StartList from './pages/admin/StartList'
 import InputKeputusanAdmin from './pages/admin/InputKeputusan'
 import InputKeputusanPencatat from './pages/pencatat/InputKeputusan'
-import KeputusanRasmi from './pages/admin/KeputusanRasmi'
 import Olahragawan from './pages/admin/Olahragawan'
 import Rekod from './pages/admin/Rekod'
 import CetakAcara from './pages/admin/CetakAcara'
@@ -21,6 +20,7 @@ import BukuKejohanan from './pages/admin/BukuKejohanan'
 import CetakKeputusan from './pages/admin/CetakKeputusan'
 import ResetSistem from './pages/admin/ResetSistem'
 import ManualPendaftaran from './pages/admin/ManualPendaftaran'
+import AnalisisPendaftaran from './pages/admin/AnalisisPendaftaran'
 
 function ProtectedRoute({ children }) {
   const { user } = useAuth()
@@ -99,11 +99,6 @@ function AppRoutes() {
           <DashboardLayout><InputKeputusanRoute /></DashboardLayout>
         </ProtectedRoute>
       } />
-      <Route path="/dashboard/rasmi" element={
-        <ProtectedRoute>
-          <DashboardLayout><KeputusanRasmi /></DashboardLayout>
-        </ProtectedRoute>
-      } />
       <Route path="/dashboard/rekod" element={
         <ProtectedRoute>
           <DashboardLayout><Rekod /></DashboardLayout>
@@ -137,6 +132,11 @@ function AppRoutes() {
       <Route path="/dashboard/manual" element={
         <ProtectedRoute>
           <DashboardLayout><ManualPendaftaran /></DashboardLayout>
+        </ProtectedRoute>
+      } />
+      <Route path="/dashboard/analisis" element={
+        <ProtectedRoute>
+          <DashboardLayout><AnalisisPendaftaran /></DashboardLayout>
         </ProtectedRoute>
       } />
       <Route path="/dashboard/laporan" element={

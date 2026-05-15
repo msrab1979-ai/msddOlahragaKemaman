@@ -11,7 +11,7 @@
 
 import { useState, useEffect } from 'react'
 import {
-  collection, getDocs, getDoc, doc, query, where, orderBy,
+  collection, getDocs, getDoc, doc, query, where,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import jsPDF from 'jspdf'
@@ -502,21 +502,27 @@ export default function CetakAcara() {
     if (!kejohanan) return
     getDocs(query(
       collection(db, 'jadual_acara'),
-      where('kejohananId', '==', kejohanan.id),
-      orderBy('tarikhAcara'), orderBy('masaMula')
+      where('kejohananId', '==', kejohanan.id)
     )).then(snap => {
       const byDay = {}
-      snap.docs.forEach(d => {
-        const data = d.data()
+      // Sort client-side — elak keperluan composite index Firestore
+      const sorted = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => {
+          const t = (a.tarikhAcara || '').localeCompare(b.tarikhAcara || '')
+          if (t !== 0) return t
+          return (a.masaMula || '').localeCompare(b.masaMula || '')
+        })
+      sorted.forEach(data => {
         const tarikh = data.tarikhAcara || 'Tiada Tarikh'
         if (!byDay[tarikh]) byDay[tarikh] = []
-        byDay[tarikh].push({ id: d.id, ...data })
+        byDay[tarikh].push(data)
       })
       const sortedDays = Object.keys(byDay).sort()
       setJadualByDay(byDay)
       setDays(sortedDays)
       if (sortedDays.length > 0) setSelectedDay(sortedDays[0])
-    }).catch(() => {})
+    }).catch(e => console.warn('loadJadual:', e.message))
   }, [kejohanan])
 
   // ── Pilih acara → load final heat + rekod ──
@@ -540,8 +546,16 @@ export default function CetakAcara() {
       const heatSnap = await getDocs(collection(db, 'kejohanan', kejohanan.id, 'acara', aceraId, 'heat'))
       const loadedHeats = heatSnap.docs.map(d => ({ id: d.id, ...d.data() }))
         .sort((a, b) => (a.heatKe || 0) - (b.heatKe || 0))
-      const fHeat = loadedHeats.find(h => ['final', 'terus_final'].includes(h.fasa)) ||
-                    (loadedHeats.length === 1 ? loadedHeats[0] : null)
+      const DONE = ['diterima', 'rasmi']
+      const fHeat =
+        // 1. Final/terus_final heat yang ada keputusan
+        loadedHeats.find(h => ['final', 'terus_final'].includes(h.fasa) && DONE.includes(h.statusKeputusan)) ||
+        // 2. Sebarang heat final/terus_final (walaupun belum ada keputusan)
+        loadedHeats.find(h => ['final', 'terus_final'].includes(h.fasa)) ||
+        // 3. Heat tunggal (padang / terus final)
+        (loadedHeats.length === 1 ? loadedHeats[0] : null) ||
+        // 4. Fallback: heat mana-mana dengan keputusan dan ada rank (e.g. padang multi-heat)
+        loadedHeats.find(h => DONE.includes(h.statusKeputusan) && (h.peserta || []).some(p => p.rankDalamHeat))
 
       setSelectedAcara({ ...jadual, ...acaraData })
       setAllHeats(loadedHeats)
@@ -570,7 +584,7 @@ export default function CetakAcara() {
     setPrinting(true)
     try {
       const pesertaFinal = (finalHeat.peserta || [])
-        .filter(p => p.rankDalamHeat && p.status === 'selesai')
+        .filter(p => p.rankDalamHeat && (p.status === 'selesai' || p.keputusan != null))
         .sort((a, b) => a.rankDalamHeat - b.rankDalamHeat)
 
       const args = {
@@ -625,7 +639,7 @@ export default function CetakAcara() {
   const heatsAdaData  = allHeats.filter(h => (h.peserta || []).length > 0).length > 0
   const pesertaPreview = finalHeat
     ? (finalHeat.peserta || [])
-        .filter(p => p.rankDalamHeat && p.status === 'selesai')
+        .filter(p => p.rankDalamHeat && (p.status === 'selesai' || p.keputusan != null))
         .sort((a, b) => a.rankDalamHeat - b.rankDalamHeat)
     : []
 
@@ -756,14 +770,19 @@ export default function CetakAcara() {
                   </div>
                 </div>
 
-                {!finalHeat && (
+                {!finalHeat && selectedAcara?.peringkat === 'saringan' && (
                   <p className="text-xs text-amber-600 bg-amber-50 px-3 py-2 rounded-lg mt-3">
-                    ⚠️ Tiada keputusan final untuk acara ini.
+                    ⚠️ Ini acara <strong>saringan</strong> — keputusan belum ada. Pilih acara <strong>final</strong> dari senarai untuk cetak.
+                  </p>
+                )}
+                {!finalHeat && selectedAcara?.peringkat !== 'saringan' && (
+                  <p className="text-xs text-amber-600 bg-amber-50 px-3 py-2 rounded-lg mt-3">
+                    ⚠️ Tiada keputusan lagi untuk acara ini. Pencatat perlu hantar keputusan dahulu.
                   </p>
                 )}
                 {finalHeat && pesertaPreview.length === 0 && (
                   <p className="text-xs text-amber-600 bg-amber-50 px-3 py-2 rounded-lg mt-3">
-                    ⚠️ Keputusan final ada tetapi tiada peserta dengan kedudukan.
+                    ⚠️ Heat ada tetapi tiada peserta dengan kedudukan. Semak pencatat sudah hantar keputusan.
                   </p>
                 )}
               </div>
