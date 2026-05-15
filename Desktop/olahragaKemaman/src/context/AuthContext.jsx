@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import { onAuthStateChanged } from 'firebase/auth'
+import { onAuthStateChanged, signInAnonymously } from 'firebase/auth'
 import {
   doc, getDoc, setDoc, serverTimestamp,
   collection, query, where, getCountFromServer,
@@ -58,9 +58,10 @@ export function AuthProvider({ children }) {
       } catch { sessionStorage.removeItem(SESSION_SEKOLAH_KEY) }
     }
 
-    // ── Firebase Auth — superadmin sahaja ─────────────────────────────────────
+    // ── Firebase Auth — superadmin + anonymous (untuk Firestore rules) ───────
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
+      if (firebaseUser && !firebaseUser.isAnonymous) {
+        // Superadmin — real Firebase Auth user
         const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid))
         if (userDoc.exists()) {
           const data = userDoc.data()
@@ -71,13 +72,19 @@ export function AuthProvider({ children }) {
           setNeedsSetup(true)
         }
         setUser(firebaseUser)
+        setLoading(false)
+      } else if (!firebaseUser) {
+        // Tiada auth langsung — sign in anonymously supaya Firestore rules boleh enforce
+        // onAuthStateChanged akan fire semula dengan anonymous user
+        try { await signInAnonymously(auth) } catch { setLoading(false) }
       } else {
+        // Anonymous user — public view, tiada login
         setUser(null)
         setUserRole(null)
         setUserData(null)
         setNeedsSetup(false)
+        setLoading(false)
       }
-      setLoading(false)
     })
 
     return unsubscribe

@@ -3,9 +3,10 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ─── NOTA KESELAMATAN ─────────────────────────────────────────────────────
-    // Sistem ini guna PIN custom (bukan Firebase Auth) untuk log masuk.
-    // Mitigasi R1(B): hadkan DELETE pada koleksi kritikal, buang wildcard catch-all.
-    // Upgrade penuh perlu migrate ke Firebase Auth pada masa hadapan.
+    // Sistem guna PIN custom + Firebase Anonymous Auth.
+    // App auto sign-in anonymously → semua pengguna app ada request.auth != null.
+    // Scraper luar tiada token → ditolak pada koleksi sensitif.
+    // Fasa 2: migrate pencatat/admin ke Firebase Auth untuk enforce write juga.
 
     // ─── Kejohanan + sub-koleksi ──────────────────────────────────────────────
     match /kejohanan/{id} {
@@ -58,9 +59,9 @@ service cloud.firestore {
       allow delete: if true; // admin boleh padam sekolah dari UI
     }
 
-    // ─── Atlet ────────────────────────────────────────────────────────────────
+    // ─── Atlet — data peribadi (noKP) — hadkan baca kepada pengguna app ────────
     match /atlet/{noKP} {
-      allow read:   if true;
+      allow read:   if request.auth != null; // anonymous auth cukup — halang scraper luar
       allow create: if true;
       allow update: if true;
       allow delete: if true; // reset sistem perlu padam atlet
@@ -136,9 +137,9 @@ service cloud.firestore {
       allow delete: if true;
     }
 
-    // ─── Pengguna sistem ──────────────────────────────────────────────────────
+    // ─── Pengguna sistem — ada pinHash — hadkan baca kepada pengguna app ───────
     match /users/{uid} {
-      allow read:   if true;
+      allow read:   if request.auth != null; // anonymous auth cukup — halang scraper luar
       allow create: if true;
       allow update: if true;
       allow delete: if false;
