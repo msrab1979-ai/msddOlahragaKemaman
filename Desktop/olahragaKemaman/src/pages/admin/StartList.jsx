@@ -1648,6 +1648,8 @@ export default function StartList() {
   const [hariHeatLoading, setHariHeatLoading] = useState(null) // aceraId sedang load
   const [pengesahanMap, setPengesahanMap] = useState({}) // kodSekolah → { disahkan, tarikhSahkan }
   const [sekolahDaftarSet, setSekolahDaftarSet] = useState(new Set()) // kodSekolah yang ada pendaftaran
+  const [cetakBalapanLoading, setCetakBalapanLoading] = useState(false)
+  const [cetakPadangLoading,  setCetakPadangLoading]  = useState(false)
 
   // Tutup dropdown cetak bila klik luar
   useEffect(() => {
@@ -2455,6 +2457,244 @@ export default function StartList() {
     } catch (e) { alert('Gagal cetak: ' + e.message) }
   }
 
+  // ── Cetak Semua Balapan — Portrait A4 ────────────────────────────────────────
+  async function cetakSemuaBalapan() {
+    if (!selectedKej) return
+    setCetakBalapanLoading(true)
+    try {
+      const acaraBalapan = acaraList
+        .filter(a => a.isAktif !== false && !['padang_lompat', 'padang_balin'].includes(a.jenisAcara))
+        .sort((a, b) => (a.noAcara || 0) - (b.noAcara || 0))
+      if (acaraBalapan.length === 0) { alert('Tiada acara balapan.'); return }
+
+      const acaraWithHeats = await Promise.all(
+        acaraBalapan.map(async a => {
+          const aid = a.aceraId || a.id
+          const snap = await getDocs(query(collection(db, 'kejohanan', selectedKej, 'acara', aid, 'heat'), orderBy('noHeat')))
+          return { ...a, heats: snap.docs.map(d => ({ id: d.id, ...d.data() })), jadual: jadualMap[aid] || {} }
+        })
+      )
+      const acaraAdaHeat = acaraWithHeats.filter(a => a.heats.length > 0)
+      if (acaraAdaHeat.length === 0) { alert('Tiada heat dijana untuk mana-mana acara balapan.'); return }
+
+      const cfgSnap = await getDoc(doc(db, 'tetapan', 'home'))
+      const cfg = cfgSnap.exists() ? cfgSnap.data() : {}
+      function imgFmt(b64) {
+        if (!b64) return 'PNG'
+        if (b64.startsWith('data:image/jpeg') || b64.startsWith('data:image/jpg')) return 'JPEG'
+        return 'PNG'
+      }
+
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const W = pdf.internal.pageSize.getWidth()
+      const M = 12
+
+      function buatHeader() {
+        let y = 10
+        if (cfg.logoKiriBase64) { try { pdf.addImage(cfg.logoKiriBase64, imgFmt(cfg.logoKiriBase64), M, y, 18, 18) } catch {} }
+        if (cfg.logoKananBase64) { try { pdf.addImage(cfg.logoKananBase64, imgFmt(cfg.logoKananBase64), W - M - 18, y, 18, 18) } catch {} }
+        pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11)
+        pdf.text(namaKej || 'Kejohanan Olahraga Antara Murid', W / 2, y + 7, { align: 'center' })
+        pdf.setFontSize(9); pdf.setFont('helvetica', 'normal')
+        pdf.text('START LIST — ACARA BALAPAN', W / 2, y + 13, { align: 'center' })
+        pdf.setDrawColor(0, 51, 153); pdf.setLineWidth(0.7)
+        pdf.line(M, y + 18, W - M, y + 18)
+        return y + 23
+      }
+
+      let curY = buatHeader()
+      let isFirst = true
+
+      for (const a of acaraAdaHeat) {
+        const isMassAcara = a.jenisAcara === 'mass_start'
+        const katLbl = katLabel(a.kategoriKod, kategoriList)
+        const masa   = a.jadual?.masaMula || '—'
+        const lokasi = a.jadual?.lokasi   || '—'
+        const peringkatLabel = a.peringkat === 'saringan' ? 'Saringan'
+          : a.parentAcaraId ? `Final (← #${a.parentAcaraId})`
+          : 'Terus Final'
+
+        if (!isFirst && curY > 240) { pdf.addPage(); curY = buatHeader() }
+        isFirst = false
+
+        pdf.setFillColor(0, 51, 153)
+        pdf.roundedRect(M, curY, W - M * 2, 9, 1, 1, 'F')
+        pdf.setFont('helvetica', 'bold'); pdf.setFontSize(9); pdf.setTextColor(255, 255, 255)
+        pdf.text(`${masa}  |  ${a.namaAcara}`, M + 3, curY + 6)
+        pdf.setFontSize(7.5); pdf.setFont('helvetica', 'normal')
+        pdf.text(`Kat: ${katLbl}   Peringkat: ${peringkatLabel}   Lokasi: ${lokasi}`, W - M - 3, curY + 6, { align: 'right' })
+        pdf.setTextColor(0, 0, 0)
+        curY += 11
+
+        for (const heat of a.heats) {
+          const pesertaHeat = [...(heat.peserta || [])].sort((x, y) =>
+            isMassAcara ? (x.giliran ?? 99) - (y.giliran ?? 99) : (x.lorong ?? 99) - (y.lorong ?? 99)
+          )
+          const estHeight = 8 + pesertaHeat.length * 6 + 4
+          if (curY + estHeight > 275) { pdf.addPage(); curY = buatHeader() }
+
+          pdf.setFillColor(230, 235, 255)
+          pdf.rect(M, curY, W - M * 2, 6.5, 'F')
+          pdf.setFont('helvetica', 'bold'); pdf.setFontSize(8); pdf.setTextColor(0, 51, 153)
+          const fasaStr = heat.fasa === 'final' ? 'FINAL' : heat.fasa === 'saringan' ? 'SARINGAN' : `HEAT ${heat.noHeat}`
+          pdf.text(fasaStr, M + 3, curY + 4.5)
+          pdf.setFont('helvetica', 'normal'); pdf.setFontSize(7)
+          pdf.text(`${pesertaHeat.length} peserta`, W - M - 3, curY + 4.5, { align: 'right' })
+          pdf.setTextColor(0, 0, 0)
+          curY += 7
+
+          const head = isMassAcara
+            ? [['#', 'Nama Atlet', 'Sekolah', 'No. Badan']]
+            : [['Lorong', 'Nama Atlet', 'Sekolah', 'No. Badan']]
+          const body = pesertaHeat.map(p => [
+            isMassAcara ? (p.giliran ?? '—') : (p.lorong ?? '—'),
+            p.namaAtlet || '—',
+            namaSekolahMap[p.kodSekolah] || p.kodSekolah || '—',
+            p.noBib || '—',
+          ])
+          autoTable(pdf, {
+            startY: curY, head, body,
+            styles: { fontSize: 7.5, cellPadding: 1.5 },
+            headStyles: { fillColor: [200, 210, 240], textColor: [0, 30, 100], fontStyle: 'bold', fontSize: 7.5 },
+            columnStyles: { 0: { halign: 'center', cellWidth: 16 }, 3: { halign: 'center', cellWidth: 22 } },
+            margin: { left: M, right: M },
+            tableLineColor: [200, 210, 240], tableLineWidth: 0.2,
+          })
+          curY = pdf.lastAutoTable.finalY + 4
+        }
+        curY += 3
+      }
+
+      const dicetak = new Date().toLocaleString('ms-MY', { timeZone: 'Asia/Kuala_Lumpur', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      pdf.setFontSize(7); pdf.setFont('helvetica', 'normal'); pdf.setTextColor(150)
+      pdf.text(`Dicetak: ${dicetak}   |   ${acaraAdaHeat.length} acara balapan`, M, pdf.internal.pageSize.getHeight() - 6)
+      pdf.setTextColor(0)
+      pdf.save(`StartList_Balapan_${Date.now()}.pdf`)
+    } catch (e) { alert('Gagal cetak balapan: ' + e.message) }
+    finally { setCetakBalapanLoading(false) }
+  }
+
+  // ── Cetak Semua Padang — Landscape A4 ────────────────────────────────────────
+  async function cetakSemuaPadang() {
+    if (!selectedKej) return
+    setCetakPadangLoading(true)
+    try {
+      const acaraPadang = acaraList
+        .filter(a => a.isAktif !== false && ['padang_lompat', 'padang_balin'].includes(a.jenisAcara))
+        .sort((a, b) => (a.noAcara || 0) - (b.noAcara || 0))
+      if (acaraPadang.length === 0) { alert('Tiada acara padang.'); return }
+
+      const acaraWithHeats = await Promise.all(
+        acaraPadang.map(async a => {
+          const aid = a.aceraId || a.id
+          const snap = await getDocs(query(collection(db, 'kejohanan', selectedKej, 'acara', aid, 'heat'), orderBy('noHeat')))
+          return { ...a, heats: snap.docs.map(d => ({ id: d.id, ...d.data() })), jadual: jadualMap[aid] || {} }
+        })
+      )
+      const acaraAdaHeat = acaraWithHeats.filter(a => a.heats.length > 0)
+      if (acaraAdaHeat.length === 0) { alert('Tiada heat dijana untuk mana-mana acara padang.'); return }
+
+      const cfgSnap = await getDoc(doc(db, 'tetapan', 'home'))
+      const cfg = cfgSnap.exists() ? cfgSnap.data() : {}
+      function imgFmt(b64) {
+        if (!b64) return 'PNG'
+        if (b64.startsWith('data:image/jpeg') || b64.startsWith('data:image/jpg')) return 'JPEG'
+        return 'PNG'
+      }
+
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+      const W = pdf.internal.pageSize.getWidth()   // 297
+      const H = pdf.internal.pageSize.getHeight()  // 210
+      const M = 12
+
+      function buatHeader() {
+        let y = 10
+        if (cfg.logoKiriBase64) { try { pdf.addImage(cfg.logoKiriBase64, imgFmt(cfg.logoKiriBase64), M, y, 18, 18) } catch {} }
+        if (cfg.logoKananBase64) { try { pdf.addImage(cfg.logoKananBase64, imgFmt(cfg.logoKananBase64), W - M - 18, y, 18, 18) } catch {} }
+        pdf.setFont('helvetica', 'bold'); pdf.setFontSize(12)
+        pdf.text(namaKej || 'Kejohanan Olahraga Antara Murid', W / 2, y + 7, { align: 'center' })
+        pdf.setFontSize(9); pdf.setFont('helvetica', 'normal')
+        pdf.text('START LIST — ACARA PADANG', W / 2, y + 14, { align: 'center' })
+        pdf.setDrawColor(0, 51, 153); pdf.setLineWidth(0.7)
+        pdf.line(M, y + 19, W - M, y + 19)
+        return y + 24
+      }
+
+      let curY = buatHeader()
+      let isFirst = true
+
+      for (const a of acaraAdaHeat) {
+        const katLbl = katLabel(a.kategoriKod, kategoriList)
+        const masa   = a.jadual?.masaMula || '—'
+        const lokasi = a.jadual?.lokasi   || '—'
+        const peringkatLabel = a.peringkat === 'saringan' ? 'Saringan'
+          : a.parentAcaraId ? `Final (← #${a.parentAcaraId})`
+          : 'Terus Final'
+
+        if (!isFirst && curY > H - 30) { pdf.addPage(); curY = buatHeader() }
+        isFirst = false
+
+        pdf.setFillColor(0, 51, 153)
+        pdf.roundedRect(M, curY, W - M * 2, 9, 1, 1, 'F')
+        pdf.setFont('helvetica', 'bold'); pdf.setFontSize(9); pdf.setTextColor(255, 255, 255)
+        pdf.text(`${masa}  |  ${a.namaAcara}`, M + 3, curY + 6)
+        pdf.setFontSize(7.5); pdf.setFont('helvetica', 'normal')
+        pdf.text(`Kat: ${katLbl}   Peringkat: ${peringkatLabel}   Lokasi: ${lokasi}`, W - M - 3, curY + 6, { align: 'right' })
+        pdf.setTextColor(0, 0, 0)
+        curY += 11
+
+        for (const heat of a.heats) {
+          const pesertaHeat = [...(heat.peserta || [])].sort((x, y) => (x.giliran ?? 99) - (y.giliran ?? 99))
+          const estHeight = 8 + pesertaHeat.length * 6 + 4
+          if (curY + estHeight > H - 15) { pdf.addPage(); curY = buatHeader() }
+
+          pdf.setFillColor(230, 235, 255)
+          pdf.rect(M, curY, W - M * 2, 6.5, 'F')
+          pdf.setFont('helvetica', 'bold'); pdf.setFontSize(8); pdf.setTextColor(0, 51, 153)
+          const fasaStr = heat.fasa === 'final' ? 'FINAL' : heat.fasa === 'saringan' ? 'SARINGAN' : `HEAT ${heat.noHeat}`
+          pdf.text(fasaStr, M + 3, curY + 4.5)
+          pdf.setFont('helvetica', 'normal'); pdf.setFontSize(7)
+          pdf.text(`${pesertaHeat.length} peserta`, W - M - 3, curY + 4.5, { align: 'right' })
+          pdf.setTextColor(0, 0, 0)
+          curY += 7
+
+          const head = [['Giliran', 'Nama Atlet', 'Sekolah', 'No. Badan', 'Cubaan 1', 'Cubaan 2', 'Cubaan 3', 'Terbaik']]
+          const body = pesertaHeat.map(p => [
+            p.giliran ?? '—',
+            p.namaAtlet || '—',
+            namaSekolahMap[p.kodSekolah] || p.kodSekolah || '—',
+            p.noBib || '—',
+            '', '', '', '',
+          ])
+          autoTable(pdf, {
+            startY: curY, head, body,
+            styles: { fontSize: 7.5, cellPadding: 2, minCellHeight: 10 },
+            headStyles: { fillColor: [200, 210, 240], textColor: [0, 30, 100], fontStyle: 'bold', fontSize: 7.5, halign: 'center' },
+            columnStyles: {
+              0: { halign: 'center', cellWidth: 18 },
+              3: { halign: 'center', cellWidth: 20 },
+              4: { halign: 'center', cellWidth: 26 },
+              5: { halign: 'center', cellWidth: 26 },
+              6: { halign: 'center', cellWidth: 26 },
+              7: { halign: 'center', cellWidth: 26 },
+            },
+            margin: { left: M, right: M },
+            tableLineColor: [80, 80, 80], tableLineWidth: 0.4,
+          })
+          curY = pdf.lastAutoTable.finalY + 4
+        }
+        curY += 3
+      }
+
+      const dicetak = new Date().toLocaleString('ms-MY', { timeZone: 'Asia/Kuala_Lumpur', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      pdf.setFontSize(7); pdf.setFont('helvetica', 'normal'); pdf.setTextColor(150)
+      pdf.text(`Dicetak: ${dicetak}   |   ${acaraAdaHeat.length} acara padang`, M, H - 6)
+      pdf.setTextColor(0)
+      pdf.save(`StartList_Padang_${Date.now()}.pdf`)
+    } catch (e) { alert('Gagal cetak padang: ' + e.message) }
+    finally { setCetakPadangLoading(false) }
+  }
+
   // Acara filtered
   const katList = [...new Set(acaraList.map(a => a.kategoriKod))].sort()
   const jenisShort = {lorong:'Lorong',mass_start:'Mass',padang_lompat:'Lompat',padang_balin:'Balin',relay:'Relay'}
@@ -2647,6 +2887,36 @@ export default function StartList() {
               </div>
             </div>
 
+            {/* Cetak Start List — Bulk Buttons */}
+            {acaraList.length > 0 && (
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-3">
+                <div>
+                  <p className="text-xs font-bold text-gray-700">Cetak Start List Semua Acara</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">PDF satu fail — hanya acara yang heat sudah dijana</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={cetakSemuaBalapan}
+                    disabled={cetakBalapanLoading || cetakPadangLoading}
+                    className="flex items-center gap-2 px-4 py-2 text-xs font-bold bg-[#003399] text-white rounded-xl hover:bg-[#002288] disabled:opacity-50 transition-colors shadow-sm">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                    </svg>
+                    {cetakBalapanLoading ? 'Menjana PDF…' : 'Cetak Semua Balapan (Portrait)'}
+                  </button>
+                  <button
+                    onClick={cetakSemuaPadang}
+                    disabled={cetakBalapanLoading || cetakPadangLoading}
+                    className="flex items-center gap-2 px-4 py-2 text-xs font-bold bg-teal-700 text-white rounded-xl hover:bg-teal-800 disabled:opacity-50 transition-colors shadow-sm">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                    </svg>
+                    {cetakPadangLoading ? 'Menjana PDF…' : 'Cetak Semua Padang (Landscape)'}
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Cetak Start List by Hari */}
             {(() => {
               const tarikhUnik = [...new Set(
@@ -2659,7 +2929,7 @@ export default function StartList() {
                 <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
                   <div className="flex items-center justify-between flex-wrap gap-3">
                     <div>
-                      <p className="text-xs font-bold text-gray-700">Cetak Start List</p>
+                      <p className="text-xs font-bold text-gray-700">Cetak Start List Ikut Hari</p>
                       <p className="text-[10px] text-gray-400 mt-0.5">PDF ikut hari — hanya acara yang heat sudah dijana</p>
                     </div>
                     <div className="relative" data-cetak-menu>
@@ -3315,6 +3585,7 @@ export default function StartList() {
                     </svg>
                     <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Rekod Acara</p>
                   </div>
+
                   <table className="w-full text-[10px]">
                     <thead>
                       <tr className="border-b border-gray-100 bg-gray-50/50">

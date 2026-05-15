@@ -31,21 +31,37 @@ export function rekodKey(namaAcara, jantina, kategoriKod, peringkat) {
  */
 export async function cariRekodUntukAcara(acara) {
   const { namaAcara, namaAcaraPendek, jantina, kategoriKod } = acara
-  // Guna namaAcaraPendek jika ada — match format import Excel dalam Rekod.jsx
-  // Fallback ke namaAcara jika namaAcaraPendek tiada
 
   const nama = (namaAcaraPendek || namaAcara || '').trim()
-  const [dSnap, nSnap, kSnap] = await Promise.all([
-    getDoc(doc(db, 'rekod', rekodKey(nama, jantina, kategoriKod, 'D'))),
-    getDoc(doc(db, 'rekod', rekodKey(nama, jantina, kategoriKod, 'N'))),
-    getDoc(doc(db, 'rekod', rekodKey(nama, jantina, kategoriKod, 'K'))),
+
+  // Kelas umur = bahagian nama selepas namaAcaraPendek
+  // Contoh: namaAcara "80M BERPAGAR L12", namaAcaraPendek "80M BERPAGAR" → kelas = "L12"
+  const kelasDariNama = (namaAcara && namaAcaraPendek && namaAcara.trim() !== namaAcaraPendek.trim())
+    ? namaAcara.trim().slice(namaAcaraPendek.trim().length).trim()
+    : ''
+
+  // Bina senarai kategori untuk dicuba (buang duplikat)
+  const katsToTry = [...new Set([
+    kategoriKod,      // format baru: kod huruf (A, B, C…)
+    kelasDariNama,    // format lama: kelas umur dari nama (L12, P12, L15…)
+  ].filter(Boolean))]
+
+  // Cari rekod untuk satu peringkat — cuba semua kombinasi key secara parallel
+  async function cariSatu(peringkat) {
+    const snaps = await Promise.all(
+      katsToTry.map(kat => getDoc(doc(db, 'rekod', rekodKey(nama, jantina, kat, peringkat))))
+    )
+    const found = snaps.find(s => s.exists())
+    return found ? found.data() : null
+  }
+
+  const [D, N, K] = await Promise.all([
+    cariSatu('D'),
+    cariSatu('N'),
+    cariSatu('K'),
   ])
 
-  return {
-    D: dSnap.exists() ? dSnap.data() : null,
-    N: nSnap.exists() ? nSnap.data() : null,
-    K: kSnap.exists() ? kSnap.data() : null,
-  }
+  return { D, N, K }
 }
 
 /**

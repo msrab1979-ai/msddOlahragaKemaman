@@ -2156,7 +2156,8 @@ function TabAtlet({ userRole: userRoleProp, userData: userDataProp, sekolahList 
     })
   }
 
-  const tamatDaftarLepas = isPP && tarikhTamatDaftar && new Date() > new Date(tarikhTamatDaftar)
+  const bypassDeadline = sekolahData?.bypassDeadline === true
+  const tamatDaftarLepas = isPP && tarikhTamatDaftar && new Date() > new Date(tarikhTamatDaftar) && !bypassDeadline
   const pendaftaranTutup = (isAdmin && pendaftaranDibuka === false) || tamatDaftarLepas
 
   function showToast(msg) {
@@ -2656,8 +2657,9 @@ function TabPendaftaran({ userRole: userRoleProp, userData: userDataProp, sekola
     return () => clearInterval(id)
   }, [isPP, tarikhTamatDaftar])
 
-  // Pendaftaran tutup bila deadline tamat (untuk PP)
-  const tamatDaftarLepas  = isPP && tarikhTamatDaftar && new Date() > new Date(tarikhTamatDaftar)
+  // Pendaftaran tutup bila deadline tamat (untuk PP) — bypass per sekolah
+  const bypassDeadline   = sekolahData?.bypassDeadline === true
+  const tamatDaftarLepas  = isPP && tarikhTamatDaftar && new Date() > new Date(tarikhTamatDaftar) && !bypassDeadline
   const pendaftaranTutup  = tamatDaftarLepas
 
   function formatDeadlineMY(isoStr) {
@@ -3739,7 +3741,8 @@ function PPPendaftaranView({ sekolahList }) {
     return () => clearInterval(id)
   }, [tarikhTamatDaftar])
 
-  const tamatDaftarLepas = tarikhTamatDaftar && new Date() > new Date(tarikhTamatDaftar)
+  const bypassDeadline = sekolahData?.bypassDeadline === true
+  const tamatDaftarLepas = tarikhTamatDaftar && new Date() > new Date(tarikhTamatDaftar) && !bypassDeadline
   const pendaftaranTutup = !!tamatDaftarLepas
 
   function formatDeadlineMY(isoStr) {

@@ -39,7 +39,7 @@ function rekodKey(namaAcara, jantina, kategoriKod, peringkat) {
     .join('_').toUpperCase().replace(/[^A-Z0-9_]/g, '_')
 }
 
-const PINGAT = { 1: '🥇', 2: '🥈', 3: '🥉' }
+const PINGAT_UI  = { 1: '🥇', 2: '🥈', 3: '🥉' }  // untuk web preview sahaja
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
@@ -72,11 +72,15 @@ export default function CetakKeputusan() {
       try {
         const [cfgSnap, kejSnap] = await Promise.all([
           getDoc(doc(db, 'tetapan', 'home')),
-          getDocs(query(collection(db, 'kejohanan'), where('statusKejohanan', '==', 'aktif'))),
+          getDocs(query(collection(db, 'kejohanan'), where('statusKejohanan', 'in', ['aktif', 'persediaan']))),
         ])
         const cfgData = cfgSnap.exists() ? cfgSnap.data() : {}
         setCfg(cfgData)
-        if (kejSnap.empty) { setLoadingInit(false); return }
+        if (kejSnap.empty) {
+          setMsg({ type: 'err', text: 'Tiada kejohanan aktif atau persediaan dijumpai.' })
+          setLoadingInit(false)
+          return
+        }
 
         const kej   = kejSnap.docs[0]
         const kData = kej.data()
@@ -87,7 +91,7 @@ export default function CetakKeputusan() {
 
         // Jadual & acara
         const [jadualSnap, acaraSnap, rekodSnap] = await Promise.all([
-          getDocs(query(collection(db, 'jadual_acara'), orderBy('tarikhAcara'), orderBy('masaMula'))),
+          getDocs(query(collection(db, 'jadual_acara'), where('kejohananId', '==', kej.id))),
           getDocs(query(collection(db, 'kejohanan', kej.id, 'acara'), orderBy('noAcara'))),
           getDocs(query(collection(db, 'rekod'), where('statusRekod', '==', 'aktif'))),
         ])
@@ -100,7 +104,7 @@ export default function CetakKeputusan() {
         rekodSnap.docs.forEach(d => { rMap[d.id] = { id: d.id, ...d.data() } })
         setRekodMap(rMap)
 
-        // Group jadual by day
+        // Group jadual by day, sort by masaMula client-side
         const byDay = {}
         jadualSnap.docs.forEach(d => {
           const j = d.data()
@@ -113,6 +117,10 @@ export default function CetakKeputusan() {
             masaMula: j.masaMula || '',
             lokasi:   j.lokasi   || '',
           })
+        })
+        // Sort acara dalam setiap hari by masaMula
+        Object.keys(byDay).forEach(day => {
+          byDay[day].sort((a, b) => (a.masaMula || '').localeCompare(b.masaMula || ''))
         })
 
         const sortedDays = Object.keys(byDay).sort()
@@ -146,9 +154,11 @@ export default function CetakKeputusan() {
       try {
         const snap = await getDocs(collection(db, 'kejohanan', kejId, 'acara', acara.id, 'heat'))
         const heats = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-        const final = heats.find(h =>
-          ['final', 'terus_final'].includes(h.fasa) && h.statusKeputusan === 'rasmi'
-        ) || (heats.length === 1 && heats[0].statusKeputusan === 'rasmi' ? heats[0] : null)
+        // Guna heat final yang ada keputusan (diterima) — kalau 1 heat guna terus
+        const final =
+          heats.find(h => ['final', 'terus_final'].includes(h.fasa) && h.statusKeputusan === 'diterima') ||
+          heats.find(h => ['final', 'terus_final'].includes(h.fasa)) ||
+          (heats.length === 1 ? heats[0] : null)
         return { acaraId: acara.id, heat: final || false }
       } catch {
         return { acaraId: acara.id, heat: false }
@@ -164,8 +174,9 @@ export default function CetakKeputusan() {
 
   // ── Derived: acara rasmi untuk hari terpilih ──────────────────────────────
 
-  const itemsSelDay = (acaraByDay[selDay] || [])
-  const rasmiItems  = itemsSelDay.filter(({ acara }) => {
+  const itemsSelDay  = (acaraByDay[selDay] || [])
+  // Acara yang ada heat (rasmi atau draf) — boleh dicetak
+  const rasmiItems   = itemsSelDay.filter(({ acara }) => {
     const h = heatCache[acara.id]
     return h && h !== 'loading'
   })
@@ -248,9 +259,8 @@ export default function CetakKeputusan() {
         // Baris peserta
         const rows = peserta.map(p => {
           const flagged = ['DNS', 'DNF', 'DQ', 'FS', 'NM'].includes(p.status)
-          const pingat  = PINGAT[p.rankDalamHeat] || ''
           return [
-            `${pingat} ${p.rankDalamHeat}`,
+            p.rankDalamHeat,
             isRelay ? (p.kodSekolah || '—') : (p.namaAtlet || '—'),
             isRelay ? '—' : (p.kodSekolah || '—'),
             flagged ? p.status : fmtPrestasi(p.keputusan, acara.jenisAcara),
@@ -708,7 +718,7 @@ export default function CetakKeputusan() {
                                 <div className="mt-1.5 space-y-0.5">
                                   {top3.map(p => (
                                     <div key={p.noBib || p.rankDalamHeat} className="flex items-center gap-1.5 text-[10px]">
-                                      <span>{PINGAT[p.rankDalamHeat]}</span>
+                                      <span>{PINGAT_UI[p.rankDalamHeat]}</span>
                                       <span className="font-semibold text-gray-700 truncate max-w-[140px]">
                                         {isRelay ? p.kodSekolah : p.namaAtlet}
                                       </span>
@@ -728,7 +738,7 @@ export default function CetakKeputusan() {
                             {isLoad ? (
                               <span className="text-[9px] text-gray-400">⏳</span>
                             ) : isRasmi ? (
-                              <span className="text-[9px] font-bold text-green-600 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded">RASMI</span>
+                              <span className="text-[9px] font-bold text-green-600 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded">KEPUTUSAN</span>
                             ) : (
                               <span className="text-[9px] text-gray-400 bg-gray-50 border border-gray-200 px-1.5 py-0.5 rounded">—</span>
                             )}

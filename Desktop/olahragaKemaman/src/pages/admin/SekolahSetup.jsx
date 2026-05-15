@@ -1025,6 +1025,15 @@ export default function SekolahSetup() {
       }).catch(() => {})
   }, [])
 
+  // ── Bypass Deadline ──
+  async function doToggleBypass(s) {
+    await updateDoc(doc(db, 'sekolah', s.kodSekolah), {
+      bypassDeadline: !s.bypassDeadline,
+      updatedAt: serverTimestamp(),
+    })
+    fetchList()
+  }
+
   // ── Toggle Aktif ──
   async function doToggleAktif() {
     if (!selected) return
@@ -1207,7 +1216,14 @@ export default function SekolahSetup() {
                     <td className="px-4 py-3">
                       <span className="font-mono text-xs text-gray-500">{s.pin}</span>
                     </td>
-                    <td className="px-4 py-3"><StatusBadge aktif={s.isAktif} /></td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1">
+                        <StatusBadge aktif={s.isAktif} />
+                        {s.bypassDeadline && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">BYPASS</span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1.5 justify-end">
                         {isSuperAdmin && (
@@ -1219,6 +1235,15 @@ export default function SekolahSetup() {
                             <button onClick={() => { setSelected(s); setModal('resetPin') }}
                               className="px-2.5 py-1.5 text-[10px] font-semibold border border-orange-200 rounded text-orange-600 hover:bg-orange-50 transition-colors">
                               Reset PIN
+                            </button>
+                            <button onClick={() => doToggleBypass(s)}
+                              className={`px-2.5 py-1.5 text-[10px] font-semibold border rounded transition-colors ${
+                                s.bypassDeadline
+                                  ? 'border-amber-400 text-amber-700 bg-amber-50 hover:bg-amber-100'
+                                  : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                              }`}
+                              title={s.bypassDeadline ? 'Bypass aktif — klik untuk matikan' : 'Aktifkan bypass pendaftaran (walaupun tarikh tutup)'}>
+                              {s.bypassDeadline ? 'Bypass ON' : 'Bypass'}
                             </button>
                             <button onClick={() => { setSelected(s); setModal('toggleAktif') }}
                               className={`px-2.5 py-1.5 text-[10px] font-semibold border rounded transition-colors ${

@@ -75,6 +75,14 @@ service cloud.firestore {
       allow delete: if true; // ResetSistem admin — upgrade ke Firebase Auth untuk hadkan
     }
 
+    // ─── Rekod Sejarah — audit trail edit/padam rekod ────────────────────────
+    match /rekod_sejarah/{id} {
+      allow read:   if true;
+      allow create: if true;
+      allow update: if false; // audit trail — tidak boleh diubah
+      allow delete: if false; // audit trail kekal
+    }
+
     match /rekod_tuntutan/{id} {
       allow read:   if true;
       allow create: if true;

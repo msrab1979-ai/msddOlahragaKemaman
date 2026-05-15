@@ -33,7 +33,7 @@ const NAV_ITEMS = [
       { label: 'Acara & Jadual',     path: '/dashboard/acara',       icon: 'list',      roles: ['superadmin', 'admin'] },
       // Pendaftaran — admin + pengurus pasukan
       { label: 'Pendaftaran Atlet', path: '/dashboard/pendaftaran', icon: 'userPlus',  roles: ['superadmin', 'admin', 'pengurus_pasukan'] },
-      { label: 'Panduan Pendaftaran', path: '/dashboard/manual',   icon: 'book',      roles: ['superadmin', 'admin', 'pengurus_pasukan'] },
+      { label: 'Panduan Pendaftaran', path: '/dashboard/manual',   icon: 'book',      roles: ['pengurus_pasukan'] },
       // Start List — admin jana, semua lihat (view-only untuk bukan admin)
       { label: 'Start List',        path: '/dashboard/startlist',   icon: 'startlist', roles: ['superadmin', 'admin', 'pencatat', 'pengurus_teknik', 'urusetia'] },
     ],
@@ -42,7 +42,7 @@ const NAV_ITEMS = [
     section: 'OPERASI',
     items: [
       // Pencatat — input masa/jarak
-      { label: 'Input Keputusan',  path: '/dashboard/keputusan',   icon: 'clipboard',   roles: ['superadmin', 'pencatat'] },
+      { label: 'Input Keputusan',  path: '/dashboard/keputusan',   icon: 'clipboard',   roles: ['pencatat'] },
       // Paparan data — semua staff boleh lihat kecuali pengurus_pasukan
       { label: 'Rekod Semasa',     path: '/dashboard/rekod',       icon: 'star',        roles: ['superadmin', 'pengurus_teknik', 'admin', 'pencatat', 'viewer'] },
       { label: 'Olahragawan',      path: '/dashboard/olahragawan', icon: 'award',       roles: ['superadmin', 'admin', 'pengurus_teknik', 'pencatat', 'viewer'] },
@@ -55,7 +55,7 @@ const NAV_ITEMS = [
   {
     section: 'SISTEM',
     items: [
-      { label: 'Laporan & PDF',       path: '/dashboard/laporan',  icon: 'file',     roles: ['superadmin', 'admin', 'pengurus_teknik'] },
+      { label: 'Laporan & PDF',       path: '/dashboard/laporan',  icon: 'file',     roles: [] },
       { label: 'Pengurusan Pengguna', path: '/dashboard/pengguna', icon: 'users',    roles: ['superadmin'] },
       { label: 'Tetapan Home',        path: '/dashboard/tetapan',  icon: 'settings', roles: ['superadmin'] },
       { label: 'Log Audit',           path: '/dashboard/audit',    icon: 'shield',   roles: ['superadmin'] },
