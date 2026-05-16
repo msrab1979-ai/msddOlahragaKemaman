@@ -149,11 +149,6 @@ function AppRoutes() {
           <DashboardLayout><UserManagement /></DashboardLayout>
         </ProtectedRoute>
       } />
-      <Route path="/dashboard/audit" element={
-        <ProtectedRoute>
-          <DashboardLayout><ComingSoon title="Log Audit" /></DashboardLayout>
-        </ProtectedRoute>
-      } />
       <Route path="/dashboard/tetapan" element={
         <ProtectedRoute>
           <DashboardLayout><TetapanHome /></DashboardLayout>

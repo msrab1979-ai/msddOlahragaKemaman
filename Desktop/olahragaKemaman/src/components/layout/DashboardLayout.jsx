@@ -58,7 +58,6 @@ const NAV_ITEMS = [
       { label: 'Laporan & PDF',       path: '/dashboard/laporan',  icon: 'file',     roles: [] },
       { label: 'Pengurusan Pengguna', path: '/dashboard/pengguna', icon: 'users',    roles: ['superadmin'] },
       { label: 'Tetapan Home',        path: '/dashboard/tetapan',  icon: 'settings', roles: ['superadmin'] },
-      { label: 'Log Audit',           path: '/dashboard/audit',    icon: 'shield',   roles: ['superadmin'] },
       { label: 'Reset Sistem',        path: '/dashboard/reset',    icon: 'trash',    roles: ['superadmin'] },
     ],
   },

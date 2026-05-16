@@ -204,7 +204,6 @@ const isSuperAdmin = userRole === 'superadmin'
             <QuickLink label="Setup Acara"            path="/dashboard/acara"     desc="Konfigurasikan acara dan lorong" />
             <QuickLink label="Semak Rekod"            path="/dashboard/rekod"     desc="Rekod daerah, negeri, kebangsaan" />
             <QuickLink label="Medal Tally"            path="/dashboard/medal"     desc="Kedudukan semasa sekolah" />
-            <QuickLink label="Log Audit"              path="/dashboard/audit"     desc="Semak semua perubahan data" />
           </div>
         </div>
       )}

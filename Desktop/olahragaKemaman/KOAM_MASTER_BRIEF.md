@@ -1540,3 +1540,65 @@ SETERUSNYA (ikut keutamaan):
 
 ---
 *Versi: 7.0 — Relay end-to-end fix + rekod D/N/K dalam keputusan + lorong kosong + pecahRekod relay. Deploy 2026-05-16.*
+
+---
+
+## 40. STATUS SEMASA (DIKEMASKINI — VERSI 8.0) — 2026-05-16
+
+### Selesai sesi ini:
+
+```
+✅ Medal Tally breakdown — relay papar sebagai "Relay L/P" bukan P12
+   - buildKatDetailFromTally: scan contrib_ fields
+   - Detect relay: isRelay===true (data baru) ATAU noKP===null (data lama)
+   - Pindah medal dari bucket individu → bucket RELAY dalam display
+   - Tiada perlu re-publish — kerja dengan data Firestore lama
+   - postRasmiUtils: tambah isRelay:true dalam contrib entry (data baru)
+   - postRasmiUtils: katKey='RELAY' untuk kat_ field relay (data baru)
+
+✅ Log Audit — dibuang dari sistem
+   - Buang dari sidebar DashboardLayout.jsx
+   - Buang route dari App.jsx
+   - Buang quick link dari Dashboard.jsx
+
+✅ PDF Cetak Hasil (InputKeputusan) — formal header dengan logo
+   - Fetch tetapan/home serentak dengan rekod (Promise.all)
+   - buatHeader(): logo kiri + logo kanan + nama kejohanan + KEPUTUSAN RASMI + tarikh
+   - Garisan biru bawah header (sama standard StartList)
+   - Label salinan (JURUHEBAH/HADIAH/FAIL) kekal, letaknya bawah header
+   - Relay support: kolum jadual tukar ke Pasukan | Ahli Pasukan | Masa | Status
+   - Buang field Tarikh dari info rows (dah ada dalam header)
+
+✅ Home → Keputusan tab — badge Saringan/Final pada setiap acara row
+   - peringkat === 'saringan' → badge amber "Saringan"
+   - peringkat === 'akhir' + ada parentAcaraId → badge hijau "Final"
+   - Acara tunggal (terus final) → tiada badge fasa
+   - Data dari acara doc terus (tanpa query heat)
+```
+
+### Pending:
+
+```
+⏳ Relay full e2e test live
+⏳ Medal tally relay — data lama: perlu verify "Relay P" papar betul
+   selepas buildKatDetailFromTally fix (scan contrib_ noKP===null)
+⏳ CetakKeputusan canJanaFinal → update ke 'diterima'
+```
+
+### Prompt Sambung:
+
+```
+Baca KOAM_MASTER_BRIEF.md section 40.
+
+Status deploy: mssdkemaman-olahraga.web.app
+GitHub: msrab1979-ai/msddOlahragaKemaman
+
+Selesai sesi ini:
+- Relay tally breakdown papar "Relay P/L" bukan P12
+- Log Audit dibuang
+- PDF cetak hasil formal (logo, header, relay)
+- Badge Saringan/Final dalam keputusan tab
+```
+
+---
+*Versi: 8.0 — Relay tally fix, Log Audit buang, PDF formal, badge Saringan/Final. Deploy 2026-05-16.*

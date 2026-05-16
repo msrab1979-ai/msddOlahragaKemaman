@@ -137,14 +137,16 @@ export async function runPostRasmi(db, heatDoc, acaraDoc, kejId, config = {}) {
         const tData    = tSnap.exists() ? tSnap.data() : {}
         const prevContr = tData[contribKey]
 
-        const katPingat    = `kat_${acaraDoc.kategoriKod}_${acaraDoc.jantina}_${pingat}`
-        const tPatch = { [contribKey]: { pingat, noKP: p.noKP || null, rank, kategoriKod: acaraDoc.kategoriKod, jantina: acaraDoc.jantina } }
+        // Relay guna 'RELAY' sebagai katKey supaya breakdown tally papar row berasingan
+        const katKey       = isRelay ? 'RELAY' : (acaraDoc.kategoriKod || '')
+        const katPingat    = `kat_${katKey}_${acaraDoc.jantina}_${pingat}`
+        const tPatch = { [contribKey]: { pingat, noKP: p.noKP || null, rank, kategoriKod: katKey, jantina: acaraDoc.jantina, isRelay: !!isRelay } }
         if (prevContr) {
           const prevPingat   = prevContr.pingat      || ''
-          const prevKat      = prevContr.kategoriKod || acaraDoc.kategoriKod
+          const prevKat      = prevContr.kategoriKod || katKey
           const prevJantina  = prevContr.jantina     || acaraDoc.jantina
           const prevKatField = `kat_${prevKat}_${prevJantina}_${prevPingat}`
-          if (pingat !== prevPingat || prevKat !== acaraDoc.kategoriKod || prevJantina !== acaraDoc.jantina) {
+          if (pingat !== prevPingat || prevKat !== katKey || prevJantina !== acaraDoc.jantina) {
             tPatch[prevPingat]    = increment(-1)
             tPatch.jumlahPingat   = increment(-1)
             tPatch[prevKatField]  = increment(-1)

@@ -1678,20 +1678,29 @@ export default function InputKeputusan() {
     setCetakLoading(true)
     try {
       const isPadangAcara = ['padang_lompat', 'padang_balin'].includes(selectedAcara.jenisAcara)
+      const isRelayAcara  = selectedAcara.jenisAcara === 'relay'
 
-      // Fetch rekod — rujuk koleksi rekod base acara + kategori
+      // Fetch rekod + logo config serentak
       const PKOD = { daerah: 'D', negeri: 'N', kebangsaan: 'K' }
-      const peringkatKej = PKOD[(kejohananData?.peringkat || '').toLowerCase()] || 'D'
+      const peringkatKej   = PKOD[(kejohananData?.peringkat || '').toLowerCase()] || 'D'
       const rekodNamaCetak = selectedAcara.namaAcaraPendek || selectedAcara.namaAcara
       const rKey = [rekodNamaCetak, selectedAcara.jantina, selectedAcara.kategoriKod, peringkatKej]
         .join('_').toUpperCase().replace(/[^A-Z0-9_]/g, '_')
+
+      const [rSnap, cfgSnap] = await Promise.all([
+        getDoc(doc(db, 'rekod', rKey)).catch(() => null),
+        getDoc(doc(db, 'tetapan', 'home')).catch(() => null),
+      ])
+
       let rekodDoc = null
-      try {
-        const rSnap = await getDoc(doc(db, 'rekod', rKey))
-        if (rSnap.exists() && rSnap.data().statusRekod === 'aktif') rekodDoc = rSnap.data()
-      } catch {}
-      // rekodBaru = rekod dipecah dalam kejohanan ini (postRasmi dah run)
+      if (rSnap?.exists() && rSnap.data().statusRekod === 'aktif') rekodDoc = rSnap.data()
       const isRekodBaru = rekodDoc && rekodDoc.kejohananId === kejohananId
+
+      const homeCfg = cfgSnap?.exists() ? cfgSnap.data() : {}
+      function imgFmt(b64) {
+        if (!b64) return 'PNG'
+        return (b64.startsWith('data:image/jpeg') || b64.startsWith('data:image/jpg')) ? 'JPEG' : 'PNG'
+      }
 
       // Peserta final — had kepada cetakBilangan (3 atau 5)
       const pesertaFinal = (selectedHeat.peserta || [])
@@ -1731,15 +1740,43 @@ export default function InputKeputusan() {
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
       const M = 15
       const W = pdf.internal.pageSize.getWidth()
+      const H = pdf.internal.pageSize.getHeight()
       let isFirst = true
+
+      // ── Header formal (logo + nama kejohanan) — sama untuk semua salinan ──
+      function buatHeader(clr) {
+        let y = 10
+        const logoW = 18, logoH = 18
+        if (homeCfg.logoKiriBase64) {
+          try { pdf.addImage(homeCfg.logoKiriBase64, imgFmt(homeCfg.logoKiriBase64), M, y, logoW, logoH) } catch {}
+        }
+        if (homeCfg.logoKananBase64) {
+          try { pdf.addImage(homeCfg.logoKananBase64, imgFmt(homeCfg.logoKananBase64), W - M - logoW, y, logoW, logoH) } catch {}
+        }
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(11)
+        pdf.setTextColor(0, 0, 0)
+        pdf.text(namaKej, W / 2, y + 7, { align: 'center' })
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(8.5)
+        pdf.setTextColor(60, 60, 60)
+        pdf.text('KEPUTUSAN RASMI', W / 2, y + 13, { align: 'center' })
+        pdf.setFontSize(7.5)
+        pdf.setTextColor(120, 120, 120)
+        pdf.text(tarikh, W / 2, y + 18.5, { align: 'center' })
+        pdf.setDrawColor(...clr)
+        pdf.setLineWidth(0.7)
+        pdf.line(M, y + 22, W - M, y + 22)
+        return y + 28 // y selepas header
+      }
 
       for (const sal of SALINAN) {
         if (!isFirst) pdf.addPage()
         isFirst = false
 
-        let y = M
+        let y = buatHeader(sal.clr)
 
-        // ── Label salinan (kanan atas) ──
+        // ── Label salinan (kanan, bawah header) ──
         const lblW = 36, lblH = 8
         const lblX = W - M - lblW
         pdf.setFillColor(...sal.clr)
@@ -1749,30 +1786,23 @@ export default function InputKeputusan() {
         pdf.setTextColor(255, 255, 255)
         pdf.text(sal.label, lblX + lblW / 2, y + 5.5, { align: 'center' })
         pdf.setTextColor(0, 0, 0)
+        y += 12
 
-        // ── Nama kejohanan (tengah, kiri label) ──
-        const cx = (M + lblX - 4) / 2
-        pdf.setFont('helvetica', 'bold')
-        pdf.setFontSize(11)
-        pdf.text(namaKej, cx, y + 7, { align: 'center' })
-        y += 14
-
-        // ── Garisan ──
-        pdf.setDrawColor(...sal.clr)
-        pdf.setLineWidth(0.6)
+        // ── Garisan nipis ──
+        pdf.setDrawColor(200, 200, 200)
+        pdf.setLineWidth(0.3)
         pdf.line(M, y, W - M, y)
         y += 6
 
-        // ── Info 4 baris ──
+        // ── Info acara ──
         const col2 = M + 32
-        const rows = [
+        const infoRows = [
           ['No. Acara', String(selectedAcara.noAcara || '—')],
           ['Kategori',  katLabel],
           ['Acara',     selectedAcara.namaAcara || '—'],
-          ['Tarikh',    tarikh],
         ]
         pdf.setFontSize(9.5)
-        rows.forEach(([lbl, val]) => {
+        infoRows.forEach(([lbl, val]) => {
           pdf.setFont('helvetica', 'normal')
           pdf.setTextColor(110, 110, 110)
           pdf.text(lbl, M, y)
@@ -1782,7 +1812,7 @@ export default function InputKeputusan() {
           pdf.text(val, col2, y)
           y += 6.5
         })
-        y += 3
+        y += 4
 
         // ── Garisan nipis ──
         pdf.setDrawColor(200, 200, 200)
@@ -1791,21 +1821,36 @@ export default function InputKeputusan() {
         y += 4
 
         // ── Jadual keputusan ──
-        autoTable(pdf, {
-          startY: y,
-          head: [['No.', 'Nama Atlet', 'Sekolah', 'Prestasi', 'Status']],
-          body: pesertaFinal.map(p => {
-            const flagged = ['DNS', 'DNF', 'DQ'].includes(p.status)
-            const MEDAL = { 1: 'EMAS', 2: 'PERAK', 3: 'GANGSA', 4: 'T4', 5: 'T5' }
-            const medalLabel = flagged ? p.status : (MEDAL[p.rankDalamHeat] || '')
+        const MEDAL = { 1: 'EMAS', 2: 'PERAK', 3: 'GANGSA', 4: 'T4', 5: 'T5' }
+        const tblHead = isRelayAcara
+          ? [['No.', 'Pasukan / Sekolah', 'Ahli Pasukan', 'Masa', 'Status']]
+          : [['No.', 'Nama Atlet', 'Sekolah', 'Prestasi', 'Status']]
+        const tblBody = pesertaFinal.map(p => {
+          const flagged    = ['DNS', 'DNF', 'DQ'].includes(p.status)
+          const medalLabel = flagged ? p.status : (MEDAL[p.rankDalamHeat] || '')
+          const prestasi   = flagged ? '—' : fmtPrestasi(p.keputusan)
+          if (isRelayAcara) {
+            const ahli = (p.ahliPasukan || []).map(a => a.namaAtlet || a.noBib || '').filter(Boolean).join(', ')
             return [
               String(p.rankDalamHeat),
-              p.namaAtlet || '—',
               sekolahMap[p.kodSekolah] || p.namaSekolah || p.kodSekolah || '—',
-              flagged ? '—' : fmtPrestasi(p.keputusan),
+              ahli || '—',
+              prestasi,
               medalLabel,
             ]
-          }),
+          }
+          return [
+            String(p.rankDalamHeat),
+            p.namaAtlet || '—',
+            sekolahMap[p.kodSekolah] || p.namaSekolah || p.kodSekolah || '—',
+            prestasi,
+            medalLabel,
+          ]
+        })
+        autoTable(pdf, {
+          startY: y,
+          head: tblHead,
+          body: tblBody,
           styles: {
             fontSize: sal.tblSize,
             cellPadding: sal.tblSize >= 12 ? 3 : 2.5,
@@ -1820,12 +1865,18 @@ export default function InputKeputusan() {
             halign: 'center',
             minCellHeight: 8,
           },
-          columnStyles: {
+          columnStyles: isRelayAcara ? {
+            0: { halign: 'center', cellWidth: 12, fontStyle: 'bold' },
+            1: { cellWidth: 50 },
+            2: { cellWidth: 'auto' },
+            3: { halign: 'center', cellWidth: 26, fontStyle: 'bold', textColor: [0, 51, 153] },
+            4: { halign: 'center', cellWidth: 22, fontStyle: 'bold', textColor: [180, 60, 60] },
+          } : {
             0: { halign: 'center', cellWidth: 12, fontStyle: 'bold' },
             1: { cellWidth: 'auto' },
-            2: { cellWidth: 58 },
+            2: { cellWidth: 55 },
             3: { halign: 'center', cellWidth: 26, fontStyle: 'bold', textColor: [0, 51, 153] },
-            4: { halign: 'center', cellWidth: 28, fontStyle: 'bold', textColor: [180, 60, 60] },
+            4: { halign: 'center', cellWidth: 22, fontStyle: 'bold', textColor: [180, 60, 60] },
           },
           alternateRowStyles: { fillColor: [248, 248, 252] },
           margin: { left: M, right: M },
@@ -1915,7 +1966,6 @@ export default function InputKeputusan() {
         }
 
         // ── Footer ──
-        const H = pdf.internal.pageSize.getHeight()
         const footY = H - 18
         pdf.setDrawColor(...sal.clr)
         pdf.setLineWidth(0.4)

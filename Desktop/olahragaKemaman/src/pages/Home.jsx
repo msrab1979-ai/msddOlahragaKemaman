@@ -1144,11 +1144,12 @@ export default function Home() {
     // Baca terus dari medalTally state — data sudah ada, tiada query baru
     const tallyRow = medalTally.find(r => r.kodSekolah === kodSekolah)
     if (!tallyRow) return {}
+
+    // Step 1: bina grp dari kat_ fields seperti biasa
     // Field format: kat_{kategoriKod}_{jantina}_{pingat}
-    // Contoh: kat_E_L_emas, kat_E_P_gangsa
     const grp = {}
     Object.entries(tallyRow).forEach(([key, val]) => {
-      if (!key.startsWith('kat_') || typeof val !== 'number') return
+      if (!key.startsWith('kat_') || typeof val !== 'number' || val === 0) return
       const parts = key.split('_') // ['kat', kategoriKod, jantina, pingat]
       if (parts.length < 4) return
       const kat    = parts[1]
@@ -1158,6 +1159,30 @@ export default function Home() {
       if (!grp[grpKey]) grp[grpKey] = { kategoriKod: kat, jantina: jan, emas: 0, perak: 0, gangsa: 0, tempat4: 0, tempat5: 0 }
       if (pingat in grp[grpKey]) grp[grpKey][pingat] += val
     })
+
+    // Step 2: scan contrib_ fields — kenalpasti relay entries
+    // Relay: isRelay===true (data baru) ATAU noKP===null (data lama)
+    // Pindah medal relay dari bucket individu ke bucket RELAY
+    Object.entries(tallyRow).forEach(([key, val]) => {
+      if (!key.startsWith('contrib_') || typeof val !== 'object' || !val || !val.pingat) return
+      const isRelayEntry = val.isRelay === true || (val.isRelay === undefined && val.noKP === null)
+      if (!isRelayEntry) return
+
+      const kat    = val.kategoriKod || ''
+      const jan    = val.jantina     || ''
+      const pingat = val.pingat
+      const srcKey = `${jan}_${kat}`
+      const dstKey = `${jan}_RELAY`
+
+      // Tolak 1 dari bucket individu (jika ada)
+      if (grp[srcKey] && pingat in grp[srcKey]) {
+        grp[srcKey][pingat] = Math.max(0, grp[srcKey][pingat] - 1)
+      }
+      // Tambah ke bucket RELAY
+      if (!grp[dstKey]) grp[dstKey] = { kategoriKod: 'RELAY', jantina: jan, emas: 0, perak: 0, gangsa: 0, tempat4: 0, tempat5: 0 }
+      if (pingat in grp[dstKey]) grp[dstKey][pingat] += 1
+    })
+
     return grp
   }
 
@@ -1909,6 +1934,16 @@ export default function Home() {
                                 </p>
                               </div>
                               <div className="flex items-center gap-2 shrink-0 ml-2">
+                                {item.acara.peringkat === 'saringan' && (
+                                  <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">
+                                    Saringan
+                                  </span>
+                                )}
+                                {item.acara.peringkat === 'akhir' && item.acara.parentAcaraId && (
+                                  <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-green-50 text-green-600 border border-green-200">
+                                    Final
+                                  </span>
+                                )}
                                 <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">
                                   KEPUTUSAN
                                 </span>
@@ -2248,6 +2283,43 @@ export default function Home() {
                                                       })}
                                                       <td className="py-1 pl-2 text-center">
                                                         <span className={`font-black ${jum > 0 ? 'text-gray-600' : 'text-gray-200'}`}>{jum}</span>
+                                                      </td>
+                                                    </tr>
+                                                  )
+                                                })}
+                                                {/* ── Relay rows (RELAY key) ── */}
+                                                {['L', 'P'].map(j => {
+                                                  const row  = detail?.rows?.[`${j}_RELAY`]
+                                                  if (!row) return null
+                                                  const emas = row.emas   || 0
+                                                  const perak= row.perak  || 0
+                                                  const gsa  = row.gangsa || 0
+                                                  const t4   = row.tempat4 || 0
+                                                  const t5   = row.tempat5 || 0
+                                                  const jum  = emas + perak + gsa
+                                                  if (jum + t4 + t5 === 0) return null
+                                                  return (
+                                                    <tr key={`relay_${j}`} className="border-b border-blue-50/50 border-t-2 border-t-blue-200">
+                                                      <td className="py-1 pr-3 font-bold text-[#003399]">Relay {j}</td>
+                                                      <td className="py-1 px-2 text-center">
+                                                        <span className={`font-black ${emas > 0 ? 'text-yellow-600' : 'text-gray-200'}`}>{emas}</span>
+                                                      </td>
+                                                      <td className="py-1 px-2 text-center">
+                                                        <span className={`font-black ${perak > 0 ? 'text-gray-500' : 'text-gray-200'}`}>{perak}</span>
+                                                      </td>
+                                                      <td className="py-1 px-2 text-center">
+                                                        <span className={`font-black ${gsa > 0 ? 'text-orange-500' : 'text-gray-200'}`}>{gsa}</span>
+                                                      </td>
+                                                      {extraCols.map(c => {
+                                                        const v = c.key === 'tempat4' ? t4 : t5
+                                                        return (
+                                                          <td key={c.key} className="py-1 px-2 text-center">
+                                                            <span className={`font-bold ${v > 0 ? 'text-gray-500' : 'text-gray-200'}`}>{v}</span>
+                                                          </td>
+                                                        )
+                                                      })}
+                                                      <td className="py-1 pl-2 text-center">
+                                                        <span className={`font-black ${jum > 0 ? 'text-[#003399]' : 'text-gray-200'}`}>{jum}</span>
                                                       </td>
                                                     </tr>
                                                   )
