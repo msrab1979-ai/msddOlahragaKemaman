@@ -26,12 +26,30 @@ function buildAnalisis(acaraList, pendaftaranDocs, kategoriList) {
     kategoriList.map(k => [k.id, { label: k.label || k.id, urutan: k.urutan ?? 99 }])
   )
 
-  // acaraId → bilangan atlet mendaftar
+  // Set acaraId yang jenisAcara === 'relay'
+  const relayAcaraIds = new Set(
+    acaraList.filter(a => a.jenisAcara === 'relay').map(a => a.id)
+  )
+
+  // acaraId → bilangan (atlet untuk biasa, pasukan/sekolah unik untuk relay)
   const countMap = {}
+  const relaySekolahMap = {} // acaraId → Set kodSekolah
+
   pendaftaranDocs.forEach(p => {
     ;(p.acaraIds || []).forEach(aid => {
-      countMap[aid] = (countMap[aid] || 0) + 1
+      if (relayAcaraIds.has(aid)) {
+        // Relay: kira sekolah unik = 1 pasukan
+        if (!relaySekolahMap[aid]) relaySekolahMap[aid] = new Set()
+        if (p.kodSekolah) relaySekolahMap[aid].add(p.kodSekolah)
+      } else {
+        countMap[aid] = (countMap[aid] || 0) + 1
+      }
     })
+  })
+
+  // Tukar relay school set → count pasukan
+  Object.entries(relaySekolahMap).forEach(([aid, sekolahSet]) => {
+    countMap[aid] = sekolahSet.size
   })
 
   // acaraId → kolum header "L12", "P12" dll
@@ -257,7 +275,7 @@ export default function AnalisisPendaftaran() {
       )}
 
       <p className="text-[10px] text-gray-400">
-        * Nilai menunjukkan bilangan slot pendaftaran, bukan bilangan atlet unik (atlet boleh mendaftar lebih dari satu acara).
+        * Acara biasa: bilangan atlet mendaftar. Acara relay: bilangan pasukan (sekolah unik).
       </p>
     </div>
   )

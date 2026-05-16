@@ -61,13 +61,23 @@ export function getFinalistSetup(acara, finalSetup) {
 export function selectFinalists(heats, acara, finalSetup) {
   const { bestHeat, bestTime } = getFinalistSetup(acara, finalSetup)
   const isPadang = ['padang_lompat', 'padang_balin'].includes(acara.jenisAcara)
+  const isRelay  = acara.jenisAcara === 'relay'
 
   const saringanHeats = heats.filter(h =>
     h.peringkat !== 'final' && ['rasmi', 'tidak_rasmi', 'diterima'].includes(h.statusKeputusan)
   )
   if (saringanHeats.length === 0) return []
 
-  const toAthlete = (p, heat) => ({
+  // Key unik: relay guna kodSekolah, individu guna noBib
+  const getKey = p => isRelay ? (p.kodSekolah || 'UNKNOWN') : (p.noBib || '')
+
+  const toEntry = (p, heat) => isRelay ? ({
+    kodSekolah:  p.kodSekolah  || '',
+    ahliPasukan: p.ahliPasukan || [],
+    keputusan:   Number(p.keputusan),
+    heatId:      heat.heatId   || heat.id || '',
+    noHeat:      heat.noHeat   || 0,
+  }) : ({
     noBib:      p.noBib      || '',
     namaAtlet:  p.namaAtlet  || '',
     kodSekolah: p.kodSekolah || '',
@@ -79,30 +89,32 @@ export function selectFinalists(heats, acara, finalSetup) {
 
   const isValid  = p => !['DNS', 'DNF', 'DQ'].includes(p.status) && Number(p.keputusan) > 0
   const sortFn   = (a, b) => isPadang ? b.keputusan - a.keputusan : a.keputusan - b.keputusan
-  const selected = new Map() // noBib → athlete
+  const selected = new Map() // key → entry
 
   // Step 1: top bestHeat dari setiap heat
-  saringanHeats.forEach(heat => {
-    ;(heat.peserta || [])
-      .filter(isValid)
-      .map(p => toAthlete(p, heat))
-      .sort(sortFn)
-      .slice(0, bestHeat)
-      .forEach(a => { if (!selected.has(a.noBib)) selected.set(a.noBib, a) })
-  })
+  if (bestHeat > 0) {
+    saringanHeats.forEach(heat => {
+      ;(heat.peserta || [])
+        .filter(isValid)
+        .map(p => toEntry(p, heat))
+        .sort(sortFn)
+        .slice(0, bestHeat)
+        .forEach(a => { if (!selected.has(getKey(a))) selected.set(getKey(a), a) })
+    })
+  }
 
-  // Step 2: wildcard bestTime dari baki atlet
+  // Step 2: wildcard bestTime dari baki
   if (bestTime > 0) {
     const wildcards = []
     saringanHeats.forEach(heat => {
       ;(heat.peserta || []).filter(isValid).forEach(p => {
-        if (!selected.has(p.noBib)) wildcards.push(toAthlete(p, heat))
+        if (!selected.has(getKey(p))) wildcards.push(toEntry(p, heat))
       })
     })
     wildcards
       .sort(sortFn)
       .slice(0, bestTime)
-      .forEach(a => { if (!selected.has(a.noBib)) selected.set(a.noBib, a) })
+      .forEach(a => { if (!selected.has(getKey(a))) selected.set(getKey(a), a) })
   }
 
   return [...selected.values()]

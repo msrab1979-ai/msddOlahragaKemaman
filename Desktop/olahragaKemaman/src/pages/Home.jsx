@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { doc, getDoc, updateDoc, deleteField, serverTimestamp, collection, query, where, getDocs, orderBy } from 'firebase/firestore'
 import { selectFinalists as _selectFinalists } from '../utils/finalistUtils'
+import { cariRekodUntukAcara, formatPrestasiRekod, tahunRekod } from '../utils/rekodUtils'
 import { db } from '../firebase/config'
 import { useAuth } from '../context/AuthContext'
 import PasswordInput from '../components/ui/PasswordInput'
@@ -508,7 +509,7 @@ function RekodModal({ peserta, acara, onClose }) {
 
 // ─── KeputusanExpanded ────────────────────────────────────────────────────────
 
-function KeputusanExpanded({ heats, acara, sekolahMap, isLoading, finalSetup }) {
+function KeputusanExpanded({ heats, acara, sekolahMap, isLoading, finalSetup, rekodDNK }) {
   const [rekodModal, setRekodModal] = useState(null) // peserta yang badge diklik
 
   if (isLoading) {
@@ -551,7 +552,8 @@ function KeputusanExpanded({ heats, acara, sekolahMap, isLoading, finalSetup }) 
   const displayHeats   = showingFinal ? finalHeats : heatsWithResult
 
   // Kolum Catatan + label FINAL hanya bila tunjuk saringan (belum ada final)
-  const showCatatanCol = isSaringanAcara && !showingFinal
+  // Relay: tunjuk catatan bila ada saringan heat (fasa='heat') walaupun isSaringanAcara=false
+  const showCatatanCol = (isSaringanAcara || (isRelay && saringanHeats.length > 0)) && !showingFinal
 
   // Status paparan
   const statusPapar  = displayHeats.some(h => h.statusKeputusan === 'rasmi') ? 'rasmi' : 'tidak_rasmi'
@@ -598,21 +600,27 @@ function KeputusanExpanded({ heats, acara, sekolahMap, isLoading, finalSetup }) 
     return isPadang ? bv - av : av - bv
   })
 
-  // finalistBibs: hanya kira bila papar saringan (tiada final lagi)
+  // finalistBibs / finalistSekolah: hanya kira bila papar saringan (tiada final lagi)
+  // Relay: guna kodSekolah sebagai key (bukan noBib yang undefined untuk relay)
   const finalistBibs = showCatatanCol
-    ? new Set(_selectFinalists(heats, acara, finalSetup).map(f => f.noBib))
+    ? new Set(_selectFinalists(heats, acara, finalSetup).map(f => isRelay ? f.kodSekolah : f.noBib))
     : new Set()
 
-  // Label
+  // Label top-bar
+  // isTerusFinal = showingFinal tapi tiada saringan heat sebelumnya (1 heat terus ke final)
+  const isTerusFinal = showingFinal && saringanHeats.length === 0
   const heatLabel = showingFinal
-    ? (displayHeats[0]?.fasa === 'terus_final' ? 'Akhir' : 'Final')
-    : isSaringanAcara
-      ? (saringanHeats.length > 1 ? `${saringanHeats.length} Heat Saringan` : 'Saringan')
-      : (heatsWithResult.length > 1 ? `${heatsWithResult.length} Heat` : 'Heat')
+    ? (isTerusFinal ? 'Terus Final' : 'Final')
+    : saringanHeats.length > 1
+      ? `${saringanHeats.length} Heat Saringan`
+      : saringanHeats.length === 1
+        ? 'Saringan'
+        : heatsWithResult.length > 1 ? `${heatsWithResult.length} Heat` : 'Heat'
 
   // Helper: render satu jadual untuk satu heat
   function renderHeatTable(heat, heatPeserta, labelOverride) {
-    const isFinalHeat = heat.peringkat === 'final' || heat.fasa === 'terus_final'
+    // fasa='final' = JanaFinal heat atau terus_final heat; kedua-dua adalah final
+    const isFinalHeat = heat.peringkat === 'final' || heat.fasa === 'final' || heat.fasa === 'terus_final'
     const label = labelOverride || (isFinalHeat ? 'Final' : `Heat ${heat.noHeat}`)
     const labelCls = isFinalHeat
       ? 'bg-amber-100 text-amber-700 border-amber-200'
@@ -648,7 +656,8 @@ function KeputusanExpanded({ heats, acara, sekolahMap, isLoading, finalSetup }) 
               const isSementara = !p.kedudukan && !!p.rankDalamHeat
               const hasil       = isPadang ? fmtJarak(p.keputusan) : fmtMasa(p.keputusan)
               const medal       = isFinalHeat && (kddk === 1 ? '🥇' : kddk === 2 ? '🥈' : kddk === 3 ? '🥉' : null)
-              const layakFinal  = showCatatanCol && !flagged && finalistBibs.has(p.noBib)
+              // Relay: semak kelayakan guna kodSekolah; individu: guna noBib
+              const layakFinal  = showCatatanCol && !flagged && finalistBibs.has(isRelay ? p.kodSekolah : p.noBib)
 
               return (
                 <tr key={idx} className={`border-t border-gray-50 ${
@@ -668,7 +677,18 @@ function KeputusanExpanded({ heats, acara, sekolahMap, isLoading, finalSetup }) 
                   )}
                   <td className="px-3 py-2">
                     {isRelay
-                      ? <p className="font-semibold text-gray-800">{namaSkl}</p>
+                      ? <div className="flex items-center gap-1.5">
+                          <p className="font-semibold text-gray-800">{namaSkl}</p>
+                          {p.pecahRekod && (
+                            <button
+                              onClick={e => { e.stopPropagation(); setRekodModal(p) }}
+                              className="shrink-0 text-[8px] font-black px-1.5 py-0.5 rounded bg-amber-400 hover:bg-amber-500 text-white tracking-wide transition-colors"
+                              title="Klik untuk lihat rekod dipecahkan"
+                            >
+                              🏆 REKOD
+                            </button>
+                          )}
+                        </div>
                       : <div className="flex items-center gap-1.5">
                           <p className={`font-semibold ${flagged ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
                             {p.namaAtlet || '—'}
@@ -723,7 +743,7 @@ function KeputusanExpanded({ heats, acara, sekolahMap, isLoading, finalSetup }) 
           const av = Number(a.keputusan)||0, bv = Number(b.keputusan)||0
           return isPadang ? bv - av : av - bv
         })
-      return renderHeatTable(finalHeat, peserta, 'Final')
+      return renderHeatTable(finalHeat, peserta, isTerusFinal ? 'Terus Final' : 'Final')
     }
 
     // Saringan — satu jadual per heat
@@ -754,6 +774,37 @@ function KeputusanExpanded({ heats, acara, sekolahMap, isLoading, finalSetup }) 
         </span>
       </div>
       {renderContent()}
+
+      {/* ── Rekod Daerah / Negeri / Kebangsaan ── */}
+      {rekodDNK && (rekodDNK.D || rekodDNK.N || rekodDNK.K) && (() => {
+        const LABEL = { D: 'Daerah', N: 'Negeri', K: 'Kebangsaan' }
+        const rows  = ['D', 'N', 'K'].map(p => ({ p, r: rekodDNK[p] })).filter(x => x.r)
+        if (!rows.length) return null
+        return (
+          <div className="px-3 py-2 border-t border-gray-100 bg-gray-50/40">
+            <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Rekod</p>
+            <div className="space-y-1">
+              {rows.map(({ p, r }) => (
+                <div key={p} className="flex items-center gap-2 text-[10px] min-w-0">
+                  <span className="shrink-0 text-[8px] font-bold px-1.5 py-0.5 rounded bg-gray-200 text-gray-500 leading-none">
+                    {LABEL[p]}
+                  </span>
+                  <span className="font-mono font-bold text-[#003399]">
+                    {formatPrestasiRekod(r.prestasi, r.unit)}
+                  </span>
+                  <span className="text-gray-600 truncate">
+                    {r.namaAtlet || r.namaSekolah || '—'}
+                  </span>
+                  <span className="shrink-0 text-gray-400 text-[9px]">
+                    {tahunRekod(r.tarikhRekod)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })()}
+
       {rekodModal && (
         <RekodModal
           peserta={rekodModal}
@@ -767,7 +818,7 @@ function KeputusanExpanded({ heats, acara, sekolahMap, isLoading, finalSetup }) 
 
 // ─── AcaraTableRow ────────────────────────────────────────────────────────────
 
-function AcaraTableRow({ item, isExpanded, onToggle, heats, isLoading, sekolahMap, finalSetup }) {
+function AcaraTableRow({ item, isExpanded, onToggle, heats, isLoading, sekolahMap, finalSetup, rekodDNK }) {
   const { acara, masaMula } = item
   const noAcara  = acara.noAcara || acara.id || acara.acaraId || '—'
   const status   = acara.statusAcara || 'akan_datang'
@@ -826,6 +877,7 @@ function AcaraTableRow({ item, isExpanded, onToggle, heats, isLoading, sekolahMa
               sekolahMap={sekolahMap}
               isLoading={isLoading}
               finalSetup={finalSetup}
+              rekodDNK={rekodDNK}
             />
           </td>
         </tr>
@@ -859,6 +911,7 @@ export default function Home() {
   const [expandedAcara,  setExpandedAcara]  = useState(new Set())
   const [heatCache,      setHeatCache]      = useState({}) // aceraKey → heats[]
   const [heatLoading,    setHeatLoading]    = useState(new Set())
+  const [rekodCache,     setRekodCache]     = useState({}) // aceraKey → { D, N, K }
 
   // Tab Keputusan
   const [activeTab,      setActiveTab]      = useState('jadual')
@@ -1133,11 +1186,15 @@ export default function Home() {
       return
     }
     try {
-      const snap = await getDocs(collection(db, 'kejohanan', kId, 'acara', aceraKey, 'heat'))
+      const [snap, rekod] = await Promise.all([
+        getDocs(collection(db, 'kejohanan', kId, 'acara', aceraKey, 'heat')),
+        cariRekodUntukAcara(acara).catch(() => ({ D: null, N: null, K: null })),
+      ])
       const heats = snap.docs
         .map(d => ({ heatId: d.id, ...d.data() }))
         .sort((a, b) => (a.noHeat ?? 0) - (b.noHeat ?? 0))
       setHeatCache(prev => ({ ...prev, [aceraKey]: heats }))
+      setRekodCache(prev => ({ ...prev, [aceraKey]: rekod }))
     } catch {
       setHeatCache(prev => ({ ...prev, [aceraKey]: [] }))
     } finally {
@@ -1735,6 +1792,7 @@ export default function Home() {
                                       isLoading={heatLoading.has(aceraKey)}
                                       sekolahMap={sekolahMap}
                                       finalSetup={finalSetup}
+                                      rekodDNK={rekodCache[aceraKey]}
                                     />
                                   )
                                 })}
@@ -1869,6 +1927,8 @@ export default function Home() {
                                   acara={item.acara}
                                   sekolahMap={sekolahMap}
                                   isLoading={heatLoading.has(aceraKey)}
+                                  finalSetup={finalSetup}
+                                  rekodDNK={rekodCache[aceraKey]}
                                 />
                               </div>
                             )}

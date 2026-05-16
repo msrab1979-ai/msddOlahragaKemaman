@@ -305,11 +305,16 @@ function HeatSelector({ heats, selectedHeat, onSelect }) {
 
 function HeatTabBar({ heats, selectedHeat, onSelect }) {
   if (!heats || heats.length <= 1) return null
+  const hasSaringanHeat = heats.some(h => h.fasa === 'heat')
   return (
     <div className="flex gap-1.5 overflow-x-auto py-0.5">
       {heats.map(h => {
         const isSelected  = selectedHeat?.heatId === h.heatId
-        const isFinalHeat = h.peringkat === 'final' || h.fasa === 'terus_final'
+        // fasa='final' = sama ada final selepas saringan, atau terus_final (1 heat sahaja)
+        const isFinalHeat = h.fasa === 'final'
+        const fasaLabel   = isFinalHeat
+          ? (hasSaringanHeat ? 'FINAL' : 'TERUS FINAL')
+          : `Heat ${h.noHeat}`
         const dotCls = ['rasmi', 'diterima'].includes(h.statusKeputusan)
           ? 'bg-green-400'
           : h.statusKeputusan === 'tidak_rasmi' ? 'bg-amber-400'
@@ -327,10 +332,7 @@ function HeatTabBar({ heats, selectedHeat, onSelect }) {
                   : 'bg-white border border-gray-200 text-gray-600 hover:border-[#003399]/30 hover:text-[#003399]'
             }`}>
             <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isSelected ? 'bg-white/60' : dotCls}`} />
-            {isFinalHeat
-              ? <span className="font-black tracking-wide">FINAL</span>
-              : <span>Heat {h.noHeat}</span>
-            }
+            <span className={isFinalHeat ? 'font-black tracking-wide' : ''}>{fasaLabel}</span>
           </button>
         )
       })}
@@ -420,8 +422,25 @@ function InputLorong({ heat, acara, keputusan, onChange, onWind, windSpeed, seko
 
         {/* Rows */}
         {slots.map((lorong, idx) => {
-          const kp     = keputusan[lorong] || {}
-          const rank   = rankMap[lorong]
+          const kp      = keputusan[lorong] || {}
+          // Lorong kosong = tiada peserta berdaftar dalam lorong ini
+          const isKosong = !kp.namaAtlet && !kp.noBib && !kp.kodSekolah && !kp.keputusan && !kp.status
+
+          if (isKosong) {
+            return (
+              <div key={lorong} className="grid border-t border-gray-100 bg-gray-50"
+                style={{ gridTemplateColumns: '36px 72px 1fr 72px 52px 90px' }}>
+                <div className="px-1 py-3 flex items-center justify-center">
+                  <span className="text-[10px] font-black text-gray-300">{lorong}</span>
+                </div>
+                <div className="col-span-5 px-3 flex items-center">
+                  <span className="text-[10px] text-gray-300 italic">— Lorong kosong —</span>
+                </div>
+              </div>
+            )
+          }
+
+          const rank    = rankMap[lorong]
           const flagged = ['DNS', 'DNF', 'DQ'].includes(kp.status)
           const rowBg  = flagged ? 'bg-red-50' :
                          rank === 1 ? 'bg-yellow-50' :
@@ -832,6 +851,23 @@ function InputRelay({ heat, acara, keputusan, onChange, sekolahMap = {} }) {
 
       {slots.map((lorong, idx) => {
         const kp      = keputusan[lorong] || {}
+        // Lorong kosong = tiada pasukan berdaftar dalam lorong ini
+        const isKosong = !kp.kodSekolah && !kp.keputusan && !kp.status
+
+        if (isKosong) {
+          return (
+            <div key={lorong} className="grid border-t border-gray-100 bg-gray-50"
+              style={{ gridTemplateColumns: '36px 1fr 72px 52px 86px' }}>
+              <div className="px-1 py-3 flex items-center justify-center">
+                <span className="text-[10px] font-black text-gray-300">{lorong}</span>
+              </div>
+              <div className="col-span-4 px-3 flex items-center">
+                <span className="text-[10px] text-gray-300 italic">— Lorong kosong —</span>
+              </div>
+            </div>
+          )
+        }
+
         const rank    = rankMap[lorong]
         const flagged = ['DNS', 'DNF', 'DQ'].includes(kp.status)
         const usedByOthers = new Set(
@@ -1409,15 +1445,17 @@ export default function InputKeputusan() {
       const finishers = [...updatedPeserta]
         .filter(p => p.status === 'selesai' && p.keputusan != null)
         .sort((a, b) => isPadang ? b.keputusan - a.keputusan : a.keputusan - b.keputusan)
+      // Relay guna lorong sebagai key (noBib tiada dalam relay peserta)
+      const rankKey = p => jenisAcara === 'relay' ? p.lorong : p.noBib
       const autoRankMap = new Map()
       finishers.forEach((p, i) => {
         const prevSame = i > 0 && p.keputusan === finishers[i - 1].keputusan
-        autoRankMap.set(p.noBib, prevSame ? autoRankMap.get(finishers[i - 1].noBib) : i + 1)
+        autoRankMap.set(rankKey(p), prevSame ? autoRankMap.get(rankKey(finishers[i - 1])) : i + 1)
       })
       const pesertaDenganRank = updatedPeserta.map(p => ({
         ...p,
         rankDalamHeat: (p.status === 'selesai' && p.keputusan != null)
-          ? (p.kedudukan || autoRankMap.get(p.noBib) || null)
+          ? (p.kedudukan || autoRankMap.get(rankKey(p)) || null)
           : null,
       }))
 
@@ -1533,7 +1571,9 @@ export default function InputKeputusan() {
       for (const p of (heatData.peserta || [])) {
         if (!p.kodSekolah) continue
         const tId        = `${p.kodSekolah}_${kejohananId}`
-        const contribKey = `contrib_${selectedHeat.heatId}_${p.noKP || p.noBib}`
+        // Relay: guna kodSekolah sebagai key unik (noBib/noKP tiada dalam relay peserta)
+        const isRelayHeat = selectedAcara?.jenisAcara === 'relay'
+        const contribKey = `contrib_${selectedHeat.heatId}_${isRelayHeat ? p.kodSekolah : (p.noKP || p.noBib)}`
         try {
           const tRef  = doc(db, 'medal_tally', tId)
           const tSnap = await getDoc(tRef)
@@ -2436,7 +2476,9 @@ export default function InputKeputusan() {
                 </p>
               </div>
               {selectedHeat && (() => {
-                const isFH = selectedHeat.peringkat === 'final' || selectedHeat.fasa === 'terus_final'
+                const isFH = selectedHeat.fasa === 'final'
+                const hasSar = heats.some(h => h.fasa === 'heat')
+                const fasaBadge = isFH ? (hasSar ? 'FINAL' : 'TERUS FINAL') : `Heat ${selectedHeat.noHeat}`
                 const sCls = ['rasmi', 'diterima'].includes(selectedHeat.statusKeputusan)
                   ? 'bg-green-100 text-green-700'
                   : selectedHeat.statusKeputusan === 'tidak_rasmi' ? 'bg-amber-100 text-amber-700'
@@ -2447,7 +2489,7 @@ export default function InputKeputusan() {
                   : selectedHeat.statusKeputusan === 'diterima' ? '✓ Diterima'
                   : selectedHeat.statusKeputusan === 'tidak_rasmi' ? '⏳ Draf'
                   : selectedHeat.statusKeputusan === 'dalam_bantahan' ? '⚠ Bantahan'
-                  : isFH ? 'FINAL' : `Heat ${selectedHeat.noHeat}`
+                  : fasaBadge
                 return (
                   <div className={`shrink-0 px-2.5 py-1 rounded-lg text-[10px] font-bold leading-none ${sCls}`}>
                     {sLabel}

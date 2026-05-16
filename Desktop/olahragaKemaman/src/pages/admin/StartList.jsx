@@ -22,13 +22,14 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   collection, getDocs, getDoc, doc, setDoc, deleteDoc, updateDoc,
-  serverTimestamp, query, orderBy, where, writeBatch,
+  serverTimestamp, query, orderBy, where, writeBatch, deleteField,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { cariRekodUntukAcara, formatPrestasiRekod, tahunRekod, lokasiRekod } from '../../utils/rekodUtils'
+import { selectFinalists, getFinalistSetup, getJenisTab } from '../../utils/finalistUtils'
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
@@ -221,9 +222,10 @@ function buatStartListPDFUnified({
 }) {
   const isPadang       = ['padang_lompat', 'padang_balin'].includes(acara.jenisAcara)
   const isMass         = acara.jenisAcara === 'mass_start'
+  const isRelay        = acara.jenisAcara === 'relay'
   const bilanganCubaan = isPadang ? (acara.bilanganCubaan || 6) : 0
 
-  const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+  const pdf = new jsPDF({ orientation: isPadang ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' })
   const M   = 12
   const katLbl   = katLabel(acara.kategoriKod, kategoriList)
   const masa     = jadual?.masaMula || '—'
@@ -264,7 +266,7 @@ function buatStartListPDFUnified({
     for (const sal of SALINAN) {
       const isTeknikal = sal.id === 'teknikal'
       if (!isFirst) {
-        pdf.addPage([297, 210])  // landscape A4
+        pdf.addPage(isPadang ? [297, 210] : [210, 297])
       }
       isFirst = false
 
@@ -442,6 +444,39 @@ function buatStartListPDFUnified({
             [3 + bilanganCubaan]: { halign: 'center', cellWidth: kddkW, valign: 'middle' },
           }
         }
+      } else if (isRelay) {
+        // ── Relay: papar sekolah (pasukan), bukan individu atlet ──────────────
+        if (sal.id === 'juruhebah') {
+          head = [['Lrg', 'Sekolah / Pasukan', 'Ahli Pasukan']]
+          body = peserta.map(p => [
+            p.lorong ?? '—',
+            namaSekolahMap[p.kodSekolah] || p.kodSekolah,
+            (p.ahliPasukan || []).map(a => a.namaAtlet || a.noBib || '?').join(', '),
+          ])
+          colStyles = { 0:{halign:'center',cellWidth:14}, 1:{cellWidth:55} }
+        } else if (sal.id === 'callroom') {
+          head = [['Lrg', 'Sekolah / Pasukan', 'Ahli Pasukan', 'Hadir (✓ / DNS)']]
+          body = peserta.map(p => [
+            p.lorong ?? '—',
+            namaSekolahMap[p.kodSekolah] || p.kodSekolah,
+            (p.ahliPasukan || []).map(a => a.namaAtlet || a.noBib || '?').join(', '),
+            '',
+          ])
+          colStyles = { 0:{halign:'center',cellWidth:14}, 1:{cellWidth:55}, 3:{cellWidth:35} }
+        } else {
+          // Teknikal / Fail
+          head = [['Lrg', 'Sekolah / Pasukan', 'Ahli Pasukan', 'Masa', 'Keputusan']]
+          body = peserta.map(p => [
+            p.lorong ?? '—',
+            namaSekolahMap[p.kodSekolah] || p.kodSekolah,
+            (p.ahliPasukan || []).map(a => a.namaAtlet || a.noBib || '?').join(', '),
+            '', '',
+          ])
+          colStyles = {
+            0:{halign:'center',cellWidth:14}, 1:{cellWidth:55},
+            3:{cellWidth:30}, 4:{cellWidth:30},
+          }
+        }
       } else {
         const c0 = isMass ? 'Bil' : 'Lrg'
         const getPos = p => isMass ? (p.giliran ?? '—') : (p.lorong ?? '—')
@@ -560,42 +595,66 @@ function FasaBadge({ fasa }) {
 function GenerateModal({ acara, peserta, onClose, onGenerated, sekolahMap = {} }) {
   const isPadang  = ['padang_lompat','padang_balin'].includes(acara.jenisAcara)
   const isMass    = acara.jenisAcara === 'mass_start'
-  const isLorong  = !isPadang && !isMass
+  const isRelay   = acara.jenisAcara === 'relay'
+  const isLorong  = !isPadang && !isMass && !isRelay
 
   const [bilanganLorong, setBL]   = useState(acara.bilanganLorong || 8)
   const [caraDraw, setCaraDraw]   = useState('random') // random | manual | seeding
   const [generating, setGen]      = useState(false)
   const [preview, setPreview]     = useState(null)
 
+  // Relay: group individu atlet → pasukan (1 per sekolah)
+  function groupRelayPasukan(atletList) {
+    const map = {}
+    atletList.forEach(p => {
+      const ks = p.kodSekolah || 'UNKNOWN'
+      if (!map[ks]) map[ks] = { kodSekolah: ks, ahliPasukan: [] }
+      map[ks].ahliPasukan.push(p)
+    })
+    return Object.values(map)
+  }
+
   function buatPreview() {
+    if (isRelay) {
+      // ── Relay: group by sekolah → agih pasukan ke heat ──────────────────────
+      const pasukan = groupRelayPasukan(peserta)
+      if (caraDraw === 'random') {
+        for (let i = pasukan.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [pasukan[i], pasukan[j]] = [pasukan[j], pasukan[i]]
+        }
+      }
+      const fasa = tentukanFasa(pasukan.length, Number(bilanganLorong))
+      let heats = []
+      if (fasa === 'terus_final') {
+        heats = [{ fasa: 'final', noHeat: 1, peserta: assignLorong(pasukan) }]
+      } else {
+        const bahagi = bahagikanKeHeat(pasukan, Number(bilanganLorong))
+        heats = bahagi.map((hp, i) => ({ fasa: 'heat', noHeat: i + 1, peserta: assignLorong(hp) }))
+      }
+      setPreview({ fasa, heats })
+      return
+    }
+
+    // ── Larian / Mass / Padang ────────────────────────────────────────────────
     const p = [...peserta]
     if (caraDraw === 'random') {
-      // Fisher-Yates shuffle
       for (let i = p.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [p[i], p[j]] = [p[j], p[i]]
       }
     }
-    // Tentukan fasa
     const fasa = isPadang || isMass
       ? 'terus_final'
       : tentukanFasa(p.length, Number(bilanganLorong))
 
     let heats = []
     if (fasa === 'terus_final' || isPadang || isMass) {
-      // 1 heat sahaja = final atau giliran terus
-      const pesertaAssigned = isPadang || isMass
-        ? assignGiliran(p)
-        : assignLorong(p)
+      const pesertaAssigned = isPadang || isMass ? assignGiliran(p) : assignLorong(p)
       heats = [{ fasa: isPadang || isMass ? 'final' : 'final', noHeat: 1, peserta: pesertaAssigned }]
     } else {
-      // Banyak heat
       const bahagiHeat = bahagikanKeHeat(p, Number(bilanganLorong))
-      heats = bahagiHeat.map((hp, i) => ({
-        fasa: 'heat',
-        noHeat: i + 1,
-        peserta: assignLorong(hp),
-      }))
+      heats = bahagiHeat.map((hp, i) => ({ fasa: 'heat', noHeat: i + 1, peserta: assignLorong(hp) }))
     }
     setPreview({ fasa, heats })
   }
@@ -604,6 +663,14 @@ function GenerateModal({ acara, peserta, onClose, onGenerated, sekolahMap = {} }
     if (!preview) return
     setGen(true)
     try {
+      // Padam heat lama dulu (supaya heat lama tidak kekal bersama heat baru)
+      const existSnap = await getDocs(collection(db, 'kejohanan', kejohananId, 'acara', acara.aceraId, 'heat'))
+      if (!existSnap.empty) {
+        const delBatch = writeBatch(db)
+        existSnap.docs.forEach(d => delBatch.delete(d.ref))
+        await delBatch.commit()
+      }
+
       const batch = writeBatch(db)
       for (const h of preview.heats) {
         const heatId = buatHeatId(acara.aceraId, h.fasa, h.noHeat)
@@ -617,17 +684,31 @@ function GenerateModal({ acara, peserta, onClose, onGenerated, sekolahMap = {} }
           status: 'belum_mula',
           windSpeed: null,
           isWindLegal: null,
-          peserta: h.peserta.map(p => ({
-            noBib: p.noBib,
-            noKP: p.noKP || '',
-            namaAtlet: p.namaAtlet,
-            kodSekolah: p.kodSekolah,
+          peserta: h.peserta.map(p => isRelay ? ({
+            // Relay: 1 rekod per pasukan (sekolah)
+            kodSekolah:   p.kodSekolah,
+            lorong:       p.lorong ?? null,
+            ahliPasukan:  (p.ahliPasukan || []).map(a => ({
+              noBib:      a.noBib      || '',
+              noKP:       a.noKP       || '',
+              namaAtlet:  a.namaAtlet  || '',
+              kategoriKod: a.kategoriKod || '',
+            })),
+            keputusan:    null,
+            status:       'belum',
+            rankDalamHeat: null,
+          }) : ({
+            // Individu: larian / padang / mass_start
+            noBib:       p.noBib,
+            noKP:        p.noKP       || '',
+            namaAtlet:   p.namaAtlet,
+            kodSekolah:  p.kodSekolah,
             kategoriKod: p.kategoriKod || '',
-            lorong: p.lorong ?? null,
-            giliran: p.giliran ?? null,
-            keputusan: null,
-            status: 'belum',
-            cubaan: [],
+            lorong:      p.lorong      ?? null,
+            giliran:     p.giliran     ?? null,
+            keputusan:   null,
+            status:      'belum',
+            cubaan:      [],
             rankDalamHeat: null,
           })),
           finalisDipilih: [],
@@ -651,7 +732,11 @@ function GenerateModal({ acara, peserta, onClose, onGenerated, sekolahMap = {} }
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
           <div>
             <h2 className="text-sm font-bold text-gray-800">Jana Start List</h2>
-            <p className="text-xs text-gray-500 mt-0.5">{acara.namaAcara} — {peserta.length} peserta</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {acara.namaAcara} — {isRelay
+                ? `${groupRelayPasukan(peserta).length} pasukan (${peserta.length} atlet)`
+                : `${peserta.length} peserta`}
+            </p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-2xl leading-none">×</button>
         </div>
@@ -694,6 +779,21 @@ function GenerateModal({ acara, peserta, onClose, onGenerated, sekolahMap = {} }
               <p>Semua {peserta.length} peserta akan assign giliran 1–{peserta.length} secara {caraDraw === 'random' ? 'rawak' : 'ikut urutan daftar'}.</p>
             </div>
           )}
+          {isRelay && (() => {
+            const pasukan = groupRelayPasukan(peserta)
+            const fasa = tentukanFasa(pasukan.length, Number(bilanganLorong))
+            return (
+              <div className="bg-purple-50 border border-purple-100 rounded-lg p-3 text-xs text-purple-700 space-y-1">
+                <p className="font-bold">Relay — {pasukan.length} pasukan ({peserta.length} atlet)</p>
+                <p>≤ {bilanganLorong} pasukan → <strong>Terus Final</strong></p>
+                <p>≤ {bilanganLorong * 3} pasukan → <strong>Heat → Final</strong></p>
+                <p className="font-semibold text-purple-600">{pasukan.length} pasukan → {
+                  fasa === 'terus_final' ? 'Terus Final' :
+                  fasa === 'heat_final'  ? 'Heat → Final' : 'Saringan → Heat → Final'
+                }</p>
+              </div>
+            )
+          })()}
 
           {/* Preview */}
           {preview && (
@@ -703,7 +803,7 @@ function GenerateModal({ acara, peserta, onClose, onGenerated, sekolahMap = {} }
                 <div key={h.noHeat} className="border border-gray-100 rounded-xl overflow-hidden">
                   <div className="px-3 py-2 bg-[#003399] flex items-center justify-between">
                     <span className="text-[10px] font-bold text-white">
-                      {FASA_LABEL[h.fasa] || h.fasa} {h.noHeat} — {h.peserta.length} peserta
+                      {FASA_LABEL[h.fasa] || h.fasa} {h.noHeat} — {h.peserta.length} {isRelay ? 'pasukan' : 'peserta'}
                     </span>
                     <span className="text-[9px] text-blue-200">{buatHeatId(acara.aceraId, h.fasa, h.noHeat)}</span>
                   </div>
@@ -711,22 +811,36 @@ function GenerateModal({ acara, peserta, onClose, onGenerated, sekolahMap = {} }
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-2 py-1 text-center font-bold text-gray-400">{isPadang||isMass?'Gil':'Lorong'}</th>
-                        <th className="px-2 py-1 text-left font-bold text-gray-400">BIB</th>
-                        <th className="px-2 py-1 text-left font-bold text-gray-400">Nama</th>
-                        <th className="px-2 py-1 text-left font-bold text-gray-400">Sekolah</th>
+                        {isRelay ? (
+                          <>
+                            <th className="px-2 py-1 text-left font-bold text-gray-400">Sekolah</th>
+                            <th className="px-2 py-1 text-center font-bold text-gray-400">Ahli</th>
+                          </>
+                        ) : (
+                          <>
+                            <th className="px-2 py-1 text-left font-bold text-gray-400">BIB</th>
+                            <th className="px-2 py-1 text-left font-bold text-gray-400">Nama</th>
+                            <th className="px-2 py-1 text-left font-bold text-gray-400">Sekolah</th>
+                          </>
+                        )}
                       </tr>
                     </thead>
                     <tbody>
-                      {(isPadang||isMass
-                        ? [...h.peserta].sort((a,b)=>a.giliran-b.giliran)
-                        : [...h.peserta].sort((a,b)=>a.lorong-b.lorong)
-                      ).map(p => (
-                        <tr key={p.noBib} className="border-t border-gray-50">
-                          <td className="px-2 py-1 text-center font-black text-[#003399]">{isPadang||isMass?p.giliran:p.lorong}</td>
-                          <td className="px-2 py-1 font-mono text-gray-700">{p.noBib}</td>
-                          <td className="px-2 py-1 font-semibold text-gray-800">{p.namaAtlet}</td>
-                          <td className="px-2 py-1 text-gray-500">{sekolahMap[p.kodSekolah] || p.namaSekolah || p.kodSekolah}</td>
-                        </tr>
+                      {[...h.peserta].sort((a,b)=>a.lorong-b.lorong).map((p, idx) => (
+                        isRelay ? (
+                          <tr key={p.kodSekolah || idx} className="border-t border-gray-50">
+                            <td className="px-2 py-1 text-center font-black text-purple-700">{p.lorong}</td>
+                            <td className="px-2 py-1 font-semibold text-gray-800">{sekolahMap[p.kodSekolah] || p.kodSekolah}</td>
+                            <td className="px-2 py-1 text-center text-gray-500">{(p.ahliPasukan||[]).length} atlet</td>
+                          </tr>
+                        ) : (
+                          <tr key={p.noBib || idx} className="border-t border-gray-50">
+                            <td className="px-2 py-1 text-center font-black text-[#003399]">{isPadang||isMass?p.giliran:p.lorong}</td>
+                            <td className="px-2 py-1 font-mono text-gray-700">{p.noBib}</td>
+                            <td className="px-2 py-1 font-semibold text-gray-800">{p.namaAtlet}</td>
+                            <td className="px-2 py-1 text-gray-500">{sekolahMap[p.kodSekolah] || p.namaSekolah || p.kodSekolah}</td>
+                          </tr>
+                        )
                       ))}
                     </tbody>
                   </table>
@@ -843,8 +957,64 @@ async function generateHeatsForAcara({ acara, pesertaAll, kejohananId, caraDraw,
 
   const isPadang = ['padang_lompat','padang_balin'].includes(acara.jenisAcara)
   const isMass   = acara.jenisAcara === 'mass_start'
+  const isRelay  = acara.jenisAcara === 'relay'
   const bilLorong = acara.bilanganLorong || 8
 
+  // ── RELAY: group by kodSekolah → 1 pasukan per sekolah ────────────────────
+  if (isRelay) {
+    const pasukanMap = {}
+    peserta.forEach(p => {
+      const ks = p.kodSekolah || 'UNKNOWN'
+      if (!pasukanMap[ks]) pasukanMap[ks] = { kodSekolah: ks, ahliPasukan: [] }
+      pasukanMap[ks].ahliPasukan.push(p)
+    })
+    let pasukanList = Object.values(pasukanMap)
+
+    if (caraDraw === 'random') {
+      for (let i = pasukanList.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pasukanList[i], pasukanList[j]] = [pasukanList[j], pasukanList[i]]
+      }
+    }
+
+    const fasa = tentukanFasa(pasukanList.length, bilLorong)
+    let heats = []
+    if (fasa === 'terus_final') {
+      heats = [{ fasa: 'final', noHeat: 1, peserta: assignLorong(pasukanList) }]
+    } else {
+      const bahagi = bahagikanKeHeat(pasukanList, bilLorong)
+      heats = bahagi.map((hp, i) => ({ fasa: 'heat', noHeat: i + 1, peserta: assignLorong(hp) }))
+    }
+
+    const batch = writeBatch(db)
+    for (const h of heats) {
+      const heatId = buatHeatId(acara.aceraId, h.fasa, h.noHeat)
+      const ref = doc(db, 'kejohanan', kejohananId, 'acara', acara.aceraId, 'heat', heatId)
+      batch.set(ref, {
+        heatId, aceraId: acara.aceraId, kejohananId,
+        fasa: h.fasa, noHeat: h.noHeat, status: 'belum_mula',
+        windSpeed: null, isWindLegal: null,
+        peserta: h.peserta.map(pp => ({
+          kodSekolah:  pp.kodSekolah,
+          lorong:      pp.lorong ?? null,
+          ahliPasukan: (pp.ahliPasukan || []).map(a => ({
+            noBib:       a.noBib       || '',
+            noKP:        a.noKP        || '',
+            namaAtlet:   a.namaAtlet   || '',
+            kategoriKod: a.kategoriKod || '',
+          })),
+          keputusan:     null,
+          status:        'belum',
+          rankDalamHeat: null,
+        })),
+        finalisDipilih: [], createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+      }, { merge: false })
+    }
+    await batch.commit()
+    return { status: 'ok', heatCount: heats.length, pesertaCount: pasukanList.length }
+  }
+
+  // ── Non-relay: larian / padang / mass_start ────────────────────────────────
   // Shuffle jika random
   const p = [...peserta]
   if (caraDraw === 'random') {
@@ -1170,21 +1340,34 @@ function JanaSemuaModal({ kejohananId, acaraList, kategoriList = [], namaSekolah
 function JanaFinalModal({ acara, heatList, kejohananId, onClose, onGenerated, sekolahMap = {}, acaraList = [] }) {
   const isPadang = ['padang_lompat', 'padang_balin'].includes(acara.jenisAcara)
   const isMass   = acara.jenisAcara === 'mass_start'
+  const isRelay  = acara.jenisAcara === 'relay'
 
   const heatPhaseHeats = heatList.filter(h => h.fasa === 'heat' || h.fasa === 'saringan')
-  const cara           = acara.caraPilihFinal  || 'hybrid'
-  const bilanganFinal  = acara.bilanganFinalis || 8
-  const wildcardSlot   = acara.wildcardSlot    ?? 2
 
-  const [finalis] = useState(() => pilihFinalis(heatPhaseHeats, acara, isPadang))
-  const [saving,  setSaving]  = useState(false)
-  const [msg,     setMsg]     = useState('')
+  const [finalis,      setFinalis]      = useState([])
+  const [finalSetup,   setFinalSetup]   = useState(null)
+  const [loadingSetup, setLoadingSetup] = useState(true)
+  const [saving,       setSaving]       = useState(false)
+  const [msg,          setMsg]          = useState('')
 
-  const CARA_LABEL = {
-    hybrid:    'Hybrid — Heat Winner + Wildcard',
-    best_time: 'Best Time Keseluruhan',
-    best_heat: 'Best Per Heat',
-  }
+  // Load tetapan/finalSetup dari Firestore — gate dinamik ikut kategori & acara
+  useEffect(() => {
+    getDoc(doc(db, 'tetapan', 'finalSetup'))
+      .then(snap => {
+        const fs = snap.exists() ? snap.data() : null
+        setFinalSetup(fs)
+        setFinalis(selectFinalists(heatPhaseHeats, acara, fs))
+      })
+      .catch(() => {
+        setFinalis(selectFinalists(heatPhaseHeats, acara, null))
+      })
+      .finally(() => setLoadingSetup(false))
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Ambil gate semasa untuk paparan info
+  const { bestHeat, bestTime } = finalSetup
+    ? getFinalistSetup(acara, finalSetup)
+    : { bestHeat: 1, bestTime: 3 }
 
   function fmtPrestasi(val) {
     if (val == null) return '—'
@@ -1203,8 +1386,7 @@ function JanaFinalModal({ acara, heatList, kejohananId, onClose, onGenerated, se
       const heatId = buatHeatId(acara.aceraId, 'final', 1)
       const ref    = doc(db, 'kejohanan', kejohananId, 'acara', acara.aceraId, 'heat', heatId)
 
-      // WA standard: untuk larian lorong, sort ikut masa terpantas
-      // sebelum assign lorong supaya yang terpantas dapat lorong 4 (tengah)
+      // Sort ikut prestasi terbaik sebelum assign lorong (WA standard)
       const finalisUntukAssign = (!isPadang && !isMass)
         ? [...finalis].sort((a, b) => (a.keputusan ?? 999) - (b.keputusan ?? 999))
         : finalis
@@ -1222,52 +1404,59 @@ function JanaFinalModal({ acara, heatList, kejohananId, onClose, onGenerated, se
         status:      'belum_mula',
         windSpeed:   null,
         isWindLegal: null,
-        peserta: pesertaAssigned.map(p => ({
+        peserta: pesertaAssigned.map(p => isRelay ? ({
+          // Relay: simpan sebagai pasukan
+          kodSekolah:    p.kodSekolah,
+          ahliPasukan:   p.ahliPasukan || [],
+          lorong:        p.lorong      ?? null,
+          keputusan:     null,
+          status:        'belum',
+          rankDalamHeat: null,
+          _dariHeat:     p.heatId      || null,
+        }) : ({
+          // Individu: larian / padang / mass_start
           noBib:         p.noBib,
-          noKP:          p.noKP          || '',
+          noKP:          p.noKP        || '',
           namaAtlet:     p.namaAtlet,
           kodSekolah:    p.kodSekolah,
-          namaSekolah:   p.namaSekolah   || '',
-          kategoriKod:   p.kategoriKod   || '',
-          lorong:        p.lorong        ?? null,
-          giliran:       p.giliran       ?? null,
+          namaSekolah:   p.namaSekolah || '',
+          kategoriKod:   p.kategoriKod || '',
+          lorong:        p.lorong      ?? null,
+          giliran:       p.giliran     ?? null,
           keputusan:     null,
           status:        'belum',
           cubaan:        [],
           rankDalamHeat: null,
-          _dariHeat:     p._heatId       || null,
-          _cara:         p._cara         || null,
+          _dariHeat:     p.heatId      || null,
         })),
-        finalisDipilih: finalis.map(p => p.noBib),
+        finalisDipilih: finalis.map(p => isRelay ? p.kodSekolah : p.noBib),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       })
 
-      // ── Auto-register finalis ke pendaftaran acara final ─────────────────────
-      // Cari acara final yang parentAcaraId = saringan ini
-      const saringanId = String(acara.noAcara || acara.aceraId || acara.id)
-      const finalAcara = acaraList.find(a =>
-        a.peringkat === 'akhir' &&
-        (String(a.parentAcaraId) === saringanId || String(a.parentAcaraId) === String(acara.aceraId))
-      )
-      if (finalAcara) {
-        const finalAcaraId = finalAcara.aceraId || finalAcara.id
-        const batch = writeBatch(db)
-        for (const p of finalis) {
-          if (!p.noKP) continue
-          const pendRef  = doc(db, 'kejohanan', kejohananId, 'pendaftaran', p.noKP)
-          const pendSnap = await getDoc(pendRef)
-          if (pendSnap.exists()) {
-            const ids = pendSnap.data().acaraIds || []
-            if (!ids.includes(finalAcaraId)) {
-              batch.update(pendRef, {
-                acaraIds:  [...ids, finalAcaraId],
-                updatedAt: serverTimestamp(),
-              })
+      // ── Auto-register finalis ke pendaftaran acara final (individu sahaja) ────
+      if (!isRelay) {
+        const saringanId = String(acara.noAcara || acara.aceraId || acara.id)
+        const finalAcara = acaraList.find(a =>
+          a.peringkat === 'akhir' &&
+          (String(a.parentAcaraId) === saringanId || String(a.parentAcaraId) === String(acara.aceraId))
+        )
+        if (finalAcara) {
+          const finalAcaraId = finalAcara.aceraId || finalAcara.id
+          const batch = writeBatch(db)
+          for (const p of finalis) {
+            if (!p.noKP) continue
+            const pendRef  = doc(db, 'kejohanan', kejohananId, 'pendaftaran', p.noKP)
+            const pendSnap = await getDoc(pendRef)
+            if (pendSnap.exists()) {
+              const ids = pendSnap.data().acaraIds || []
+              if (!ids.includes(finalAcaraId)) {
+                batch.update(pendRef, { acaraIds: [...ids, finalAcaraId], updatedAt: serverTimestamp() })
+              }
             }
           }
+          await batch.commit()
         }
-        await batch.commit()
       }
 
       onGenerated()
@@ -1286,9 +1475,7 @@ function JanaFinalModal({ acara, heatList, kejohananId, onClose, onGenerated, se
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
           <div>
             <h2 className="text-sm font-bold text-gray-800">Jana Heat Final</h2>
-            <p className="text-xs text-gray-400 mt-0.5">
-              {acara.namaAcara} · {CARA_LABEL[cara]} · {bilanganFinal} finalis
-            </p>
+            <p className="text-xs text-gray-400 mt-0.5">{acara.namaAcara}</p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-2xl leading-none">×</button>
         </div>
@@ -1296,28 +1483,34 @@ function JanaFinalModal({ acara, heatList, kejohananId, onClose, onGenerated, se
         {/* Body */}
         <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
 
-          {/* Info kaedah */}
+          {/* Gate info — dari tetapan/finalSetup */}
           <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-700 space-y-1">
-            <p className="font-bold">Kaedah: {CARA_LABEL[cara]}</p>
-            {cara === 'hybrid' && (
-              <p>Top 1 dari setiap {heatPhaseHeats.length} heat
-                {wildcardSlot > 0 ? ` + ${wildcardSlot} wildcard best time` : ''}</p>
-            )}
-            {cara === 'best_time' && (
-              <p>Top {bilanganFinal} masa/jarak terbaik gabungan {heatPhaseHeats.length} heat</p>
-            )}
-            {cara === 'best_heat' && (
-              <p>Top {Math.ceil(bilanganFinal / heatPhaseHeats.length)} dari setiap heat (agihan merata)</p>
+            {loadingSetup ? (
+              <p>Memuatkan tetapan gate…</p>
+            ) : (
+              <>
+                <p className="font-bold">
+                  Gate: {getJenisTab(acara).toUpperCase()} · Kategori {acara.kategoriKod}
+                  {finalSetup?.overrideByAcara?.[String(acara.noAcara)] ? ' · Override acara aktif' : ''}
+                </p>
+                <p>
+                  Top <strong>{bestHeat}</strong> dari setiap {heatPhaseHeats.length} heat
+                  {bestTime > 0 ? ` + <strong>${bestTime}</strong> wildcard best time` : ''}
+                </p>
+                <p className="text-blue-500 text-[10px]">
+                  Tetapan diambil dari Tetapan Final Admin (KategoriSetup)
+                </p>
+              </>
             )}
           </div>
 
           {/* Senarai finalis */}
           <div>
             <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">
-              {finalis.length} Finalis Dipilih
+              {finalis.length} {isRelay ? 'Pasukan' : 'Atlet'} Layak ke Final
             </p>
 
-            {finalis.length === 0 ? (
+            {!loadingSetup && finalis.length === 0 ? (
               <div className="bg-red-50 border border-red-200 rounded-xl p-5 text-center">
                 <p className="text-sm font-semibold text-red-700">Tiada finalis layak.</p>
                 <p className="text-xs text-red-500 mt-1">
@@ -1330,41 +1523,42 @@ function JanaFinalModal({ acara, heatList, kejohananId, onClose, onGenerated, se
                   <thead>
                     <tr className="bg-[#003399] text-white text-[10px]">
                       <th className="px-3 py-2 text-center w-8">#</th>
-                      <th className="px-3 py-2 text-left">BIB</th>
-                      <th className="px-3 py-2 text-left">Nama</th>
-                      <th className="px-3 py-2 text-left">Sekolah</th>
+                      {isRelay ? (
+                        <th className="px-3 py-2 text-left">Sekolah (Pasukan)</th>
+                      ) : (
+                        <>
+                          <th className="px-3 py-2 text-left">BIB</th>
+                          <th className="px-3 py-2 text-left">Nama</th>
+                          <th className="px-3 py-2 text-left">Sekolah</th>
+                        </>
+                      )}
                       <th className="px-3 py-2 text-right">Prestasi</th>
-                      <th className="px-3 py-2 text-center">Cara</th>
+                      <th className="px-3 py-2 text-center">Heat</th>
                     </tr>
                   </thead>
                   <tbody>
                     {finalis.map((p, i) => (
-                      <tr key={p.noBib}
-                        className={`border-t border-gray-50 ${
-                          p._cara === 'heat_winner' ? 'bg-yellow-50/60' :
-                          p._cara === 'wildcard'    ? 'bg-blue-50/40'   : ''
-                        }`}>
+                      <tr key={isRelay ? p.kodSekolah : p.noBib}
+                        className="border-t border-gray-50">
                         <td className="px-3 py-2.5 text-center font-bold text-gray-500">{i + 1}</td>
-                        <td className="px-3 py-2.5 font-mono font-bold text-[#003399]">{p.noBib}</td>
-                        <td className="px-3 py-2.5 font-semibold text-gray-800">{p.namaAtlet}</td>
-                        <td className="px-3 py-2.5 text-gray-500 text-[11px]">{sekolahMap[p.kodSekolah] || p.namaSekolah || p.kodSekolah}</td>
+                        {isRelay ? (
+                          <td className="px-3 py-2.5 font-semibold text-gray-800">
+                            {sekolahMap[p.kodSekolah] || p.kodSekolah}
+                          </td>
+                        ) : (
+                          <>
+                            <td className="px-3 py-2.5 font-mono font-bold text-[#003399]">{p.noBib}</td>
+                            <td className="px-3 py-2.5 font-semibold text-gray-800">{p.namaAtlet}</td>
+                            <td className="px-3 py-2.5 text-gray-500 text-[11px]">
+                              {sekolahMap[p.kodSekolah] || p.namaSekolah || p.kodSekolah}
+                            </td>
+                          </>
+                        )}
                         <td className="px-3 py-2.5 text-right font-mono font-bold text-gray-700">
                           {fmtPrestasi(p.keputusan)}
                         </td>
-                        <td className="px-3 py-2.5 text-center">
-                          {p._cara === 'heat_winner' && (
-                            <span className="text-[9px] font-bold px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded-full whitespace-nowrap">
-                              H{p._noHeat} Winner
-                            </span>
-                          )}
-                          {p._cara === 'wildcard' && (
-                            <span className="text-[9px] font-bold px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-full">
-                              Wildcard
-                            </span>
-                          )}
-                          {!['heat_winner','wildcard'].includes(p._cara) && (
-                            <span className="text-[9px] text-gray-400">H{p._noHeat}</span>
-                          )}
+                        <td className="px-3 py-2.5 text-center text-gray-400 text-[10px]">
+                          H{p.noHeat}
                         </td>
                       </tr>
                     ))}
@@ -1391,9 +1585,9 @@ function JanaFinalModal({ acara, heatList, kejohananId, onClose, onGenerated, se
             </button>
             <button
               onClick={handleSimpan}
-              disabled={saving || finalis.length === 0}
+              disabled={saving || loadingSetup || finalis.length === 0}
               className="px-5 py-2 text-xs font-bold bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors">
-              {saving ? 'Menyimpan…' : `✓ Cipta Final (${finalis.length} peserta)`}
+              {saving ? 'Menyimpan…' : `✓ Cipta Final (${finalis.length} ${isRelay ? 'pasukan' : 'peserta'})`}
             </button>
           </div>
         </div>
@@ -1817,6 +2011,11 @@ export default function StartList() {
         batch.delete(doc(db, 'kejohanan', selectedKej, 'acara', selectedAcara.aceraId, 'heat', h.heatId))
       })
       await batch.commit()
+      // Clear finalDijanaKe supaya label "Final Sudah Dijana" hilang dalam pencatat
+      await updateDoc(
+        doc(db, 'kejohanan', selectedKej, 'acara', selectedAcara.aceraId),
+        { finalDijanaKe: deleteField() }
+      ).catch(() => {})
       setHeatList([])
       setHeatCountTick(t => t + 1)
     } catch (e) { alert(e.message) }
@@ -1848,6 +2047,11 @@ export default function StartList() {
         heatSnap.docs.forEach(d => batch.delete(d.ref))
         await batch.commit()
       }
+      // Clear finalDijanaKe supaya label "Final Sudah Dijana" hilang dalam pencatat
+      await updateDoc(
+        doc(db, 'kejohanan', selectedKej, 'acara', aid),
+        { finalDijanaKe: deleteField() }
+      ).catch(() => {})
       if (selectedAcara && (selectedAcara.aceraId || selectedAcara.id) === aid) {
         setHeatList([])
       }
@@ -1870,10 +2074,16 @@ export default function StartList() {
       for (const acara of acaraAktif) {
         const aid = acara.aceraId || acara.id
         const heatSnap = await getDocs(collection(db, 'kejohanan', selectedKej, 'acara', aid, 'heat'))
-        if (heatSnap.empty) continue
-        const batch = writeBatch(db)
-        heatSnap.docs.forEach(d => batch.delete(d.ref))
-        await batch.commit()
+        if (!heatSnap.empty) {
+          const batch = writeBatch(db)
+          heatSnap.docs.forEach(d => batch.delete(d.ref))
+          await batch.commit()
+        }
+        // Clear finalDijanaKe supaya label "Final Sudah Dijana" hilang dalam pencatat
+        await updateDoc(
+          doc(db, 'kejohanan', selectedKej, 'acara', aid),
+          { finalDijanaKe: deleteField() }
+        ).catch(() => {})
       }
       setHeatList([])
       setHeatCountTick(t => t + 1)
@@ -2713,6 +2923,7 @@ export default function StartList() {
 
   const isPadang = selectedAcara && ['padang_lompat','padang_balin'].includes(selectedAcara.jenisAcara)
   const isMass   = selectedAcara?.jenisAcara === 'mass_start'
+  const isRelay  = selectedAcara?.jenisAcara === 'relay'
 
   // ── Derived: Heat → Final gate ────────────────────────────────────────────
   const heatPhaseHeats = heatList.filter(h => h.fasa === 'heat' || h.fasa === 'saringan')
@@ -3526,7 +3737,11 @@ export default function StartList() {
                       <h2 className="text-sm font-bold text-gray-800">{selectedAcara.namaAcara}</h2>
                       <p className="text-[10px] font-mono text-gray-400 mt-0.5">{selectedAcara.aceraId}</p>
                       <div className="flex gap-2 mt-2">
-                        <span className="text-[10px] font-semibold px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full">{pesertaList.length} peserta berdaftar</span>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full">
+                          {selectedAcara.jenisAcara === 'relay'
+                            ? `${new Set(pesertaList.map(p => p.kodSekolah).filter(Boolean)).size} pasukan berdaftar (${pesertaList.length} atlet)`
+                            : `${pesertaList.length} peserta berdaftar`}
+                        </span>
                         <span className="text-[10px] font-semibold px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full">{heatList.length} heat</span>
                       </div>
                     </div>
@@ -3715,16 +3930,45 @@ export default function StartList() {
                         <table className="w-full text-xs">
                           <thead>
                             <tr className="border-b border-gray-50 bg-white">
-                              <th className="px-3 py-2 text-center text-[9px] font-bold text-gray-400 uppercase w-14">{isPadang||isMass?'Gil':'Lorong'}</th>
-                              <th className="px-3 py-2 text-left text-[9px] font-bold text-gray-400 uppercase">BIB</th>
-                              <th className="px-3 py-2 text-left text-[9px] font-bold text-gray-400 uppercase">Nama Atlet</th>
-                              <th className="px-3 py-2 text-left text-[9px] font-bold text-gray-400 uppercase">Sekolah</th>
+                              <th className="px-3 py-2 text-center text-[9px] font-bold text-gray-400 uppercase w-14">
+                                {isPadang||isMass ? 'Gil' : 'Lorong'}
+                              </th>
+                              {isRelay ? (
+                                <>
+                                  <th className="px-3 py-2 text-left text-[9px] font-bold text-gray-400 uppercase">Sekolah (Pasukan)</th>
+                                  <th className="px-3 py-2 text-center text-[9px] font-bold text-gray-400 uppercase">Ahli</th>
+                                </>
+                              ) : (
+                                <>
+                                  <th className="px-3 py-2 text-left text-[9px] font-bold text-gray-400 uppercase">BIB</th>
+                                  <th className="px-3 py-2 text-left text-[9px] font-bold text-gray-400 uppercase">Nama Atlet</th>
+                                  <th className="px-3 py-2 text-left text-[9px] font-bold text-gray-400 uppercase">Sekolah</th>
+                                </>
+                              )}
                               <th className="px-3 py-2 text-center text-[9px] font-bold text-gray-400 uppercase">Status</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {sortedPeserta.map(p => (
-                              <tr key={p.noBib} className="border-b border-gray-50 hover:bg-gray-50/50">
+                            {sortedPeserta.map((p, idx) => isRelay ? (
+                              <tr key={p.kodSekolah || idx} className="border-b border-gray-50 hover:bg-gray-50/50">
+                                <td className="px-3 py-2 text-center font-black text-purple-700 text-sm">{p.lorong}</td>
+                                <td className="px-3 py-2 font-semibold text-gray-800">
+                                  {namaSekolahMap[p.kodSekolah] || p.kodSekolah}
+                                </td>
+                                <td className="px-3 py-2 text-center text-gray-500">
+                                  {(p.ahliPasukan||[]).length} atlet
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                                    p.status === 'belum' ? 'bg-gray-100 text-gray-400' :
+                                    p.status === 'DNS'   ? 'bg-red-100 text-red-600' :
+                                    p.status === 'DQ'    ? 'bg-red-100 text-red-700' :
+                                    'bg-green-100 text-green-700'
+                                  }`}>{p.status === 'belum' ? '—' : p.status}</span>
+                                </td>
+                              </tr>
+                            ) : (
+                              <tr key={p.noBib || idx} className="border-b border-gray-50 hover:bg-gray-50/50">
                                 <td className="px-3 py-2 text-center font-black text-[#003399] text-sm">
                                   {isPadang||isMass ? p.giliran : p.lorong}
                                 </td>

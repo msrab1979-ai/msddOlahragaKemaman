@@ -1448,3 +1448,95 @@ SETERUSNYA (ikut keutamaan):
 
 ---
 *Versi: 6.0 — Bypass deadline, rekod fallback, bulk print StartList, CetakKeputusan fix. Commit 8a72e12.*
+
+---
+
+## 39. STATUS SEMASA (DIKEMASKINI — VERSI 7.0) — 2026-05-16
+
+### Selesai sesi ini: Relay end-to-end + Rekod dalam Keputusan
+
+```
+✅ Home.jsx — tab Keputusan: relay display fixes (keseluruhan)
+
+   MASALAH & FIX:
+   1. Relay "semua label Final" → isFinalHeat guna fasa === 'final' (bukan peringkat)
+   2. heatLabel logic baru:
+      - showingFinal + saringanHeats.length === 0 → "Terus Final"  
+      - showingFinal + ada saringan → "Final"
+      - !showingFinal + 1 heat → "Saringan"
+      - !showingFinal + >1 heat → "N Heat Saringan"
+   3. finalistBibs relay: f.kodSekolah (bukan f.noBib yang undefined)
+   4. finalSetup prop MISSING dalam tab Keputusan → fixed (relay hanya 5 finalis)
+   5. showCatatanCol relay: tambah `isRelay && saringanHeats.length > 0`
+   6. layakFinal relay: guna kodSekolah (bukan noBib)
+   7. labelOverride: 'Terus Final' | 'Final' (ganti 'Perlawanan')
+
+✅ Home.jsx — Rekod D/N/K dalam keputusan (sync dengan StartList)
+   - Import: cariRekodUntukAcara, formatPrestasiRekod, tahunRekod
+   - State: rekodCache = { aceraKey: {D, N, K} }
+   - loadHeatsForAcara: fetch heats + rekod PARALLEL (Promise.all)
+   - KeputusanExpanded: papar rekod Daerah/Negeri/Kebangsaan di bawah heat table
+     Format: [D]/[N]/[K] badge + prestasi (mono bold) + nama + tahun
+   - Prop rekodDNK passed ke KeputusanExpanded di Jadual tab & Keputusan tab
+
+✅ postRasmiUtils.js — Relay pecah rekod flag + badge
+   - Masalah: pecahRekodMap guna noKP — relay tiada noKP → flag tidak pernah set
+   - Fix: pecahRekodRelayMap keyed by kodSekolah (berasingan dari individu)
+   - 🏆 REKOD badge kini papar dalam keputusan relay (bukan individu sahaja)
+
+✅ InputKeputusan.jsx — Lorong kosong protection
+   - InputLorong & InputRelay: jika semua field empty → render "— Lorong kosong —"
+   - Prevent pencatat accidentally edit baris kosong
+   - Row style: bg-gray-50, teks gray italic
+
+✅ InputKeputusan.jsx — Label Saringan/Final/Terus Final betul
+   - HeatTabBar: hasSaringanHeat = heats.some(h => h.fasa === 'heat')
+   - fasa === 'final' + ada saringan → "FINAL"
+   - fasa === 'final' + tiada saringan → "TERUS FINAL"
+   - fasa !== 'final' → "Heat N"
+```
+
+### Git Commit: (sesi ini)
+
+```
+Fix: relay keputusan display, rekod D/N/K Home, 
+pecahRekod relay, lorong kosong protection, label Terus Final
+```
+
+### Pending / Isu Diketahui:
+
+```
+⏳ Relay full e2e flow: jana heat → input → keputusan rasmi → 
+   medal tally → home display → rekod (belum ditest secara live)
+
+⏳ cariRekodUntukAcara: sesetengah acara mungkin masih x match
+   jika format nama Firestore sangat berbeza dari namaAcaraPendek
+
+⏳ CetakKeputusan → canJanaFinal masih guna allHeatRasmi
+   (statusKeputusan === 'rasmi') — belum update ke 'diterima'
+```
+
+### Prompt Sambung Sesi Seterusnya:
+
+```
+Baca KOAM_MASTER_BRIEF.md section 39.
+
+STATUS:
+- Semua fix sesi 7.0 sudah deploy ke mssdkemaman-olahraga.web.app
+- GitHub: msrab1979-ai/msddOlahragaKemaman (commit terkini)
+
+PERKARA SELESAI SESI INI:
+- Relay label (Terus Final/Saringan/Final) betul
+- Relay finalis 8 pasukan (bukan 5 — finalSetup prop fixed)
+- Rekod D/N/K papar dalam Home keputusan (sync StartList)
+- 🏆 REKOD badge untuk relay
+- Lorong kosong selamat dari pencatat
+
+SETERUSNYA (ikut keutamaan):
+1. Test relay full e2e live
+2. CetakKeputusan canJanaFinal → update ke 'diterima'
+3. Audit rekod — pastikan namaAcara match rekodUtils
+```
+
+---
+*Versi: 7.0 — Relay end-to-end fix + rekod D/N/K dalam keputusan + lorong kosong + pecahRekod relay. Deploy 2026-05-16.*

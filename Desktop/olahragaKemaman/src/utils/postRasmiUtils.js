@@ -46,7 +46,8 @@ export async function runPostRasmi(db, heatDoc, acaraDoc, kejId, config = {}) {
     onPesertaPatch    = null,  // callback(pesertaPatched) — untuk update UI state
   } = config
 
-  const pecahRekodMap = {} // noKP → peringkat
+  const pecahRekodMap      = {} // noKP      → peringkat (individu)
+  const pecahRekodRelayMap = {} // kodSekolah → peringkat (relay)
 
   // Bina map namaSekolah dari Firestore (backup untuk data lama tanpa namaSekolah)
   const kodSekolahSet = [...new Set((heatDoc.peserta || []).map(p => p.kodSekolah).filter(Boolean))]
@@ -65,18 +66,17 @@ export async function runPostRasmi(db, heatDoc, acaraDoc, kejId, config = {}) {
   const finishers = semua
     .filter(p => !['DNS','DNF','DQ'].includes(p.status) && p.keputusan != null && Number(p.keputusan) > 0)
     .sort((a, b) => isPadang ? Number(b.keputusan) - Number(a.keputusan) : Number(a.keputusan) - Number(b.keputusan))
+  // Relay guna kodSekolah sebagai key (noBib/noKP tiada)
+  const pKey = p => isRelay ? (p.kodSekolah || p.lorong) : (p.noKP || p.noBib)
   const computedRankMap = new Map()
   finishers.forEach((p, i) => {
     const prev = i > 0 && p.keputusan === finishers[i - 1].keputusan
-    computedRankMap.set(
-      p.noKP || p.noBib,
-      prev ? computedRankMap.get(finishers[i - 1].noKP || finishers[i - 1].noBib) : i + 1
-    )
+    computedRankMap.set(pKey(p), prev ? computedRankMap.get(pKey(finishers[i - 1])) : i + 1)
   })
 
   // ── Loop peserta ─────────────────────────────────────────────────────────────
   for (const p of semua) {
-    const rank      = computedRankMap.get(p.noKP || p.noBib) || p.rankDalamHeat || null
+    const rank      = computedRankMap.get(pKey(p)) || p.rankDalamHeat || null
     const isFlagged = ['DNS','DNF','DQ'].includes(p.status)
     const hasResult = p.keputusan != null && Number(p.keputusan) > 0
     if (!rank || isFlagged || !hasResult) continue
@@ -126,7 +126,8 @@ export async function runPostRasmi(db, heatDoc, acaraDoc, kejId, config = {}) {
       const pingat     = NAMA_PINGAT[rank]
       const tId        = `${p.kodSekolah}_${kejId}`
       const tRef       = doc(db, 'medal_tally', tId)
-      const contribKey = `contrib_${heatDoc.id}_${p.noKP || p.noBib || rank}`
+      // Relay: guna kodSekolah sebagai key unik (noBib/noKP tiada)
+      const contribKey = `contrib_${heatDoc.id}_${isRelay ? p.kodSekolah : (p.noKP || p.noBib || rank)}`
       try {
         await setDoc(tRef, {
           kodSekolah: p.kodSekolah, namaSekolah: getNamaSekolah(p), kejohananId: kejId,
@@ -278,6 +279,8 @@ export async function runPostRasmi(db, heatDoc, acaraDoc, kejId, config = {}) {
 
         if (isBetter) {
           const today     = new Date().toISOString().split('T')[0]
+          // Tandakan pasukan ini untuk patch pecahRekod dalam heat doc
+          pecahRekodRelayMap[p.kodSekolah] = peringkatKej
           const rekodLama = rekodSediaRelay ?? null
           const relayData = {
             rekodId:      rKey,
@@ -314,11 +317,17 @@ export async function runPostRasmi(db, heatDoc, acaraDoc, kejId, config = {}) {
   }
 
   // ── Patch peserta dalam heat doc dengan pecahRekod flag ──────────────────────
-  if (Object.keys(pecahRekodMap).length > 0) {
+  const hasIndivRekod = Object.keys(pecahRekodMap).length > 0
+  const hasRelayRekod = Object.keys(pecahRekodRelayMap).length > 0
+  if (hasIndivRekod || hasRelayRekod) {
     try {
-      const pesertaPatched = semua.map(p =>
-        pecahRekodMap[p.noKP] ? { ...p, pecahRekod: pecahRekodMap[p.noKP] } : p
-      )
+      const pesertaPatched = semua.map(p => {
+        if (isRelay && pecahRekodRelayMap[p.kodSekolah])
+          return { ...p, pecahRekod: pecahRekodRelayMap[p.kodSekolah] }
+        if (!isRelay && pecahRekodMap[p.noKP])
+          return { ...p, pecahRekod: pecahRekodMap[p.noKP] }
+        return p
+      })
       const hRef = doc(db, 'kejohanan', kejId, 'acara', acaraDoc.id, 'heat', heatDoc.id)
       await updateDoc(hRef, { peserta: pesertaPatched, updatedAt: serverTimestamp() })
       if (onPesertaPatch) onPesertaPatch(pesertaPatched)
