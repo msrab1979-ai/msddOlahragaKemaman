@@ -408,8 +408,8 @@ export default function BukuKejohanan() {
       try { pdf.addImage(cfg.logoKananBase64, 'PNG', W - 12 - logoSize, 9, logoSize, logoSize) } catch {}
     }
 
-    // Nama kejohanan — putih bold
-    const nameAreaW = W - 12 - logoSize - (W - 12 - logoSize) + (W - 12 - logoSize - 12 - logoSize)
+    // Nama kejohanan — putih bold (area = W - kiri - logo - logo - kanan = 122mm)
+    const nameAreaW = W - 24 - logoSize * 2
     const namaLines = pdf.splitTextToSize(namaKej.toUpperCase(), nameAreaW > 60 ? nameAreaW : 100)
     pdf.setFontSize(15)
     pdf.setFont('helvetica', 'bold')
