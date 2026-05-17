@@ -91,7 +91,7 @@ export function selectFinalists(heats, acara, finalSetup) {
   const sortFn   = (a, b) => isPadang ? b.keputusan - a.keputusan : a.keputusan - b.keputusan
   const selected = new Map() // key → entry
 
-  // Step 1: top bestHeat dari setiap heat
+  // Step 1: top bestHeat dari setiap heat → qualifyType 'Q'
   if (bestHeat > 0) {
     saringanHeats.forEach(heat => {
       ;(heat.peserta || [])
@@ -99,11 +99,11 @@ export function selectFinalists(heats, acara, finalSetup) {
         .map(p => toEntry(p, heat))
         .sort(sortFn)
         .slice(0, bestHeat)
-        .forEach(a => { if (!selected.has(getKey(a))) selected.set(getKey(a), a) })
+        .forEach(a => { if (!selected.has(getKey(a))) selected.set(getKey(a), { ...a, qualifyType: 'Q' }) })
     })
   }
 
-  // Step 2: wildcard bestTime dari baki
+  // Step 2: wildcard bestTime dari baki → qualifyType 'q'
   if (bestTime > 0) {
     const wildcards = []
     saringanHeats.forEach(heat => {
@@ -114,7 +114,7 @@ export function selectFinalists(heats, acara, finalSetup) {
     wildcards
       .sort(sortFn)
       .slice(0, bestTime)
-      .forEach(a => { if (!selected.has(getKey(a))) selected.set(getKey(a), a) })
+      .forEach(a => { if (!selected.has(getKey(a))) selected.set(getKey(a), { ...a, qualifyType: 'q' }) })
   }
 
   return [...selected.values()]

@@ -2063,9 +2063,8 @@ export default function StartList() {
   // Reset heat SEMUA acara
   async function handleResetSemuaHeat() {
     if (!selectedKej) return
-    // Gate: superadmin sahaja boleh reset semua
-    if (userRole !== 'superadmin') {
-      alert('Reset Semua Heat hanya boleh dilakukan oleh Superadmin.')
+    if (!canEdit) {
+      alert('Reset Semua Heat hanya boleh dilakukan oleh Admin atau Superadmin.')
       return
     }
     setResetingAll(true)
@@ -2088,6 +2087,7 @@ export default function StartList() {
       setHeatList([])
       setHeatCountTick(t => t + 1)
       setResetAllConfirm(false)
+      alert('Reset berjaya. Semua start list telah dipadamkan.')
     } catch (e) { alert(e.message) }
     finally { setResetingAll(false) }
   }
@@ -2971,14 +2971,24 @@ export default function StartList() {
             </div>
           )}
           {canEdit && selectedKej && acaraList.length > 0 && (
-            <button
-              onClick={() => setModal({ type: 'janaSemua' })}
-              className="flex items-center gap-2 px-4 py-2 text-xs font-bold bg-[#003399] text-white rounded-xl hover:bg-[#002288] transition-colors shadow-sm">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              Jana Semua Heat
-            </button>
+            <>
+              <button
+                onClick={() => setResetAllConfirm(true)}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold border border-red-200 text-red-600 bg-white rounded-xl hover:bg-red-50 transition-colors">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Reset Semua
+              </button>
+              <button
+                onClick={() => setModal({ type: 'janaSemua' })}
+                className="flex items-center gap-2 px-4 py-2 text-xs font-bold bg-[#003399] text-white rounded-xl hover:bg-[#002288] transition-colors shadow-sm">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Jana Semua Heat
+              </button>
+            </>
           )}
         </div>
       </div>

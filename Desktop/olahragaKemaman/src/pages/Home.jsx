@@ -600,11 +600,14 @@ function KeputusanExpanded({ heats, acara, sekolahMap, isLoading, finalSetup, re
     return isPadang ? bv - av : av - bv
   })
 
-  // finalistBibs / finalistSekolah: hanya kira bila papar saringan (tiada final lagi)
-  // Relay: guna kodSekolah sebagai key (bukan noBib yang undefined untuk relay)
-  const finalistBibs = showCatatanCol
-    ? new Set(_selectFinalists(heats, acara, finalSetup).map(f => isRelay ? f.kodSekolah : f.noBib))
-    : new Set()
+  // finalistBibs / finalistQMap: hanya kira bila papar saringan (tiada final lagi)
+  // Relay: guna kodSekolah sebagai key
+  const _finalistRaw = showCatatanCol ? _selectFinalists(heats, acara, finalSetup) : []
+  const finalistBibs = new Set(_finalistRaw.map(f => isRelay ? f.kodSekolah : f.noBib))
+  const finalistQMap = new Map(_finalistRaw.map(f => [
+    isRelay ? f.kodSekolah : f.noBib,
+    f.qualifyType || 'q',
+  ]))
 
   // Label top-bar
   // isTerusFinal = showingFinal tapi tiada saringan heat sebelumnya (1 heat terus ke final)
@@ -714,11 +717,14 @@ function KeputusanExpanded({ heats, acara, sekolahMap, isLoading, finalSetup, re
                   </td>
                   {showCatatanCol && (
                     <td className="px-2 py-2 text-center">
-                      {layakFinal && (
-                        <span className="inline-block text-[9px] font-black px-1.5 py-0.5 rounded bg-[#003399] text-white tracking-wide">
-                          FINAL
-                        </span>
-                      )}
+                      {layakFinal && (() => {
+                        const qt = finalistQMap.get(isRelay ? p.kodSekolah : p.noBib) || 'q'
+                        return (
+                          <span className={`inline-block text-[9px] font-black px-1.5 py-0.5 rounded text-white tracking-wide ${qt === 'Q' ? 'bg-green-600' : 'bg-sky-500'}`}>
+                            {qt}
+                          </span>
+                        )
+                      })()}
                     </td>
                   )}
                 </tr>
@@ -1934,16 +1940,21 @@ export default function Home() {
                                 </p>
                               </div>
                               <div className="flex items-center gap-2 shrink-0 ml-2">
-                                {item.acara.peringkat === 'saringan' && (
-                                  <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">
-                                    Saringan
-                                  </span>
-                                )}
-                                {item.acara.peringkat === 'akhir' && item.acara.parentAcaraId && (
-                                  <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-green-50 text-green-600 border border-green-200">
-                                    Final
-                                  </span>
-                                )}
+                                {(() => {
+                                  const isSar = item.acara.peringkat === 'saringan'
+                                  const isFin = !isSar && item.acara.parentAcaraId
+                                  if (isSar) return (
+                                    <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">
+                                      Saringan
+                                    </span>
+                                  )
+                                  if (isFin) return (
+                                    <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-green-50 text-green-600 border border-green-200">
+                                      Final
+                                    </span>
+                                  )
+                                  return null
+                                })()}
                                 <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">
                                   KEPUTUSAN
                                 </span>

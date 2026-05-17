@@ -379,7 +379,7 @@ function formatMasa(val) {
   return m > 0 ? `${m}:${s}` : `${Number(s).toFixed(2)}`
 }
 
-function InputLorong({ heat, acara, keputusan, onChange, onWind, windSpeed, sekolahMap = {}, finalisBibs = new Set() }) {
+function InputLorong({ heat, acara, keputusan, onChange, onWind, windSpeed, sekolahMap = {}, finalisBibs = new Set(), finalisQMap = new Map() }) {
   const bilLorong   = acara.bilanganLorong || heat.bilanganLorong || 8
   const isWind      = acara.isWindReading || false
   const slots       = Array.from({ length: bilLorong }, (_, i) => i + 1)
@@ -479,8 +479,10 @@ function InputLorong({ heat, acara, keputusan, onChange, onWind, windSpeed, seko
                 <div className="flex items-center gap-1 min-w-0">
                   <p className="text-[11px] font-semibold text-gray-700 truncate leading-tight">
                     {kp.namaAtlet || '—'}</p>
-                  {kp.noBib && finalisBibs.has(kp.noBib) && (
-                    <span className="shrink-0 text-[8px] font-black px-1 py-0.5 rounded bg-[#003399] text-white leading-none">FINAL</span>
+                  {kp.noBib && finalisQMap.has(kp.noBib) && (
+                    <span className={`shrink-0 text-[8px] font-black px-1.5 py-0.5 rounded leading-none text-white ${finalisQMap.get(kp.noBib) === 'Q' ? 'bg-green-600' : 'bg-sky-500'}`}>
+                      {finalisQMap.get(kp.noBib)}
+                    </span>
                   )}
                 </div>
                 <p className="text-[9px] text-gray-400 truncate leading-tight">
@@ -544,7 +546,7 @@ function InputLorong({ heat, acara, keputusan, onChange, onWind, windSpeed, seko
   )
 }
 
-function InputMassStart({ heat, keputusan, onChange, sekolahMap = {}, finalisBibs = new Set() }) {
+function InputMassStart({ heat, keputusan, onChange, sekolahMap = {}, finalisBibs = new Set(), finalisQMap = new Map() }) {
   const pesertaArr = heat.peserta || []
   const bilAtlet   = pesertaArr.length || 10
   const slots      = Array.from({ length: bilAtlet }, (_, i) => i + 1)
@@ -600,8 +602,10 @@ function InputMassStart({ heat, keputusan, onChange, sekolahMap = {}, finalisBib
                 <p className="text-[11px] font-semibold text-gray-700 truncate leading-tight">
                   {kp.namaAtlet || p.namaAtlet || '—'}
                 </p>
-                {(kp.noBib || p.noBib) && finalisBibs.has(kp.noBib || p.noBib) && (
-                  <span className="shrink-0 text-[8px] font-black px-1 py-0.5 rounded bg-[#003399] text-white leading-none">FINAL</span>
+                {(kp.noBib || p.noBib) && finalisQMap.has(kp.noBib || p.noBib) && (
+                  <span className={`shrink-0 text-[8px] font-black px-1.5 py-0.5 rounded leading-none text-white ${finalisQMap.get(kp.noBib || p.noBib) === 'Q' ? 'bg-green-600' : 'bg-sky-500'}`}>
+                    {finalisQMap.get(kp.noBib || p.noBib)}
+                  </span>
                 )}
               </div>
               <p className="text-[9px] text-gray-400 truncate leading-tight">
@@ -1708,6 +1712,17 @@ export default function InputKeputusan() {
         .sort((a, b) => a.rankDalamHeat - b.rankDalamHeat)
         .slice(0, cetakBilangan)
 
+      // Q/q map untuk saringan heat
+      const isSaringanHeat = !['final', 'terus_final'].includes(selectedHeat?.fasa) && selectedHeat?.peringkat !== 'final'
+      const cetakQMap = new Map()
+      if (isSaringanHeat && selectedAcara) {
+        const raw = _selectFinalists(heats, selectedAcara, finalSetup)
+        raw.forEach(f => {
+          const key = isRelayAcara ? f.kodSekolah : f.noBib
+          if (key) cetakQMap.set(key, f.qualifyType || 'q')
+        })
+      }
+
       // Helpers
       function fmtPrestasi(val) {
         if (val == null || val === '') return '—'
@@ -1826,9 +1841,12 @@ export default function InputKeputusan() {
           ? [['No.', 'Pasukan / Sekolah', 'Ahli Pasukan', 'Masa', 'Status']]
           : [['No.', 'Nama Atlet', 'Sekolah', 'Prestasi', 'Status']]
         const tblBody = pesertaFinal.map(p => {
-          const flagged    = ['DNS', 'DNF', 'DQ'].includes(p.status)
-          const medalLabel = flagged ? p.status : (MEDAL[p.rankDalamHeat] || '')
-          const prestasi   = flagged ? '—' : fmtPrestasi(p.keputusan)
+          const flagged  = ['DNS', 'DNF', 'DQ'].includes(p.status)
+          const qType    = !flagged && isSaringanHeat
+            ? (cetakQMap.get(isRelayAcara ? p.kodSekolah : p.noBib) || null)
+            : null
+          const statusLabel = flagged ? p.status : (qType || (MEDAL[p.rankDalamHeat] || ''))
+          const prestasi = flagged ? '—' : fmtPrestasi(p.keputusan)
           if (isRelayAcara) {
             const ahli = (p.ahliPasukan || []).map(a => a.namaAtlet || a.noBib || '').filter(Boolean).join(', ')
             return [
@@ -1836,7 +1854,7 @@ export default function InputKeputusan() {
               sekolahMap[p.kodSekolah] || p.namaSekolah || p.kodSekolah || '—',
               ahli || '—',
               prestasi,
-              medalLabel,
+              statusLabel,
             ]
           }
           return [
@@ -1844,7 +1862,7 @@ export default function InputKeputusan() {
             p.namaAtlet || '—',
             sekolahMap[p.kodSekolah] || p.namaSekolah || p.kodSekolah || '—',
             prestasi,
-            medalLabel,
+            statusLabel,
           ]
         })
         autoTable(pdf, {
@@ -2218,10 +2236,24 @@ export default function InputKeputusan() {
   const finalisBibs = useMemo(() => {
     const finalHeat = heats.find(h => h.peringkat === 'final')
     if (finalHeat) return new Set((finalHeat.peserta || []).map(p => p.noBib).filter(Boolean))
-    // Tiada final heat lagi — kira dari saringan heats (preview layak final)
     if (!selectedAcara) return new Set()
     const raw = _selectFinalists(heats, selectedAcara, finalSetup)
     return new Set(raw.map(f => f.noBib).filter(Boolean))
+  }, [heats, selectedAcara, finalSetup])
+
+  // Map noBib/kodSekolah → 'Q' | 'q' — untuk papar label kelayakan
+  const finalisQMap = useMemo(() => {
+    const finalHeat = heats.find(h => h.peringkat === 'final')
+    if (finalHeat) return new Map() // final dah dijana, Q/q tak relevan
+    if (!selectedAcara) return new Map()
+    const isRelay = selectedAcara.jenisAcara === 'relay'
+    const raw = _selectFinalists(heats, selectedAcara, finalSetup)
+    const m = new Map()
+    raw.forEach(f => {
+      const key = isRelay ? f.kodSekolah : f.noBib
+      if (key) m.set(key, f.qualifyType || 'q')
+    })
+    return m
   }, [heats, selectedAcara, finalSetup])
 
   const janaFinalists = useMemo(() => {
@@ -2618,11 +2650,11 @@ export default function InputKeputusan() {
           {/* ── Input form (locked if rasmi or not pencatat) ── */}
           <div className={!bolehInputSekarang ? 'opacity-50 pointer-events-none select-none' : ''}>
             {selectedAcara.jenisAcara === 'lorong' && (
-              <InputLorong heat={selectedHeat} acara={selectedAcara} keputusan={keputusan} finalisBibs={finalisBibs}
+              <InputLorong heat={selectedHeat} acara={selectedAcara} keputusan={keputusan} finalisBibs={finalisBibs} finalisQMap={finalisQMap}
                 onChange={handleChange} onWind={setWindSpeed} windSpeed={windSpeed} sekolahMap={sekolahMap} />
             )}
             {selectedAcara.jenisAcara === 'mass_start' && (
-              <InputMassStart heat={selectedHeat} keputusan={keputusan} onChange={handleChange} sekolahMap={sekolahMap} finalisBibs={finalisBibs} />
+              <InputMassStart heat={selectedHeat} keputusan={keputusan} onChange={handleChange} sekolahMap={sekolahMap} finalisBibs={finalisBibs} finalisQMap={finalisQMap} />
             )}
             {['padang_lompat', 'padang_balin'].includes(selectedAcara.jenisAcara) && (
               <InputPadang acara={selectedAcara} peserta={peserta} keputusan={keputusan}
