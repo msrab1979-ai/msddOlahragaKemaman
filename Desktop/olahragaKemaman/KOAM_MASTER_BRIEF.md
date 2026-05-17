@@ -1543,6 +1543,61 @@ SETERUSNYA (ikut keutamaan):
 
 ---
 
+## 41. STATUS SEMASA (DIKEMASKINI — VERSI 9.0) — 2026-05-17
+
+### Selesai sesi ini:
+
+```
+✅ BukuKejohanan — major overhaul (10 bahagian PDF)
+   - Muka Depan: redesign KOAM Official (band gelap 55mm, logo dalam band,
+     jalur emas, trek decoration titik-titik, 4 stat boxes, penganjur, footer band)
+   - Medal Tally (baharu): fetch medal_tally collection, separate SR/SM dinamik,
+     sort emas→perak→gangsa, warna top 3 (emas/perak/gangsa rows)
+   - Senarai Pendaftaran by Sekolah (baharu): bilangan atlet per sekolah per
+     kategori+jantina, kolum dinamik dari data pendaftaran, separate SR/SM,
+     baris jumlah per jenisSekolah
+   - Keputusan Rasmi: .slice(0,3) → .slice(0,2) — top 2 sahaja
+   - Rekod Dipecah (baharu): filter rekodList by kejohananId===kejId,
+     jadual split Rekod Baharu | Rekod Lama dengan prestasi, nama, sekolah, tarikh
+   - Page numbering: skip muka depan (muka depan ada footer band sendiri)
+   - Preview UI: tambah jumlah rekod pecah, tally sekolah, atlet
+
+✅ Olahragawan.jsx — fix getDoc is not defined
+   - Tambah getDoc dalam Firestore imports
+
+✅ Rekod badge dalam saringan (postRasmiUtils.js)
+   - Buang grantMedal gate dari rekod detection
+   - Rekod check untuk semua fasa (saringan + final)
+   - Medal tally + mata olahragawan kekal gated by grantMedal (final sahaja)
+```
+
+### Pending:
+
+```
+⏳ Relay full e2e test live
+⏳ Medal tally relay — verify "Relay P" papar betul (buildKatDetailFromTally)
+⏳ CetakKeputusan canJanaFinal → update ke 'diterima'
+```
+
+### Prompt Sambung:
+
+```
+Baca KOAM_MASTER_BRIEF.md section 41.
+
+Status deploy: mssdkemaman-olahraga.web.app
+GitHub: msrab1979-ai/msddOlahragaKemaman
+
+Selesai sesi ini:
+- BukuKejohanan major overhaul: KOAM Official muka depan, medal tally, pendaftaran by sekolah, rekod dipecah, top 2
+- Olahragawan getDoc fix
+- Rekod badge untuk semua fasa (saringan + final)
+```
+
+---
+*Versi: 9.0 — BukuKejohanan major overhaul, rekod badge saringan, Olahragawan fix. Deploy 2026-05-17.*
+
+---
+
 ## 40. STATUS SEMASA (DIKEMASKINI — VERSI 8.0) — 2026-05-16
 
 ### Selesai sesi ini:
