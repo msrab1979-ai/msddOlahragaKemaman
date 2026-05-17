@@ -491,7 +491,7 @@ export default function CetakAcara() {
         const aktif = kejSnap.docs.find(d => d.data().statusKejohanan === 'aktif') || kejSnap.docs[0]
         const data  = aktif.data()
         setKejohanan({ id: aktif.id, ...data })
-        setNamaKej(data.namaKejohanan || '')
+        setNamaKej(cfgSnap.data()?.tajukUtama || data.namaKejohanan || '')
         setPeringkatKod(PERINGKAT_KOD[data.peringkat?.toLowerCase()] || 'D')
       }
     }).finally(() => setLoadingKej(false))

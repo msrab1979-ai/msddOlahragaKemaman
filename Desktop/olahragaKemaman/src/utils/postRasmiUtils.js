@@ -163,10 +163,10 @@ export async function runPostRasmi(db, heatDoc, acaraDoc, kejId, config = {}) {
       } catch (e) { console.warn('medal_tally:', e.message) }
     }
 
-    // ── Rekod detection — individu, tempat 1, fasa final sahaja ─────────────
+    // ── Rekod detection — individu, tempat 1, semua fasa (saringan/final/terus final) ──
     const isPadangAcara = ['padang_lompat', 'padang_balin'].includes(acaraDoc.jenisAcara)
     if (
-      grantMedal && !isRelay && rank === 1 &&
+      !isRelay && rank === 1 &&
       p.keputusan != null && p.keputusan !== '' &&
       acaraDoc.jantina && acaraDoc.kategoriKod && (acaraDoc.namaAcaraPendek || acaraDoc.namaAcara)
     ) {
@@ -254,9 +254,9 @@ export async function runPostRasmi(db, heatDoc, acaraDoc, kejId, config = {}) {
       } catch (e) { console.warn('rekod_tuntutan:', e.message) }
     }
 
-    // ── Rekod relay ───────────────────────────────────────────────────────────
+    // ── Rekod relay — semua fasa (saringan/final/terus final) ────────────────
     if (
-      grantMedal && isRelay && rank === 1 &&
+      isRelay && rank === 1 &&
       p.keputusan != null && p.keputusan !== '' && p.kodSekolah &&
       acaraDoc.jantina && acaraDoc.kategoriKod && (acaraDoc.namaAcaraPendek || acaraDoc.namaAcara)
     ) {

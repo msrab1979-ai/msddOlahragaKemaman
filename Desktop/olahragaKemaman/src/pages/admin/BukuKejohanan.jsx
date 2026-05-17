@@ -84,7 +84,7 @@ export default function BukuKejohanan() {
       const kejDoc  = kejSnap.docs[0]
       const kejId   = kejDoc.id
       const kej     = kejDoc.data()
-      const namaKej = kej.namaKejohanan || cfg.namaKejohanan || 'Kejohanan Olahraga'
+      const namaKej = cfg.tajukUtama || kej.namaKejohanan || 'Kejohanan Olahraga'
       const peringkatKej = { daerah: 'D', negeri: 'N', kebangsaan: 'K' }[kej.peringkat] || 'D'
 
       // 3. Sekolah

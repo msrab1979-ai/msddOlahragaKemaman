@@ -2124,7 +2124,7 @@ export default function StartList() {
       const pdf = buatStartListPDFUnified({
         acara:     a,
         heats:     [heat],
-        namaKej,
+        namaKej:   cfg.tajukUtama || namaKej,
         jadual:    jadualMap[aid] || {},
         rekodDNK,
         namaSekolahMap,
@@ -2227,7 +2227,7 @@ export default function StartList() {
         }
         pdf.setFont('helvetica', 'bold')
         pdf.setFontSize(11)
-        pdf.text(namaKej || 'Kejohanan Olahraga Antara Murid', W / 2, y + 7, { align: 'center' })
+        pdf.text(cfg.tajukUtama || namaKej || 'Kejohanan Olahraga Antara Murid', W / 2, y + 7, { align: 'center' })
         pdf.setFontSize(9)
         pdf.setFont('helvetica', 'normal')
         pdf.text('START LIST', W / 2, y + 13, { align: 'center' })
@@ -2370,7 +2370,7 @@ export default function StartList() {
       const pdf = buatStartListPDFUnified({
         acara:     selectedAcara,
         heats:     [heat],
-        namaKej,
+        namaKej:   cfg.tajukUtama || namaKej,
         jadual,
         rekodDNK:  rekodAcara,
         namaSekolahMap,
@@ -2403,7 +2403,7 @@ export default function StartList() {
       const pdf = buatStartListPDFUnified({
         acara:     selectedAcara,
         heats:     heatList,
-        namaKej,
+        namaKej:   cfg.tajukUtama || namaKej,
         jadual,
         rekodDNK:  rekodAcara,
         namaSekolahMap,
@@ -2492,7 +2492,7 @@ export default function StartList() {
         }
         pdf.setFont('helvetica', 'bold')
         pdf.setFontSize(11)
-        pdf.text(namaKej || 'Kejohanan Olahraga Antara Murid', W / 2, y + 7, { align: 'center' })
+        pdf.text(cfg.tajukUtama || namaKej || 'Kejohanan Olahraga Antara Murid', W / 2, y + 7, { align: 'center' })
         pdf.setFontSize(9)
         pdf.setFont('helvetica', 'normal')
         pdf.text('START LIST', W / 2, y + 13, { align: 'center' })
@@ -2596,7 +2596,7 @@ export default function StartList() {
       if (cfg.logoKiriBase64) { try { pdf.addImage(cfg.logoKiriBase64, imgFmt(cfg.logoKiriBase64), M, y, 18, 18) } catch {} }
       if (cfg.logoKananBase64) { try { pdf.addImage(cfg.logoKananBase64, imgFmt(cfg.logoKananBase64), W - M - 18, y, 18, 18) } catch {} }
       pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11)
-      pdf.text(namaKej || 'Kejohanan Olahraga', W / 2, y + 7, { align: 'center' })
+      pdf.text(cfg.tajukUtama || namaKej || 'Kejohanan Olahraga', W / 2, y + 7, { align: 'center' })
       pdf.setFontSize(9); pdf.setFont('helvetica', 'normal')
       pdf.text('LAPORAN PENGESAHAN PENDAFTARAN SEKOLAH', W / 2, y + 14, { align: 'center' })
       pdf.setDrawColor(0, 51, 153); pdf.setLineWidth(0.7)
@@ -2704,7 +2704,7 @@ export default function StartList() {
         if (cfg.logoKiriBase64) { try { pdf.addImage(cfg.logoKiriBase64, imgFmt(cfg.logoKiriBase64), M, y, 18, 18) } catch {} }
         if (cfg.logoKananBase64) { try { pdf.addImage(cfg.logoKananBase64, imgFmt(cfg.logoKananBase64), W - M - 18, y, 18, 18) } catch {} }
         pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11)
-        pdf.text(namaKej || 'Kejohanan Olahraga Antara Murid', W / 2, y + 7, { align: 'center' })
+        pdf.text(cfg.tajukUtama || namaKej || 'Kejohanan Olahraga Antara Murid', W / 2, y + 7, { align: 'center' })
         pdf.setFontSize(9); pdf.setFont('helvetica', 'normal')
         pdf.text('START LIST — ACARA BALAPAN', W / 2, y + 13, { align: 'center' })
         pdf.setDrawColor(0, 51, 153); pdf.setLineWidth(0.7)
@@ -2822,7 +2822,7 @@ export default function StartList() {
         if (cfg.logoKiriBase64) { try { pdf.addImage(cfg.logoKiriBase64, imgFmt(cfg.logoKiriBase64), M, y, 18, 18) } catch {} }
         if (cfg.logoKananBase64) { try { pdf.addImage(cfg.logoKananBase64, imgFmt(cfg.logoKananBase64), W - M - 18, y, 18, 18) } catch {} }
         pdf.setFont('helvetica', 'bold'); pdf.setFontSize(12)
-        pdf.text(namaKej || 'Kejohanan Olahraga Antara Murid', W / 2, y + 7, { align: 'center' })
+        pdf.text(cfg.tajukUtama || namaKej || 'Kejohanan Olahraga Antara Murid', W / 2, y + 7, { align: 'center' })
         pdf.setFontSize(9); pdf.setFont('helvetica', 'normal')
         pdf.text('START LIST — ACARA PADANG', W / 2, y + 14, { align: 'center' })
         pdf.setDrawColor(0, 51, 153); pdf.setLineWidth(0.7)

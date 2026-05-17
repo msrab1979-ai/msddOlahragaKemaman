@@ -464,14 +464,12 @@ function InputLorong({ heat, acara, keputusan, onChange, onWind, windSpeed, seko
                 <span className="text-xs font-black text-gray-500">{lorong}</span>
               </div>
 
-              {/* No BIB */}
+              {/* No BIB — read only */}
               <div className="px-1 py-1.5 flex items-center">
-                <input type="text" inputMode="text"
+                <input type="text"
                   value={kp.noBib || ''}
-                  onChange={e => onChange(lorong, 'noBib', e.target.value.toUpperCase())}
-                  placeholder="BIB"
-                  disabled={flagged}
-                  className="w-full border border-gray-200 rounded-lg px-1.5 py-1.5 text-[11px] font-mono text-center focus:outline-none focus:border-[#003399] bg-white disabled:bg-gray-100 disabled:text-gray-300" />
+                  readOnly
+                  className="w-full border border-gray-100 rounded-lg px-1.5 py-1.5 text-[11px] font-mono text-center bg-gray-50 text-gray-500 cursor-default select-none" />
               </div>
 
               {/* Atlet + Sekolah */}
@@ -590,11 +588,10 @@ function InputMassStart({ heat, keputusan, onChange, sekolahMap = {}, finalisBib
             </div>
 
             <div className="px-1 py-1.5 flex items-center">
-              <input type="text" inputMode="text"
+              <input type="text"
                 value={kp.noBib || ''}
-                onChange={e => onChange(slot, 'noBib', e.target.value.toUpperCase())}
-                placeholder="BIB" disabled={flagged}
-                className="w-full border border-gray-200 rounded-lg px-1.5 py-1.5 text-[11px] font-mono text-center focus:outline-none focus:border-[#003399] bg-white disabled:bg-gray-100 disabled:text-gray-300" />
+                readOnly
+                className="w-full border border-gray-100 rounded-lg px-1.5 py-1.5 text-[11px] font-mono text-center bg-gray-50 text-gray-500 cursor-default select-none" />
             </div>
 
             <div className="px-2 py-1.5 flex flex-col justify-center min-w-0">
@@ -1071,8 +1068,9 @@ export default function InputKeputusan() {
   const [selectedHari,  setSelectedHari]  = useState(null)
   const [sekolahMap,    setSekolahMap]    = useState({})
   const [kategoriMap,   setKategoriMap]   = useState({}) // kod → label (L12/P15...)
-  const [cetakLoading,  setCetakLoading]  = useState(false)
-  const [cetakBilangan, setCetakBilangan] = useState(3)
+  const [cetakLoading,      setCetakLoading]      = useState(false)
+  const [cetakBilangan,    setCetakBilangan]    = useState(3)
+  const [cetakLayakLoading, setCetakLayakLoading] = useState(false)
   const [finalSetup,    setFinalSetup]    = useState(null) // tetapan/finalSetup
   const [loading,       setLoading]       = useState(true)
 
@@ -1675,6 +1673,183 @@ export default function InputKeputusan() {
     await handleHantar()
   }
 
+  // ── Cetak Senarai Layak ke Final ──────────────────────────────────────────
+
+  async function handleCetakLayakFinal() {
+    if (!selectedAcara || !finalDijanaKe) return
+    setCetakLayakLoading(true)
+    try {
+      const cfgSnap = await getDoc(doc(db, 'tetapan', 'home')).catch(() => null)
+      const homeCfg = cfgSnap?.exists() ? cfgSnap.data() : {}
+
+      function imgFmt(b64) {
+        if (!b64) return 'PNG'
+        return (b64.startsWith('data:image/jpeg') || b64.startsWith('data:image/jpg')) ? 'JPEG' : 'PNG'
+      }
+
+      const isPadangAcara = ['padang_lompat', 'padang_balin'].includes(selectedAcara.jenisAcara)
+      const isRelayAcara  = selectedAcara.jenisAcara === 'relay'
+      const namaKej       = homeCfg?.tajukUtama || kejohananData?.namaKejohanan || 'Kejohanan Olahraga'
+      const katLabel      = kategoriMap[selectedAcara.kategoriKod] || selectedAcara.kategoriKod || '—'
+      const namaAcara     = selectedAcara.namaAcara || '—'
+
+      function fmtPrestasiLayak(val) {
+        if (val == null || val === '') return '—'
+        const n = Number(val)
+        if (isNaN(n)) return String(val)
+        if (isPadangAcara) return `${n.toFixed(2)} m`
+        const min = Math.floor(n / 60)
+        const sek = (n % 60).toFixed(2).padStart(5, '0')
+        return min > 0 ? `${min}:${sek}` : `${Number(sek).toFixed(2)}s`
+      }
+
+      // Ambil finalis dengan qualifyType
+      const raw = _selectFinalists(heats, selectedAcara, finalSetup)
+      const { bestHeat, bestTime } = _getFinalistSetup(selectedAcara, finalSetup)
+      const saringanHeats = heats.filter(h =>
+        h.peringkat !== 'final' && ['rasmi', 'tidak_rasmi', 'diterima'].includes(h.statusKeputusan)
+      )
+
+      // Sort: Q dulu (ikut prestasi), kemudian q (ikut prestasi)
+      const sortFn = (a, b) => isPadangAcara ? b.keputusan - a.keputusan : a.keputusan - b.keputusan
+      const qList  = raw.filter(f => f.qualifyType === 'Q').sort(sortFn)
+      const qqList = raw.filter(f => f.qualifyType === 'q').sort(sortFn)
+      const finalisAll = [...qList, ...qqList]
+
+      const now = new Date().toLocaleString('ms-MY')
+
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const M = 14
+      const W = pdf.internal.pageSize.getWidth()
+      const BLUE = [0, 51, 153]
+
+      // ── Header ──
+      let y = 10
+      const logoW = 18, logoH = 18
+      if (homeCfg.logoKiriBase64) {
+        try { pdf.addImage(homeCfg.logoKiriBase64, imgFmt(homeCfg.logoKiriBase64), M, y, logoW, logoH) } catch {}
+      }
+      if (homeCfg.logoKananBase64) {
+        try { pdf.addImage(homeCfg.logoKananBase64, imgFmt(homeCfg.logoKananBase64), W - M - logoW, y, logoW, logoH) } catch {}
+      }
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(11)
+      pdf.setTextColor(0, 0, 0)
+      pdf.text(namaKej, W / 2, y + 7, { align: 'center' })
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(8.5)
+      pdf.setTextColor(60, 60, 60)
+      pdf.text('SENARAI ATLET LAYAK KE FINAL', W / 2, y + 13, { align: 'center' })
+      pdf.setFontSize(7.5)
+      pdf.setTextColor(120, 120, 120)
+      pdf.text(`Dicetak: ${now}`, W / 2, y + 18.5, { align: 'center' })
+      pdf.setDrawColor(...BLUE)
+      pdf.setLineWidth(0.7)
+      pdf.line(M, y + 22, W - M, y + 22)
+      y += 28
+
+      // ── Info acara ──
+      const jantLabel = selectedAcara.jantina === 'L' ? 'Lelaki' : selectedAcara.jantina === 'P' ? 'Perempuan' : (selectedAcara.jantina || '—')
+      const infoRows = [
+        ['Acara', namaAcara],
+        ['Kategori', katLabel],
+        ['Jantina', jantLabel],
+        ['No. Acara (Final)', `#${finalDijanaKe}`],
+        ['Bilangan Heat Saringan', `${saringanHeats.length} heat`],
+        ['Kelayakan', `${bestHeat > 0 ? `${bestHeat} terbaik setiap heat (Q)` : '—'}${bestTime > 0 ? ` + ${bestTime} masa terbaik (q)` : ''}`],
+        ['Jumlah Layak', `${finalisAll.length} atlet`],
+      ]
+
+      autoTable(pdf, {
+        startY: y,
+        body: infoRows,
+        theme: 'plain',
+        styles: { fontSize: 8, cellPadding: 1.5 },
+        columnStyles: {
+          0: { fontStyle: 'bold', textColor: [80, 80, 80], cellWidth: 52 },
+          1: { textColor: [30, 30, 30] },
+        },
+        margin: { left: M, right: M },
+      })
+      y = pdf.lastAutoTable.finalY + 5
+
+      // ── Jadual finalis ──
+      const tblHead = isRelayAcara
+        ? [['#', 'Sekolah', 'Prestasi', 'Heat', 'Kel']]
+        : [['#', 'Bib', 'Nama Atlet', 'Sekolah', 'Prestasi', 'Heat', 'Kel']]
+
+      const tblBody = finalisAll.map((f, i) => {
+        const prestasi = fmtPrestasiLayak(f.keputusan)
+        const heatLabel = `H${f.noHeat || '?'}`
+        const kel = f.qualifyType || 'q'
+        if (isRelayAcara) {
+          return [String(i + 1), f.kodSekolah || '—', prestasi, heatLabel, kel]
+        }
+        return [String(i + 1), f.noBib || '—', f.namaAtlet || '—', f.kodSekolah || '—', prestasi, heatLabel, kel]
+      })
+
+      autoTable(pdf, {
+        startY: y,
+        head: tblHead,
+        body: tblBody,
+        theme: 'striped',
+        styles: { fontSize: 8.5, cellPadding: 2.2, valign: 'middle' },
+        headStyles: { fillColor: BLUE, textColor: 255, fontStyle: 'bold', fontSize: 8 },
+        columnStyles: isRelayAcara
+          ? { 0: { cellWidth: 8, halign: 'center' }, 1: { cellWidth: 40 }, 2: { cellWidth: 28, halign: 'center' }, 3: { cellWidth: 16, halign: 'center' }, 4: { cellWidth: 14, halign: 'center', fontStyle: 'bold' } }
+          : { 0: { cellWidth: 8, halign: 'center' }, 1: { cellWidth: 14, halign: 'center' }, 2: { cellWidth: 55 }, 3: { cellWidth: 30 }, 4: { cellWidth: 24, halign: 'center' }, 5: { cellWidth: 14, halign: 'center' }, 6: { cellWidth: 14, halign: 'center', fontStyle: 'bold' } },
+        didParseCell: (data) => {
+          const colKel = isRelayAcara ? 4 : 6
+          if (data.section === 'body' && data.column.index === colKel) {
+            const val = data.cell.raw
+            if (val === 'Q') { data.cell.styles.textColor = [20, 120, 20]; data.cell.styles.fontStyle = 'bold' }
+            else if (val === 'q') { data.cell.styles.textColor = [0, 80, 180]; data.cell.styles.fontStyle = 'bold' }
+          }
+        },
+        margin: { left: M, right: M },
+      })
+      y = pdf.lastAutoTable.finalY + 5
+
+      // ── Legenda ──
+      pdf.setFontSize(7.5)
+      pdf.setFont('helvetica', 'bold')
+      pdf.setTextColor(20, 120, 20)
+      pdf.text('Q', M, y)
+      pdf.setFont('helvetica', 'normal')
+      pdf.setTextColor(60, 60, 60)
+      pdf.text(` = ${bestHeat} terbaik setiap heat (heat qualifier)`, M + 4, y)
+      y += 4.5
+      pdf.setFont('helvetica', 'bold')
+      pdf.setTextColor(0, 80, 180)
+      pdf.text('q', M, y)
+      pdf.setFont('helvetica', 'normal')
+      pdf.setTextColor(60, 60, 60)
+      pdf.text(` = ${bestTime} masa terbaik keseluruhan (time qualifier / wildcard)`, M + 4, y)
+      y += 6
+      pdf.setFontSize(7)
+      pdf.setTextColor(140, 140, 140)
+      pdf.text('* Senarai ini adalah cadangan sistem berdasarkan keputusan heat yang telah dimasukkan.', M, y)
+
+      // ── Footer ──
+      const PG = pdf.internal.getNumberOfPages()
+      for (let i = 1; i <= PG; i++) {
+        pdf.setPage(i)
+        pdf.setFontSize(7)
+        pdf.setTextColor(160, 160, 160)
+        pdf.text(`${namaKej} — Senarai Layak ke Final`, M, 291)
+        pdf.text(`Halaman ${i} / ${PG}`, W - M, 291, { align: 'right' })
+      }
+
+      const safeNama = (selectedAcara.namaAcaraPendek || namaAcara).replace(/[^a-zA-Z0-9]/g, '_')
+      pdf.save(`layak_final_${safeNama}_${katLabel}.pdf`)
+    } catch (err) {
+      console.error('handleCetakLayakFinal error:', err)
+      alert('Ralat semasa jana PDF. Sila cuba lagi.')
+    } finally {
+      setCetakLayakLoading(false)
+    }
+  }
+
   // ── Cetak Hasil Final (3 salinan: Juruhebah / Hadiah / Fail) ──────────────
 
   async function handleCetakHasil() {
@@ -1741,7 +1916,7 @@ export default function InputKeputusan() {
         })
       }
 
-      const namaKej  = kejohananData?.namaKejohanan || 'Kejohanan Olahraga'
+      const namaKej  = homeCfg?.tajukUtama || kejohananData?.namaKejohanan || 'Kejohanan Olahraga'
       const katLabel = kategoriMap[selectedAcara.kategoriKod] || selectedAcara.kategoriKod || '—'
       const tarikh   = fmtTarikh(selectedAcara.tarikhAcara)
       const now      = new Date().toLocaleString('ms-MY')
@@ -2085,11 +2260,18 @@ export default function InputKeputusan() {
       ).catch(() => {})
 
       // Update local state
+      const newFinalDijanaKe = String(targetAcara.noAcara || targetAceraKey)
       setAcaraList(prev => prev.map(a =>
         (a.aceraId || a.acaraId) === saringanKey
-          ? { ...a, finalDijanaKe: String(targetAcara.noAcara || targetAceraKey) }
+          ? { ...a, finalDijanaKe: newFinalDijanaKe }
           : a
       ))
+      // Kemaskini selectedAcara supaya butang cetak terus muncul tanpa refresh
+      setSelectedAcara(prev =>
+        prev && (prev.aceraId || prev.acaraId || prev.id) === saringanKey
+          ? { ...prev, finalDijanaKe: newFinalDijanaKe }
+          : prev
+      )
 
       if (linkedFinalAcara) {
         // Reload heats saringan (padam final lama)
@@ -2828,6 +3010,69 @@ export default function InputKeputusan() {
               </div>
             </div>
           )}
+
+          {/* ── Cetak Senarai Layak ke Final ── */}
+          {(() => {
+            const hasSaringanHeats = heats.some(h =>
+              !['final', 'terus_final'].includes(h.fasa) && h.peringkat !== 'final'
+            )
+            if (!hasSaringanHeats) return null
+
+            // Final belum dijana — tunjuk amaran
+            if (janaFinalEligible && !finalDijanaKe) {
+              return (
+                <div className="pb-4">
+                  <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 flex items-start gap-3">
+                    <span className="text-amber-500 text-base mt-0.5">⚠</span>
+                    <div>
+                      <p className="text-xs font-black text-amber-700">Sila Jana Final Dahulu</p>
+                      <p className="text-[11px] text-amber-600 mt-0.5">
+                        Jana final terlebih dahulu sebelum cetak senarai layak ke final.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )
+            }
+
+            // Final sudah dijana — tunjuk butang cetak
+            if (!finalDijanaKe) return null
+            return (
+              <div className="pb-4">
+                <div className="bg-blue-50 border border-blue-200 rounded-2xl px-4 py-3 space-y-2">
+                  <p className="text-xs font-black text-blue-800">Senarai Layak ke Final</p>
+                  <p className="text-[11px] text-blue-600">
+                    Acara final: <span className="font-bold">#{finalDijanaKe}</span>
+                    {' '}— PDF mengandungi senarai atlet layak dengan kelayakan Q / q.
+                  </p>
+                  <button
+                    onClick={handleCetakLayakFinal}
+                    disabled={cetakLayakLoading}
+                    className="flex items-center gap-2 px-4 py-2 text-xs font-bold bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {cetakLayakLoading ? (
+                      <>
+                        <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                        </svg>
+                        Jana PDF...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <path d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2"/>
+                          <path d="M9 21h6a1 1 0 001-1v-5H8v5a1 1 0 001 1z"/>
+                          <path d="M7 7V3h10v4"/>
+                        </svg>
+                        Cetak PDF Senarai Layak ke Final
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )
+          })()}
 
           </>)} {/* end: selectedHeat content */}
         </div>

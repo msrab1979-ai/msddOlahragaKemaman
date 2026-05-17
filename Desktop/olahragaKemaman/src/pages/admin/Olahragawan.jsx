@@ -10,7 +10,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import {
-  collection, doc, getDocs, query, where, onSnapshot, orderBy,
+  collection, doc, getDoc, getDocs, query, where, onSnapshot, orderBy,
   setDoc, deleteDoc, serverTimestamp,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
