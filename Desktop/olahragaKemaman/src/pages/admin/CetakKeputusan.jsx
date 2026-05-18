@@ -39,6 +39,23 @@ function rekodKey(namaAcara, jantina, kategoriKod, peringkat) {
     .join('_').toUpperCase().replace(/[^A-Z0-9_]/g, '_')
 }
 
+// Lookup rekod dengan fallback ke format lama (kelasDariNama)
+function cariRekodDalamMap(acara, peringkatKej, rekodMap) {
+  const namaPendek = (acara.namaAcaraPendek || acara.namaAcara || '').trim()
+  const namaPenuh  = (acara.namaAcara || '').trim()
+  // Primary key (format baru)
+  const rKeyPrimary = rekodKey(namaPendek, acara.jantina, acara.kategoriKod, peringkatKej)
+  if (rekodMap[rKeyPrimary]) return rekodMap[rKeyPrimary]
+  // Fallback key (format lama — kelasDariNama)
+  const kelasDariNama = (namaPenuh && namaPendek && namaPenuh !== namaPendek)
+    ? namaPenuh.slice(namaPendek.length).trim() : ''
+  if (kelasDariNama) {
+    const rKeyFallback = rekodKey(namaPendek, acara.jantina, kelasDariNama, peringkatKej)
+    if (rekodMap[rKeyFallback]) return rekodMap[rKeyFallback]
+  }
+  return null
+}
+
 const PINGAT_UI  = { 1: '🥇', 2: '🥈', 3: '🥉' }  // untuk web preview sahaja
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -250,8 +267,7 @@ export default function CetakKeputusan() {
         if (peserta.length === 0) continue
 
         // Rekod: rujuk koleksi rekod base acara + kategori
-        const rKey     = rekodKey(acara.namaAcaraPendek || acara.namaAcara, acara.jantina, acara.kategoriKod, peringkatKej)
-        const rekodDoc = rekodMap[rKey] || null
+        const rekodDoc = cariRekodDalamMap(acara, peringkatKej, rekodMap)
         const top1     = peserta[0]
         // rekodBaru = rekod dipecah dalam kejohanan ini (postRasmi dah jalankan)
         const rekodBaru = rekodDoc && rekodDoc.kejohananId === kejId
@@ -462,8 +478,7 @@ export default function CetakKeputusan() {
           .sort((a, b) => (a.rankDalamHeat || 99) - (b.rankDalamHeat || 99))
           .slice(0, bilanganKedudukan)
 
-        const rKey     = rekodKey(acara.namaAcaraPendek || acara.namaAcara, acara.jantina, acara.kategoriKod, peringkatKej)
-        const rekodDoc = rekodMap[rKey] || null
+        const rekodDoc = cariRekodDalamMap(acara, peringkatKej, rekodMap)
 
         peserta.forEach(p => {
           const flagged = ['DNS', 'DNF', 'DQ', 'FS', 'NM'].includes(p.status)
@@ -666,8 +681,7 @@ export default function CetakKeputusan() {
                     const isRelay  = acara.jenisAcara === 'relay'
 
                     // Semak rekod
-                    const rKey     = rekodKey(acara.namaAcaraPendek || acara.namaAcara, acara.jantina, acara.kategoriKod, peringkatKej)
-                    const rekodDoc = rekodMap[rKey]
+                    const rekodDoc = cariRekodDalamMap(acara, peringkatKej, rekodMap)
                     const top1     = isRasmi ? (heat.peserta || []).find(p => p.rankDalamHeat === 1 && p.status === 'selesai') : null
                     const pecah    = top1 && rekodDoc && (() => {
                       const np = Number(top1.keputusan)

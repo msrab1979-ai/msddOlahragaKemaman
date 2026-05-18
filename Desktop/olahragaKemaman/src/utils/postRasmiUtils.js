@@ -17,7 +17,7 @@
  */
 
 import {
-  doc, getDoc, setDoc, updateDoc, serverTimestamp, increment,
+  doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp, increment,
 } from 'firebase/firestore'
 
 // ─── Konstanta ────────────────────────────────────────────────────────────────
@@ -195,8 +195,11 @@ export async function runPostRasmi(db, heatDoc, acaraDoc, kejId, config = {}) {
           const [rs, ts] = await Promise.all([getDoc(doc(db, 'rekod', rKey)), getDoc(doc(db, 'rekod', rKey + '_tuntutan'))])
           rekodSnap = rs; tuntutanSnap = ts
         }
-        const rekodRef    = doc(db, 'rekod', rKey)
-        const tuntutanRef = doc(db, 'rekod', rKey + '_tuntutan')
+        // SENTIASA guna primary key (format baru) untuk tulis rekod baru
+        // supaya PDF dan lookup seterusnya jumpa dengan tepat
+        const primaryKey  = rekodKeyStr(rekodNama, acaraDoc.jantina, acaraDoc.kategoriKod, peringkatKej)
+        const rekodRef    = doc(db, 'rekod', primaryKey)
+        const tuntutanRef = doc(db, 'rekod', primaryKey + '_tuntutan')
         const newPrestasi = Number(p.keputusan)
 
         // Semak rekod sedia ada — dari rekodRef (aktif) atau tuntutanRef (aktif/tuntutan)
@@ -241,7 +244,7 @@ export async function runPostRasmi(db, heatDoc, acaraDoc, kejId, config = {}) {
           }
 
           const rekodData = {
-            rekodId:      rKey,
+            rekodId:      primaryKey,
             namaAcara:    acaraDoc.namaAcara,
             jantina:      acaraDoc.jantina,
             kategoriKod:  acaraDoc.kategoriKod,
@@ -265,11 +268,19 @@ export async function runPostRasmi(db, heatDoc, acaraDoc, kejId, config = {}) {
             updatedAt:    serverTimestamp(),
           }
 
-          // Tulis terus ke rekod/{key} (aktif) + rekod/{key}_tuntutan (untuk keserasian)
+          // Tulis ke primary key (format baru) + tuntutan
           await Promise.all([
             setDoc(rekodRef, rekodData),
-            setDoc(tuntutanRef, { ...rekodData, rekodId: rKey + '_tuntutan', rekodAsal: rKey }),
+            setDoc(tuntutanRef, { ...rekodData, rekodId: primaryKey + '_tuntutan', rekodAsal: primaryKey }),
           ])
+
+          // Jika rekod lama tersimpan di key lain (format lama) — padam untuk elak orphan
+          if (rKey !== primaryKey) {
+            await Promise.all([
+              deleteDoc(doc(db, 'rekod', rKey)).catch(() => {}),
+              deleteDoc(doc(db, 'rekod', rKey + '_tuntutan')).catch(() => {}),
+            ])
+          }
         }
       } catch (e) { console.warn('rekod_tuntutan:', e.message) }
     }
@@ -301,8 +312,10 @@ export async function runPostRasmi(db, heatDoc, acaraDoc, kejId, config = {}) {
           const [rs, ts] = await Promise.all([getDoc(doc(db, 'rekod', rKey)), getDoc(doc(db, 'rekod', rKey + '_tuntutan'))])
           rekodSnap = rs; tuntutanSnap = ts
         }
-        const rekodRef    = doc(db, 'rekod', rKey)
-        const tuntutanRef = doc(db, 'rekod', rKey + '_tuntutan')
+        // SENTIASA guna primary key untuk tulis rekod baru relay
+        const primaryKeyR = rekodKeyStr(rekodNama, acaraDoc.jantina, acaraDoc.kategoriKod, peringkatKej)
+        const rekodRef    = doc(db, 'rekod', primaryKeyR)
+        const tuntutanRef = doc(db, 'rekod', primaryKeyR + '_tuntutan')
         const newPrestasi = Number(p.keputusan)
 
         const rekodSediaRelay = rekodSnap.exists() && rekodSnap.data().statusRekod === 'aktif'
@@ -322,7 +335,7 @@ export async function runPostRasmi(db, heatDoc, acaraDoc, kejId, config = {}) {
           pecahRekodRelayMap[p.kodSekolah] = peringkatKej
           const rekodLama = rekodSediaRelay ?? null
           const relayData = {
-            rekodId:      rKey,
+            rekodId:      primaryKeyR,
             namaAcara:    acaraDoc.namaAcara,
             jantina:      acaraDoc.jantina,
             kategoriKod:  acaraDoc.kategoriKod,
@@ -348,8 +361,15 @@ export async function runPostRasmi(db, heatDoc, acaraDoc, kejId, config = {}) {
           }
           await Promise.all([
             setDoc(rekodRef, relayData),
-            setDoc(tuntutanRef, { ...relayData, rekodId: rKey + '_tuntutan', rekodAsal: rKey }),
+            setDoc(tuntutanRef, { ...relayData, rekodId: primaryKeyR + '_tuntutan', rekodAsal: primaryKeyR }),
           ])
+          // Jika rekod lama di key format lama — padam untuk elak orphan
+          if (rKey !== primaryKeyR) {
+            await Promise.all([
+              deleteDoc(doc(db, 'rekod', rKey)).catch(() => {}),
+              deleteDoc(doc(db, 'rekod', rKey + '_tuntutan')).catch(() => {}),
+            ])
+          }
         }
       } catch (e) { console.warn('rekod_relay:', e.message) }
     }
