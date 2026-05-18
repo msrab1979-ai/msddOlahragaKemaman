@@ -14,6 +14,7 @@ import {
 } from 'firebase/firestore'
 import { selectFinalists as _selectFinalists, assignLorong as _assignLorong, getFinalistSetup as _getFinalistSetup } from '../../utils/finalistUtils'
 import { runPostRasmi } from '../../utils/postRasmiUtils'
+import { cariRekodUntukAcara, formatPrestasiRekod, tahunRekod, rekodKey as buildRekodKey } from '../../utils/rekodUtils'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
 import jsPDF from 'jspdf'
@@ -1072,6 +1073,11 @@ export default function InputKeputusan() {
   const [cetakBilangan,    setCetakBilangan]    = useState(3)
   const [cetakLayakLoading, setCetakLayakLoading] = useState(false)
   const [finalSetup,    setFinalSetup]    = useState(null) // tetapan/finalSetup
+
+  // Rekod panel
+  const [acaraRekod,        setAcaraRekod]        = useState(null)   // { D, N, K }
+  const [acaraRekodLoading, setAcaraRekodLoading] = useState(false)
+  const [acaraRekodConType, setAcaraRekodConType] = useState(null)   // 'kuat'|'lemah'|'tiada'
   const [loading,       setLoading]       = useState(true)
 
   // Filter tab
@@ -1366,6 +1372,45 @@ export default function InputKeputusan() {
     return () => { if (heatListenerRef.current) { heatListenerRef.current(); heatListenerRef.current = null } }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kejohananId, selectedAcara?.aceraId, selectedHeat?.heatId])
+
+  // ── Fetch rekod bila acara bertukar ────────────────────────────────────────
+  useEffect(() => {
+    if (!selectedAcara || !kejohananData) {
+      setAcaraRekod(null)
+      setAcaraRekodConType(null)
+      return
+    }
+    let cancelled = false
+    async function fetchRekod() {
+      setAcaraRekodLoading(true)
+      try {
+        const PKOD = { daerah: 'D', negeri: 'N', kebangsaan: 'K' }
+        const pKej = PKOD[(kejohananData.peringkat || '').toLowerCase()] || 'D'
+        const namaPendek = (selectedAcara.namaAcaraPendek || selectedAcara.namaAcara || '').trim()
+        const primaryKey = buildRekodKey(namaPendek, selectedAcara.jantina, selectedAcara.kategoriKod, pKej)
+        const [primarySnap, result] = await Promise.all([
+          getDoc(doc(db, 'rekod', primaryKey)),
+          cariRekodUntukAcara(selectedAcara),
+        ])
+        if (cancelled) return
+        const hasAny = result.D || result.N || result.K
+        if (hasAny) {
+          setAcaraRekod(result)
+          setAcaraRekodConType(primarySnap.exists() ? 'kuat' : 'lemah')
+        } else {
+          setAcaraRekod({ D: null, N: null, K: null })
+          setAcaraRekodConType('tiada')
+        }
+      } catch (e) {
+        if (!cancelled) { setAcaraRekod(null); setAcaraRekodConType(null) }
+      } finally {
+        if (!cancelled) setAcaraRekodLoading(false)
+      }
+    }
+    fetchRekod()
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAcara?.acaraId, kejohananData?.peringkat])
 
   function goBack() {
     // Refresh acaraList counts dari heats state semasa
@@ -2445,6 +2490,22 @@ export default function InputKeputusan() {
     return isPadang ? raw : _assignLorong(raw, isPadang)
   }, [janaFinalEligible, heats, selectedAcara, finalSetup])
 
+  // Atlet yang melebihi rekod Daerah (live, semasa keputusan diisi)
+  const rekodBeatenBy = useMemo(() => {
+    if (!acaraRekod?.D || acaraRekodConType !== 'kuat' || !selectedAcara) return []
+    const rekodPrestasi = Number(acaraRekod.D.prestasi)
+    if (isNaN(rekodPrestasi) || rekodPrestasi <= 0) return []
+    const isPadang = ['padang_lompat', 'padang_balin'].includes(selectedAcara.jenisAcara)
+    return Object.values(keputusan)
+      .filter(kp => {
+        if (!kp.keputusan || kp.status) return false
+        const v = Number(kp.keputusan)
+        if (isNaN(v) || v <= 0) return false
+        return isPadang ? v > rekodPrestasi : v < rekodPrestasi
+      })
+      .map(kp => kp.namaAtlet || kp.noBib || '?')
+  }, [acaraRekod, acaraRekodConType, selectedAcara, keputusan])
+
   // ── Guards ─────────────────────────────────────────────────────────────────
 
   // 'diterima' = status baru (flow mudah), 'rasmi'/'tidak_rasmi' = data lama
@@ -2828,6 +2889,60 @@ export default function InputKeputusan() {
               </div>
             </div>
           )}
+
+          {/* ── Panel Rekod ── */}
+          <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-bold text-gray-600 uppercase tracking-wide">Rekod Acara</p>
+              {acaraRekodLoading ? (
+                <span className="text-[10px] text-gray-400 animate-pulse">Memuatkan...</span>
+              ) : acaraRekodConType === 'kuat' ? (
+                <span className="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Sambungan Kuat</span>
+              ) : acaraRekodConType === 'lemah' ? (
+                <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">Sambungan Lemah</span>
+              ) : acaraRekodConType === 'tiada' ? (
+                <span className="text-[10px] font-bold text-gray-500 bg-gray-200 px-2 py-0.5 rounded-full">Tiada Rekod</span>
+              ) : null}
+            </div>
+
+            {acaraRekodLoading ? (
+              <div className="h-12 bg-gray-200 rounded-lg animate-pulse" />
+            ) : acaraRekodConType === 'tiada' ? (
+              <p className="text-[11px] text-gray-400 italic">Tiada rekod berdaftar untuk acara ini.</p>
+            ) : acaraRekodConType === 'lemah' ? (
+              <p className="text-[11px] text-amber-600">Rekod ada tetapi format key lama — perbandingan automatik tidak tersedia. Semak tab Rekod Kejohanan (Admin).</p>
+            ) : acaraRekod ? (
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { label: 'Daerah', data: acaraRekod.D },
+                  { label: 'Negeri', data: acaraRekod.N },
+                  { label: 'Kebangsaan', data: acaraRekod.K },
+                ].map(({ label, data }) => (
+                  <div key={label} className="bg-white rounded-lg px-2.5 py-2 border border-gray-100">
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wide mb-0.5">{label}</p>
+                    {data ? (
+                      <>
+                        <p className="text-xs font-black text-[#003399]">{formatPrestasiRekod(data.prestasi, data.unit)}</p>
+                        <p className="text-[9px] text-gray-600 truncate leading-tight">{data.namaAtlet || '—'}</p>
+                        <p className="text-[9px] text-gray-400">{tahunRekod(data.tarikhRekod)}</p>
+                      </>
+                    ) : (
+                      <p className="text-[10px] text-gray-300 italic">—</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {rekodBeatenBy.length > 0 && (
+              <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                <span className="text-amber-500 font-black text-sm leading-none mt-0.5">!</span>
+                <p className="text-[11px] text-amber-700 font-semibold leading-tight">
+                  Melebihi Rekod Daerah: {rekodBeatenBy.join(', ')}
+                </p>
+              </div>
+            )}
+          </div>
 
           {/* ── Input form (locked if rasmi or not pencatat) ── */}
           <div className={!bolehInputSekarang ? 'opacity-50 pointer-events-none select-none' : ''}>
