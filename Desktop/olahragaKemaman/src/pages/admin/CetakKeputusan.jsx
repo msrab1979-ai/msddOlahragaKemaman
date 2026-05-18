@@ -75,7 +75,8 @@ export default function CetakKeputusan() {
   const [days,        setDays]        = useState([])       // ['2025-05-01', ...]
   const [acaraByDay,  setAcaraByDay]  = useState({})       // date → [{ acara, masaMula, lokasi }]
   const [acaraMap,    setAcaraMap]    = useState({})       // acaraId → acara data
-  const [rekodMap,    setRekodMap]    = useState({})       // rekodKey → rekod data
+  const [rekodMap,    setRekodMap]    = useState({})       // rekodKey → rekod data (aktif)
+  const [tuntutanMap, setTuntutanMap] = useState({})       // rekodKey → rekod data (tuntutan)
 
   // UI state
   const [selDay,      setSelDay]      = useState('')
@@ -107,10 +108,11 @@ export default function CetakKeputusan() {
         setBilanganKedudukan(kData.bilanganKedudukan ?? 8)
 
         // Jadual & acara
-        const [jadualSnap, acaraSnap, rekodSnap] = await Promise.all([
+        const [jadualSnap, acaraSnap, rekodSnap, tuntSnap] = await Promise.all([
           getDocs(query(collection(db, 'jadual_acara'), where('kejohananId', '==', kej.id))),
           getDocs(query(collection(db, 'kejohanan', kej.id, 'acara'), orderBy('noAcara'))),
           getDocs(query(collection(db, 'rekod'), where('statusRekod', '==', 'aktif'))),
+          getDocs(query(collection(db, 'rekod'), where('kejohananId', '==', kej.id))).catch(() => ({ docs: [] })),
         ])
 
         const aMap = {}
@@ -120,6 +122,15 @@ export default function CetakKeputusan() {
         const rMap = {}
         rekodSnap.docs.forEach(d => { rMap[d.id] = { id: d.id, ...d.data() } })
         setRekodMap(rMap)
+
+        const tMap = {}
+        tuntSnap.docs.forEach(d => {
+          if (d.id.endsWith('_tuntutan')) {
+            const rk = d.id.slice(0, -10)
+            tMap[rk] = { id: d.id, ...d.data() }
+          }
+        })
+        setTuntutanMap(tMap)
 
         // Group jadual by day, sort by masaMula client-side
         const byDay = {}
@@ -266,11 +277,12 @@ export default function CetakKeputusan() {
 
         if (peserta.length === 0) continue
 
-        // Rekod: rujuk koleksi rekod base acara + kategori
-        const rekodDoc = cariRekodDalamMap(acara, peringkatKej, rekodMap)
-        const top1     = peserta[0]
-        // rekodBaru = rekod dipecah dalam kejohanan ini (postRasmi dah jalankan)
-        const rekodBaru = rekodDoc && rekodDoc.kejohananId === kejId
+        // Rekod: cek tuntutan dulu (rekod baru belum lulus admin), lepas tu aktif
+        const _rekodAktif    = cariRekodDalamMap(acara, peringkatKej, rekodMap)
+        const _rekodTuntutan = cariRekodDalamMap(acara, peringkatKej, tuntutanMap)
+        const rekodBaru = !!(_rekodTuntutan && _rekodTuntutan.kejohananId === kejId)
+        const rekodDoc  = rekodBaru ? _rekodTuntutan : _rekodAktif
+        const top1      = peserta[0]
 
         // Baris peserta
         const rows = peserta.map(p => {
@@ -381,7 +393,7 @@ export default function CetakKeputusan() {
             const newSkol  = rekodDoc.namaSekolah || rekodDoc.kodSekolah || (top1?.kodSekolah || '—')
             const newP     = fmtPrestasi(rekodDoc.prestasi, acara.jenisAcara)
             pdf.text(
-              '[REKOD ' + pLabel.toUpperCase() + ' BARU]  ' + newP + '  --  ' + newNama + '  (' + newSkol + ')',
+              '[RBK — REKOD BARU KEJOHANAN]  ' + newP + '  --  ' + newNama + '  (' + newSkol + ')',
               M + 3, y + 8
             )
 

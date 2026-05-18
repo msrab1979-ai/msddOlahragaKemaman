@@ -147,7 +147,7 @@ function cetakSlipHadiah({ acara, pesertaFinal, rekodSemasa, rekodTuntutan, cfg,
     if (rekodTuntutan) {
       pdf.setTextColor(220, 50, 50)
       pdf.text(
-        `★ REKOD BARU: ${formatPrestasi(rekodTuntutan.prestasi, acara.jenisAcara)}` +
+        `RBK — REKOD BARU KEJOHANAN: ${formatPrestasi(rekodTuntutan.prestasi, acara.jenisAcara)}` +
         ` — ${rekodTuntutan.namaAtlet || '—'} (${rekodTuntutan.namaSekolah || '—'})`,
         M, y
       )
@@ -278,7 +278,7 @@ function cetakKertasJuruhebah({ acara, pesertaFinal, rekodSemasa, rekodTuntutan,
     if (rekodTuntutan) {
       pdf.setTextColor(180, 0, 0)
       pdf.text(
-        `★ REKOD BARU!   ${formatPrestasi(rekodTuntutan.prestasi, acara.jenisAcara)}` +
+        `RBK — REKOD BARU KEJOHANAN   ${formatPrestasi(rekodTuntutan.prestasi, acara.jenisAcara)}` +
         `   ${rekodTuntutan.namaAtlet || '—'}   (${rekodTuntutan.namaSekolah || '—'})`,
         M + 4, y + 7
       )
@@ -826,7 +826,7 @@ export default function CetakAcara() {
                   <h3 className="text-xs font-bold text-gray-700 mb-2">Rekod</h3>
                   {rekodTuntutan && (
                     <p className="text-xs font-bold text-red-700">
-                      ★ REKOD BARU: {formatPrestasi(rekodTuntutan.prestasi, selectedAcara.jenisAcara)}
+                      RBK — REKOD BARU KEJOHANAN: {formatPrestasi(rekodTuntutan.prestasi, selectedAcara.jenisAcara)}
                       {' — '}{rekodTuntutan.namaAtlet} ({rekodTuntutan.namaSekolah})
                     </p>
                   )}

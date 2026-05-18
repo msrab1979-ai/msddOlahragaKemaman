@@ -1827,14 +1827,21 @@ export default function InputKeputusan() {
       const rKey = [rekodNamaCetak, selectedAcara.jantina, selectedAcara.kategoriKod, peringkatKej]
         .join('_').toUpperCase().replace(/[^A-Z0-9_]/g, '_')
 
-      const [rSnap, cfgSnap] = await Promise.all([
+      const [rSnap, rTuntSnap, cfgSnap] = await Promise.all([
         getDoc(doc(db, 'rekod', rKey)).catch(() => null),
+        getDoc(doc(db, 'rekod', rKey + '_tuntutan')).catch(() => null),
         getDoc(doc(db, 'tetapan', 'home')).catch(() => null),
       ])
 
       let rekodDoc = null
-      if (rSnap?.exists() && rSnap.data().statusRekod === 'aktif') rekodDoc = rSnap.data()
-      const isRekodBaru = rekodDoc && rekodDoc.kejohananId === kejohananId
+      let isRekodBaru = false
+      if (rTuntSnap?.exists() && rTuntSnap.data().kejohananId === kejohananId) {
+        rekodDoc = rTuntSnap.data()
+        isRekodBaru = true
+      } else if (rSnap?.exists() && rSnap.data().statusRekod === 'aktif') {
+        rekodDoc = rSnap.data()
+        isRekodBaru = false
+      }
 
       const homeCfg = cfgSnap?.exists() ? cfgSnap.data() : {}
       function imgFmt(b64) {
@@ -2024,13 +2031,13 @@ export default function InputKeputusan() {
             1: { cellWidth: 50 },
             2: { cellWidth: 'auto' },
             3: { halign: 'center', cellWidth: 26, fontStyle: 'bold', textColor: [0, 51, 153] },
-            4: { halign: 'center', cellWidth: 22, fontStyle: 'bold', textColor: [180, 60, 60] },
+            4: { halign: 'center', cellWidth: 28, fontStyle: 'bold', textColor: [180, 60, 60] },
           } : {
             0: { halign: 'center', cellWidth: 12, fontStyle: 'bold' },
             1: { cellWidth: 'auto' },
             2: { cellWidth: 55 },
             3: { halign: 'center', cellWidth: 26, fontStyle: 'bold', textColor: [0, 51, 153] },
-            4: { halign: 'center', cellWidth: 22, fontStyle: 'bold', textColor: [180, 60, 60] },
+            4: { halign: 'center', cellWidth: 28, fontStyle: 'bold', textColor: [180, 60, 60] },
           },
           alternateRowStyles: { fillColor: [248, 248, 252] },
           margin: { left: M, right: M },
