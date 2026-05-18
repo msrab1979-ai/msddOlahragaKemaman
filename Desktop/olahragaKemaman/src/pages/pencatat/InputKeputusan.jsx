@@ -2909,29 +2909,34 @@ export default function InputKeputusan() {
               <div className="h-12 bg-gray-200 rounded-lg animate-pulse" />
             ) : acaraRekodConType === 'tiada' ? (
               <p className="text-[11px] text-gray-400 italic">Tiada rekod berdaftar untuk acara ini.</p>
-            ) : acaraRekodConType === 'lemah' ? (
-              <p className="text-[11px] text-amber-600">Rekod ada tetapi format key lama — perbandingan automatik tidak tersedia. Semak tab Rekod Kejohanan (Admin).</p>
             ) : acaraRekod ? (
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { label: 'Daerah', data: acaraRekod.D },
-                  { label: 'Negeri', data: acaraRekod.N },
-                  { label: 'Kebangsaan', data: acaraRekod.K },
-                ].map(({ label, data }) => (
-                  <div key={label} className="bg-white rounded-lg px-2.5 py-2 border border-gray-100">
-                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wide mb-0.5">{label}</p>
-                    {data ? (
-                      <>
-                        <p className="text-xs font-black text-[#003399]">{formatPrestasiRekod(data.prestasi, data.unit)}</p>
-                        <p className="text-[9px] text-gray-600 truncate leading-tight">{data.namaAtlet || '—'}</p>
-                        <p className="text-[9px] text-gray-400">{tahunRekod(data.tarikhRekod)}</p>
-                      </>
-                    ) : (
-                      <p className="text-[10px] text-gray-300 italic">—</p>
-                    )}
-                  </div>
-                ))}
-              </div>
+              <>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { label: 'Daerah', data: acaraRekod.D },
+                    { label: 'Negeri', data: acaraRekod.N },
+                    { label: 'Kebangsaan', data: acaraRekod.K },
+                  ].map(({ label, data }) => (
+                    <div key={label} className="bg-white rounded-lg px-2.5 py-2 border border-gray-100">
+                      <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wide mb-0.5">{label}</p>
+                      {data ? (
+                        <>
+                          <p className="text-xs font-black text-[#003399]">{formatPrestasiRekod(data.prestasi, data.unit)}</p>
+                          <p className="text-[9px] text-gray-600 truncate leading-tight">{data.namaAtlet || '—'}</p>
+                          <p className="text-[9px] text-gray-400">{tahunRekod(data.tarikhRekod)}</p>
+                        </>
+                      ) : (
+                        <p className="text-[10px] text-gray-300 italic">—</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {acaraRekodConType === 'lemah' && (
+                  <p className="text-[10px] text-amber-600 leading-tight">
+                    Format key lama — perbandingan auto tidak aktif. Baiki di Rekod Kejohanan (Admin).
+                  </p>
+                )}
+              </>
             ) : null}
 
             {rekodBeatenBy.length > 0 && (
