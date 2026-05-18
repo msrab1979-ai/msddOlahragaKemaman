@@ -117,7 +117,46 @@ const REKOD_PERINGKAT_META = {
 function AtletModal({ atlet, namaKej, katLabelFn, onClose }) {
   if (!atlet) return null
   const acaraList = getAcaraDetail(atlet)
-  const rekodList = getRekodDetail(atlet)
+
+  // rekodList: dari mata_olahragawan (rekod_* fields) ATAU fallback fetch rekod collection
+  const [rekodList,    setRekodList]    = useState(() => getRekodDetail(atlet))
+  const [rekodLoading, setRekodLoading] = useState(false)
+
+  useEffect(() => {
+    const fromAtlet = getRekodDetail(atlet)
+    if (fromAtlet.length > 0) { setRekodList(fromAtlet); return }
+    // Fallback: rekod_* tiada dalam mata_olahragawan — fetch terus dari rekod collection
+    if (!atlet.noKP || !atlet.kejohananId) return
+    setRekodLoading(true)
+    getDocs(query(
+      collection(db, 'rekod'),
+      where('noKP', '==', atlet.noKP),
+      where('kejohananId', '==', atlet.kejohananId),
+    ))
+      .then(snap => {
+        const docs = snap.docs
+          .map(d => d.data())
+          .filter(r => r.rekodId && !r.rekodId.endsWith('_tuntutan'))
+          .map(r => ({
+            namaAcara:       r.namaAcara       || '',
+            namaAcaraPendek: r.namaAcaraPendek || r.namaAcara || '',
+            kategoriKod:     r.kategoriKod     || '',
+            jantina:         r.jantina         || '',
+            peringkat:       r.peringkat       || '',
+            unit:            r.unit            || 's',
+            prestasiBaru:    r.prestasi        ?? null,  // rekod coll guna 'prestasi'
+            tarikhBaru:      r.tarikhRekod     || null,
+            prestasiLama:    r.prestasiLama    ?? null,
+            tahunLama:       r.tahunLama       || null,
+            namaLama:        r.namaLama        || null,
+            lokasiLama:      r.lokasiLama      || null,
+            catatanLama:     null,
+          }))
+        setRekodList(docs)
+      })
+      .catch(e => console.warn('AtletModal rekod fallback:', e))
+      .finally(() => setRekodLoading(false))
+  }, [atlet.noKP, atlet.kejohananId])
 
   // Close on backdrop click or Escape
   useEffect(() => {
@@ -130,106 +169,203 @@ function AtletModal({ atlet, namaKej, katLabelFn, onClose }) {
     const { jsPDF }              = await import('jspdf')
     const { default: autoTable } = await import('jspdf-autotable')
     const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-    const W = 210
+    const W  = 210
+    const ML = 12
+    const MR = 12
+    const tarikhCetak = new Date().toLocaleDateString('ms-MY', { day: 'numeric', month: 'long', year: 'numeric' })
 
-    // ── Header
-    pdf.setFontSize(13); pdf.setFont('helvetica', 'bold')
-    pdf.text('KAD ATLET', W / 2, 14, { align: 'center' })
-    pdf.setFontSize(9); pdf.setFont('helvetica', 'normal')
-    pdf.text(namaKej || '', W / 2, 20, { align: 'center' })
-    pdf.setDrawColor(0, 51, 153); pdf.setLineWidth(0.5)
-    pdf.line(12, 23, W - 12, 23)
+    // ── Helper: Header Rasmi (B)
+    function lukisHeader(label) {
+      pdf.setFontSize(11); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(0, 0, 0)
+      pdf.text('MAJLIS SUKAN SEKOLAH DAERAH KEMAMAN', W / 2, 13, { align: 'center' })
+      pdf.setFontSize(10)
+      pdf.text(namaKej || '', W / 2, 19, { align: 'center' })
+      pdf.setFontSize(8.5); pdf.setFont('helvetica', 'normal')
+      pdf.text(tarikhCetak, W / 2, 25, { align: 'center' })
+      pdf.setDrawColor(0, 51, 153); pdf.setLineWidth(0.5)
+      pdf.line(ML, 28, W - MR, 28)
+      pdf.setFontSize(11); pdf.setFont('helvetica', 'bold')
+      pdf.text(label, W / 2, 35, { align: 'center' })
+      pdf.setDrawColor(150, 150, 150); pdf.setLineWidth(0.3)
+      pdf.line(ML, 38, W - MR, 38)
+      return 38
+    }
 
-    // ── Maklumat atlet
-    pdf.setFontSize(14); pdf.setFont('helvetica', 'bold')
-    pdf.text(atlet.namaAtlet || '—', 12, 32)
-    pdf.setFontSize(9); pdf.setFont('helvetica', 'normal')
-    pdf.text(`${atlet.namaSekolah || atlet.kodSekolah || '—'}   ·   ${katLabelFn(atlet.kategoriKod)}   ·   ${atlet.jantina === 'L' ? 'Lelaki' : 'Perempuan'}`, 12, 38)
+    // ── Helper: Maklumat atlet
+    function lukisAtlet(afterHeader) {
+      const y0 = afterHeader + 7
+      pdf.setFontSize(12); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(0, 0, 0)
+      pdf.text(atlet.namaAtlet || '—', ML, y0)
+      pdf.setFontSize(8.5); pdf.setFont('helvetica', 'normal')
+      pdf.text(
+        `${atlet.namaSekolah || atlet.kodSekolah || '—'}   ·   ${katLabelFn(atlet.kategoriKod)}   ·   ${atlet.jantina === 'L' ? 'Lelaki' : 'Perempuan'}`,
+        ML, y0 + 6,
+      )
+      const medalsShort = [
+        (atlet.pingat_emas    || 0) > 0 ? `E×${atlet.pingat_emas}`    : null,
+        (atlet.pingat_perak   || 0) > 0 ? `P×${atlet.pingat_perak}`   : null,
+        (atlet.pingat_gangsa  || 0) > 0 ? `G×${atlet.pingat_gangsa}`  : null,
+        (atlet.pingat_tempat4 || 0) > 0 ? `T4×${atlet.pingat_tempat4}`: null,
+      ].filter(Boolean).join('  ')
+      pdf.setFont('helvetica', 'bold')
+      pdf.text(`${medalsShort || 'Tiada pingat'}   ·   ${atlet.jumlahMata || 0} mata`, ML, y0 + 12)
+      pdf.setDrawColor(200, 200, 200); pdf.setLineWidth(0.3)
+      pdf.line(ML, y0 + 15, W - MR, y0 + 15)
+      return y0 + 21
+    }
 
-    // Medal summary
-    const medals = [
-      atlet.pingat_emas   > 0 ? `Emas ×${atlet.pingat_emas}`   : null,
-      atlet.pingat_perak  > 0 ? `Perak ×${atlet.pingat_perak}` : null,
-      atlet.pingat_gangsa > 0 ? `Gangsa ×${atlet.pingat_gangsa}` : null,
-      atlet.pingat_tempat4 > 0 ? `T.4 ×${atlet.pingat_tempat4}` : null,
-    ].filter(Boolean).join('   ')
-    pdf.setFontSize(10); pdf.setFont('helvetica', 'bold')
-    pdf.text(`${medals || 'Tiada pingat'}   ·   ${atlet.jumlahMata || 0} mata`, 12, 45)
-    pdf.line(12, 48, W - 12, 48)
-
-    // ── Acara dimenangi
-    if (acaraList.length > 0) {
-      pdf.setFontSize(9); pdf.setFont('helvetica', 'bold')
-      pdf.text('ACARA DIMENANGI', 12, 54)
+    // ── Helper: Jadual acara
+    function lukisJadual(startY, showRekodCol) {
+      if (acaraList.length === 0) {
+        pdf.setFontSize(8); pdf.setFont('helvetica', 'italic'); pdf.setTextColor(160, 160, 160)
+        pdf.text('Tiada acara dimenangi.', ML, startY + 6)
+        pdf.setTextColor(0, 0, 0)
+        return startY + 12
+      }
       const rows = acaraList.map(a => {
-        const rekod = rekodList.find(r => r.namaAcara === a.namaAcara)
-        return [
-          a.namaAcara || '—',
-          a.pingat ? a.pingat.charAt(0).toUpperCase() + a.pingat.slice(1) : '—',
-          formatPrestasi(a.prestasi, a.unit),
-          `+${a.mata || 0}`,
-          rekod ? '🏆 REKOD' : '',
-        ]
+        const hasR = rekodList.some(r => r.namaAcara === a.namaAcara)
+        const pLabel = a.pingat ? a.pingat.charAt(0).toUpperCase() + a.pingat.slice(1) : '—'
+        const row = [a.namaAcara || '—', pLabel, formatPrestasi(a.prestasi, a.unit), `+${a.mata || 0}`]
+        if (showRekodCol) row.push(hasR ? 'REKOD' : '')
+        return row
       })
+      const head = showRekodCol
+        ? [['Acara', 'Pingat', 'Prestasi', '+Mata', 'Rekod']]
+        : [['Acara', 'Pingat', 'Prestasi', '+Mata']]
+      const colStyles = showRekodCol
+        ? { 0: { cellWidth: 70 }, 1: { cellWidth: 26, halign: 'center' }, 2: { cellWidth: 30, halign: 'center' }, 3: { cellWidth: 18, halign: 'center' }, 4: { cellWidth: 22, halign: 'center', fontStyle: 'bold', textColor: [180, 100, 0] } }
+        : { 0: { cellWidth: 80 }, 1: { cellWidth: 30, halign: 'center' }, 2: { cellWidth: 36, halign: 'center' }, 3: { cellWidth: 20, halign: 'center' } }
       autoTable(pdf, {
-        startY: 57,
-        head: [['Acara', 'Pingat', 'Prestasi', '+Mata', 'Rekod']],
+        startY,
+        head,
         body: rows,
         styles: { fontSize: 8.5, cellPadding: 2.5 },
         headStyles: { fillColor: [0, 51, 153], fontSize: 7.5, fontStyle: 'bold' },
-        columnStyles: {
-          0: { cellWidth: 70 }, 1: { cellWidth: 28, halign: 'center' },
-          2: { cellWidth: 30, halign: 'center' }, 3: { cellWidth: 18, halign: 'center' },
-          4: { cellWidth: 25, halign: 'center' },
-        },
+        columnStyles: colStyles,
         theme: 'striped',
+        didParseCell(d) {
+          if (showRekodCol && d.column.index === 4 && d.cell.raw === 'REKOD')
+            d.cell.styles.fillColor = [255, 245, 220]
+        },
       })
+      return pdf.lastAutoTable.finalY
     }
 
-    // ── Rekod dipecahkan
-    if (rekodList.length > 0) {
-      let y = (acaraList.length > 0 ? pdf.lastAutoTable.finalY : 57) + 6
-      pdf.setFontSize(9); pdf.setFont('helvetica', 'bold')
-      pdf.setTextColor(180, 0, 0)
-      pdf.text('REKOD DIPECAHKAN', 12, y); y += 5
+    // ── Helper: Section rekod dipecahkan
+    function lukisRekod(startY) {
+      if (rekodList.length === 0) return startY
+      let y = startY + 7
+      if (y > 242) { pdf.addPage(); y = 18 }
+      pdf.setFontSize(9); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(160, 0, 0)
+      pdf.text('REKOD DIPECAHKAN', ML, y)
       pdf.setTextColor(0, 0, 0)
-
-      rekodList.forEach(r => {
-        const peringkatLabel = PERINGKAT_LABEL[r.peringkat] || r.peringkat || '—'
-        const body = []
-        body.push(['Acara', r.namaAcara || '—'])
-        body.push(['Peringkat', peringkatLabel])
-        body.push(['Rekod Baru', formatPrestasi(r.prestasiBaru, r.unit) + (r.tarikhBaru ? `  (${r.tarikhBaru})` : '')])
+      pdf.setDrawColor(220, 180, 180); pdf.setLineWidth(0.3)
+      pdf.line(ML, y + 2, W - MR, y + 2)
+      y += 8
+      rekodList.forEach((r, idx) => {
+        const pLabel = PERINGKAT_LABEL[r.peringkat] || r.peringkat || '—'
+        const lBg = r.peringkat === 'K' ? [255, 240, 200] : r.peringkat === 'N' ? [220, 235, 255] : [220, 245, 220]
+        const lFg = r.peringkat === 'K' ? [140, 80, 0]   : r.peringkat === 'N' ? [0, 50, 150]    : [0, 100, 40]
+        const body = [
+          [{ content: `REKOD ${pLabel.toUpperCase()}`, styles: { fontStyle: 'bold', textColor: lFg, fillColor: lBg } },
+           { content: r.namaAcara || '—', styles: { fontStyle: 'bold' } }],
+          ['Rekod Baru', formatPrestasi(r.prestasiBaru, r.unit) + (r.tarikhBaru ? `  (${r.tarikhBaru})` : '')],
+        ]
         if (r.prestasiLama != null) {
-          body.push(['Rekod Lama', formatPrestasi(r.prestasiLama, r.unit)])
-          if (r.tahunLama)   body.push(['Tahun Lama',  String(r.tahunLama)])
-          if (r.namaLama)    body.push(['Pemegang Lama', r.namaLama])
-          if (r.lokasiLama)  body.push(['Sekolah/Lokasi', r.lokasiLama])
-          if (r.catatanLama) body.push(['Catatan', r.catatanLama])
-          const selisih = formatSelisih(r.prestasiBaru, r.prestasiLama, r.unit)
-          if (selisih) body.push(['Perbezaan', selisih])
+          body.push(['Rekod Lama', formatPrestasi(r.prestasiLama, r.unit) + (r.tahunLama ? `  (${r.tahunLama})` : '')])
+          if (r.namaLama) body.push(['Pemegang Lama', r.namaLama + (r.lokasiLama ? `   ·   ${r.lokasiLama}` : '')])
+          const sel = formatSelisih(r.prestasiBaru, r.prestasiLama, r.unit)
+          if (sel) body.push(['Perbezaan', sel])
         } else {
-          body.push(['Rekod Lama', r.catatanLama || 'Rekod pertama — tiada rekod sebelum ini'])
+          body.push(['Rekod Lama', 'Rekod pertama — tiada rekod sebelum ini'])
         }
         autoTable(pdf, {
-          startY: y,
-          body,
-          styles: { fontSize: 8, cellPadding: 2 },
-          columnStyles: { 0: { cellWidth: 40, fontStyle: 'bold', fillColor: [255, 245, 245] }, 1: { cellWidth: 130 } },
-          theme: 'plain',
-          tableLineColor: [220, 180, 180],
-          tableLineWidth: 0.3,
+          startY: y, body,
+          styles: { fontSize: 8.5, cellPadding: 2.5 },
+          columnStyles: { 0: { cellWidth: 38, fontStyle: 'bold', fillColor: [250, 245, 245] }, 1: { cellWidth: 138 } },
+          theme: 'plain', tableLineColor: [210, 180, 180], tableLineWidth: 0.35,
         })
         y = pdf.lastAutoTable.finalY + 4
+        if (idx < rekodList.length - 1 && y > 255) { pdf.addPage(); y = 18 }
       })
+      return y
     }
 
-    // Footer
-    pdf.setFontSize(7); pdf.setFont('helvetica', 'italic')
-    pdf.setTextColor(150, 150, 150)
-    pdf.text(`Dicetak: ${new Date().toLocaleDateString('ms-MY')}`, W - 12, 287, { align: 'right' })
+    // ── Helper: footer semua halaman
+    function lukisFooters() {
+      const total = pdf.getNumberOfPages()
+      for (let pg = 1; pg <= total; pg++) {
+        pdf.setPage(pg)
+        pdf.setFontSize(7); pdf.setFont('helvetica', 'italic'); pdf.setTextColor(150, 150, 150)
+        pdf.text(`Dicetak: ${tarikhCetak}   |   ms. ${pg}/${total}`, W - MR, 287, { align: 'right' })
+      }
+    }
 
-    pdf.save(`KadAtlet_${(atlet.namaAtlet || 'Atlet').replace(/\s+/g, '_')}.pdf`)
+    // ══════════════════════════════════════════════════════
+    // PAGE 1 — SKRIP PENGACARA (MC)
+    // ══════════════════════════════════════════════════════
+    let y = lukisHeader('SKRIP PENGACARA')
+    y = lukisAtlet(y)
+    y = lukisJadual(y, false)   // tanpa kolum rekod
+    y = lukisRekod(y)           // rekod baru + lama
+
+    // ══════════════════════════════════════════════════════
+    // PAGE 2 — SLIP HADIAH
+    // ══════════════════════════════════════════════════════
+    pdf.addPage()
+    y = lukisHeader('SLIP HADIAH')
+    y = lukisAtlet(y)
+
+    const medalsLong = [
+      (atlet.pingat_emas    || 0) > 0 ? `Emas x${atlet.pingat_emas}`    : null,
+      (atlet.pingat_perak   || 0) > 0 ? `Perak x${atlet.pingat_perak}`  : null,
+      (atlet.pingat_gangsa  || 0) > 0 ? `Gangsa x${atlet.pingat_gangsa}`: null,
+      (atlet.pingat_tempat4 || 0) > 0 ? `T.4 x${atlet.pingat_tempat4}`  : null,
+    ].filter(Boolean)
+    autoTable(pdf, {
+      startY: y,
+      body: [
+        ['Pingat Olahragawan', medalsLong.length > 0 ? medalsLong.join('   ') : 'Tiada pingat'],
+        ['Jumlah Mata', `${atlet.jumlahMata || 0} mata`],
+      ],
+      styles: { fontSize: 10, cellPadding: 4.5 },
+      columnStyles: {
+        0: { cellWidth: 55, fontStyle: 'bold', fillColor: [235, 242, 255] },
+        1: { cellWidth: 121, fontStyle: 'bold', fontSize: 12 },
+      },
+      theme: 'plain', tableLineColor: [0, 51, 153], tableLineWidth: 0.4,
+    })
+    y = pdf.lastAutoTable.finalY + 22
+    pdf.setFontSize(9); pdf.setFont('helvetica', 'normal'); pdf.setTextColor(0, 0, 0)
+    pdf.text('Tandatangan Penerima :', ML, y)
+    pdf.setDrawColor(0); pdf.setLineWidth(0.3)
+    pdf.line(ML + 50, y, ML + 140, y)
+    y += 9
+    pdf.text('Tandatangan Pegawai  :', ML, y)
+    pdf.line(ML + 50, y, ML + 140, y)
+
+    // ══════════════════════════════════════════════════════
+    // PAGE 3 — REKOD PENCAPAIAN RASMI (FAIL)
+    // ══════════════════════════════════════════════════════
+    pdf.addPage()
+    y = lukisHeader('REKOD PENCAPAIAN RASMI')
+    y = lukisAtlet(y)
+    y = lukisJadual(y, true)    // dengan kolum rekod
+    y = lukisRekod(y)           // rekod baru + lama
+
+    y += 8
+    if (y > 265) { pdf.addPage(); y = 20 }
+    pdf.setFontSize(9); pdf.setFont('helvetica', 'normal'); pdf.setTextColor(0, 0, 0)
+    pdf.text('Disahkan oleh :', ML, y)
+    pdf.setDrawColor(0); pdf.setLineWidth(0.3)
+    pdf.line(ML + 35, y, ML + 110, y)
+    pdf.text('Tarikh :', ML + 118, y)
+    pdf.line(ML + 133, y, W - MR, y)
+
+    lukisFooters()
+
+    const safeName = (atlet.namaAtlet || 'Atlet').replace(/\s+/g, '_')
+    pdf.save(`KadAtlet_${safeName}.pdf`)
   }
 
   const REKOD_COLOR = { K: 'bg-amber-400 text-white', N: 'bg-blue-500 text-white', D: 'bg-green-600 text-white' }
@@ -246,17 +382,11 @@ function AtletModal({ atlet, namaKej, katLabelFn, onClose }) {
             <p className="text-white/70 text-[10px] mt-0.5">{atlet.namaSekolah || atlet.kodSekolah}</p>
             <p className="text-white/60 text-[9px]">{katLabelFn(atlet.kategoriKod)} · {atlet.jantina === 'L' ? 'Lelaki' : 'Perempuan'}</p>
           </div>
-          <div className="flex items-center gap-2 shrink-0 ml-3">
-            <button onClick={cetakKadAtlet}
-              className="text-[9px] font-bold px-2.5 py-1.5 bg-white/20 hover:bg-white/30 text-white rounded-lg border border-white/30 transition-colors">
-              🖨 Cetak
-            </button>
-            <button onClick={onClose} className="text-white/60 hover:text-white transition-colors p-1">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
+          <button onClick={onClose} className="text-white/60 hover:text-white transition-colors p-1 shrink-0 ml-3">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
 
         {/* Medal summary */}
@@ -352,9 +482,27 @@ function AtletModal({ atlet, namaKej, katLabelFn, onClose }) {
             </div>
           ))}
 
-          {acaraList.length === 0 && rekodList.length === 0 && (
+          {acaraList.length === 0 && rekodList.length === 0 && !rekodLoading && (
             <div className="px-5 py-8 text-center text-gray-400 text-xs">Tiada detail acara lagi.</div>
           )}
+          {rekodLoading && (
+            <div className="px-5 py-4 text-center text-xs text-gray-400">Semak rekod…</div>
+          )}
+        </div>
+
+        {/* Footer — butang cetak */}
+        <div className="px-5 py-3 border-t border-gray-100 bg-gray-50 flex items-center gap-2 shrink-0">
+          <button
+            onClick={cetakKadAtlet}
+            disabled={rekodLoading}
+            className="flex-1 text-xs font-bold px-3 py-2 bg-[#003399] hover:bg-[#002277] text-white rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+            {rekodLoading ? 'Semak rekod…' : 'Cetak PDF'}
+          </button>
+          <button
+            onClick={onClose}
+            className="text-xs font-semibold px-3 py-2 bg-white text-gray-600 border border-gray-300 hover:bg-gray-100 rounded-lg transition-colors">
+            Tutup
+          </button>
         </div>
       </div>
     </div>
