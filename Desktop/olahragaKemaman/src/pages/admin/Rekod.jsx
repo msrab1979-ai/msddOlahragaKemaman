@@ -1164,10 +1164,10 @@ export default function Rekod() {
 
   // ── Baiki Orphan — re-key rekod ke namaAcara yang betul ─────────────────────
 
-  async function handleBaikiOrphan(orphan, targetNamaAcara) {
-    if (!targetNamaAcara) return
+  async function handleBaikiOrphan(orphan, targetNamaAcara, targetKatKod) {
+    if (!targetNamaAcara || !targetKatKod) return
     const peringkat = orphan.peringkat || semakPeringkat
-    const newKey  = rekodKey(targetNamaAcara, orphan.jantina, orphan.kategoriKod, peringkat)
+    const newKey  = rekodKey(targetNamaAcara, orphan.jantina, targetKatKod, peringkat)
     const oldKey  = orphan.id
 
     if (newKey === oldKey) {
@@ -1189,13 +1189,14 @@ export default function Rekod() {
         await deleteDoc(doc(db, 'rekod', oldKey))
         setMsg({ type: 'ok', text: 'Orphan dipadam. Rekod sedia ada dikekalkan.' })
       } else {
-        // Selamat — pindah ke key baru
+        // Selamat — pindah ke key baru, kemaskini namaAcara + kategoriKod
         const { id: _id, rekodId: _rId, ...rest } = orphan
         await setDoc(newRef, {
           ...rest,
-          rekodId:   newKey,
-          namaAcara: targetNamaAcara,
-          updatedAt: serverTimestamp(),
+          rekodId:     newKey,
+          namaAcara:   targetNamaAcara,
+          kategoriKod: targetKatKod,
+          updatedAt:   serverTimestamp(),
         })
         await deleteDoc(doc(db, 'rekod', oldKey))
         setMsg({ type: 'ok', text: `Rekod berjaya dipindah: ${oldKey} → ${newKey}` })
@@ -1878,14 +1879,25 @@ export default function Rekod() {
                       {semakOrphan.map(r => {
                         const kat = katMap[r.kategoriKod]
                         const isExpanded = baikiOrphanId === r.id
-                        // Dropdown: acara dalam sistem yang sama jantina + kategoriKod
-                        const acaraOptions = [...new Set(
+                        // Dropdown: acara dalam sistem yang sama jantina (semua kategori)
+                        // Guna label dari katMap supaya user boleh kenal pasti kategori betul
+                        const acaraOptions = Object.values(
                           acaraList
-                            .filter(a => a.jantina === r.jantina && a.kategoriKod === r.kategoriKod)
-                            .map(a => a.namaAcaraPendek || a.namaAcara)
-                        )].sort()
-                        const previewNewKey = baikiTargetAcara && isExpanded
-                          ? rekodKey(baikiTargetAcara, r.jantina, r.kategoriKod, r.peringkat || semakPeringkat)
+                            .filter(a => a.jantina === r.jantina)
+                            .reduce((acc, a) => {
+                              const nama = a.namaAcaraPendek || a.namaAcara
+                              const compositeKey = `${nama}::${a.kategoriKod}`
+                              if (!acc[compositeKey]) {
+                                const katLabel = katMap[a.kategoriKod]?.label || katMap[a.kategoriKod]?.nama || a.kategoriKod
+                                acc[compositeKey] = { value: compositeKey, nama, kategoriKod: a.kategoriKod, katLabel, noAcara: a.noAcara }
+                              }
+                              return acc
+                            }, {})
+                        ).sort((a, b) => a.nama.localeCompare(b.nama))
+                        const [_targetNama, _targetKat] = (baikiTargetAcara || '').includes('::')
+                          ? baikiTargetAcara.split('::') : ['', '']
+                        const previewNewKey = _targetNama && _targetKat && isExpanded
+                          ? rekodKey(_targetNama, r.jantina, _targetKat, r.peringkat || semakPeringkat)
                           : null
 
                         return (
@@ -1962,7 +1974,7 @@ export default function Rekod() {
                                       {/* Pilih acara betul */}
                                       <div>
                                         <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">
-                                          Padankan ke acara{acaraOptions.length === 0 ? ' — tiada acara sepadan (jantina+kategori)' : ':'}
+                                          Padankan ke acara{acaraOptions.length === 0 ? ' — tiada acara jantina sama dalam sistem' : ':'}
                                         </p>
                                         {acaraOptions.length > 0 ? (
                                           <select
@@ -1970,14 +1982,16 @@ export default function Rekod() {
                                             onChange={e => setBaikiTargetAcara(e.target.value)}
                                             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400 bg-white"
                                           >
-                                            <option value="">— Pilih acara yang betul —</option>
-                                            {acaraOptions.map(n => (
-                                              <option key={n} value={n}>{n}</option>
+                                            <option value="">— Pilih acara + kategori yang betul —</option>
+                                            {acaraOptions.map(opt => (
+                                              <option key={opt.value} value={opt.value}>
+                                                [{opt.noAcara || '—'}] {opt.nama} · {opt.katLabel}
+                                              </option>
                                             ))}
                                           </select>
                                         ) : (
                                           <p className="text-[10px] text-gray-400 italic">
-                                            Tiada acara dengan jantina={r.jantina} + kategori={r.kategoriKod} dalam sistem.
+                                            Tiada acara dengan jantina={r.jantina} dalam sistem.
                                             Gunakan Padam untuk buang rekod ini.
                                           </p>
                                         )}
@@ -2000,8 +2014,11 @@ export default function Rekod() {
                                       {/* Action buttons */}
                                       <div className="flex items-center gap-2 pt-1">
                                         <button
-                                          onClick={() => handleBaikiOrphan(r, baikiTargetAcara)}
-                                          disabled={!baikiTargetAcara || baikiSaving || previewNewKey === r.id}
+                                          onClick={() => {
+                                            const [tNama, tKat] = (baikiTargetAcara || '').split('::')
+                                            handleBaikiOrphan(r, tNama, tKat)
+                                          }}
+                                          disabled={!_targetNama || !_targetKat || baikiSaving || previewNewKey === r.id}
                                           className="px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-gray-200 disabled:text-gray-400 text-white text-xs font-bold rounded-lg transition-colors"
                                         >
                                           {baikiSaving ? '⏳ Memproses…' : 'Baiki Sekarang'}
