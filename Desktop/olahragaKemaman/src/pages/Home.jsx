@@ -441,7 +441,7 @@ function RekodModal({ peserta, acara, onClose }) {
         <div className="bg-[#003399] px-4 py-3 flex items-center justify-between">
           <div>
             <p className="text-[9px] text-white/50 uppercase tracking-widest">
-              Rekod {PERINGKAT_LABEL_M[peringkat] || peringkat} Dipecahkan
+              RBK — Rekod Baru Kejohanan
             </p>
             <p className="text-sm font-black text-white leading-tight">{acara.namaAcara || '—'}</p>
           </div>
@@ -688,8 +688,16 @@ function KeputusanExpanded({ heats, acara, sekolahMap, isLoading, finalSetup, re
                               className="shrink-0 text-[8px] font-black px-1.5 py-0.5 rounded bg-amber-400 hover:bg-amber-500 text-white tracking-wide transition-colors"
                               title="Klik untuk lihat rekod dipecahkan"
                             >
-                              🏆 REKOD
+                              RBK
                             </button>
+                          )}
+                          {p.samaiRekod && (
+                            <span
+                              className="shrink-0 text-[8px] font-black px-1.5 py-0.5 rounded bg-teal-500 text-white tracking-wide"
+                              title="Menyamai Rekod Kejohanan Lepas"
+                            >
+                              MRKL
+                            </span>
                           )}
                         </div>
                       : <div className="flex items-center gap-1.5">
@@ -703,8 +711,16 @@ function KeputusanExpanded({ heats, acara, sekolahMap, isLoading, finalSetup, re
                               className="shrink-0 text-[8px] font-black px-1.5 py-0.5 rounded bg-amber-400 hover:bg-amber-500 text-white tracking-wide transition-colors"
                               title="Klik untuk lihat rekod dipecahkan"
                             >
-                              🏆 REKOD
+                              RBK
                             </button>
+                          )}
+                          {p.samaiRekod && (
+                            <span
+                              className="shrink-0 text-[8px] font-black px-1.5 py-0.5 rounded bg-teal-500 text-white tracking-wide"
+                              title="Menyamai Rekod Kejohanan Lepas"
+                            >
+                              MRKL
+                            </span>
                           )}
                         </div>
                     }

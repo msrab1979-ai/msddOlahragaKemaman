@@ -428,7 +428,7 @@ function AtletModal({ atlet, namaKej, katLabelFn, onClose }) {
                       <div className="shrink-0 flex items-center gap-1.5">
                         {rekod && (
                           <span className={`text-[7px] font-black px-1.5 py-0.5 rounded border ${REKOD_COLOR[rekod.peringkat] || 'bg-red-100 text-red-700'}`}>
-                            🏆 REKOD
+                            RBK
                           </span>
                         )}
                         <span className="text-[9px] font-black text-[#003399]">+{a.mata||0}</span>
@@ -447,7 +447,7 @@ function AtletModal({ atlet, namaKej, katLabelFn, onClose }) {
                 <span className={`text-[8px] font-black px-2 py-0.5 rounded-full text-white ${
                   r.peringkat === 'K' ? 'bg-amber-500' : r.peringkat === 'N' ? 'bg-blue-600' : 'bg-green-600'
                 }`}>
-                  🏆 REKOD {PERINGKAT_LABEL[r.peringkat] || r.peringkat}
+                  RBK {PERINGKAT_LABEL[r.peringkat] || r.peringkat}
                 </span>
                 <p className="text-xs font-bold text-gray-800">{r.namaAcara}</p>
               </div>
@@ -773,7 +773,7 @@ function AtletRow({ atlet, rank, isDipilih, onPilih, onDetail }) {
                 {/* Header */}
                 <div className="flex items-center gap-2 mb-2.5">
                   <span className={`text-[8px] font-black px-2.5 py-1 rounded-full text-white ${pc.badge}`}>
-                    🏆 REKOD {pc.label.toUpperCase()}
+                    RBK {pc.label.toUpperCase()}
                   </span>
                   <button
                     onClick={e => { e.stopPropagation(); setRekodShown(null) }}

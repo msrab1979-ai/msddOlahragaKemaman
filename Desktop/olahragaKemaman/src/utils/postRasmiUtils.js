@@ -46,8 +46,10 @@ export async function runPostRasmi(db, heatDoc, acaraDoc, kejId, config = {}) {
     onPesertaPatch    = null,  // callback(pesertaPatched) — untuk update UI state
   } = config
 
-  const pecahRekodMap      = {} // noKP      → peringkat (individu)
-  const pecahRekodRelayMap = {} // kodSekolah → peringkat (relay)
+  const pecahRekodMap      = {} // noKP      → peringkat (individu) — pecah rekod
+  const pecahRekodRelayMap = {} // kodSekolah → peringkat (relay) — pecah rekod
+  const samaiRekodMap      = {} // noKP      → peringkat (individu) — samai rekod
+  const samaiRekodRelayMap = {} // kodSekolah → peringkat (relay) — samai rekod
 
   // Bina map namaSekolah dari Firestore (backup untuk data lama tanpa namaSekolah)
   const kodSekolahSet = [...new Set((heatDoc.peserta || []).map(p => p.kodSekolah).filter(Boolean))]
@@ -210,11 +212,20 @@ export async function runPostRasmi(db, heatDoc, acaraDoc, kejId, config = {}) {
             : null
 
         let isBetter = false
+        let isEqual  = false
         if (rekodSedia) {
           const oldPrestasi = Number(rekodSedia.prestasi)
-          isBetter = unit === 's' ? newPrestasi < oldPrestasi : newPrestasi > oldPrestasi
+          const newR = Number(newPrestasi.toFixed(2))
+          const oldR = Number(oldPrestasi.toFixed(2))
+          isBetter = unit === 's' ? newR < oldR : newR > oldR
+          isEqual  = !isBetter && (newR === oldR)
         } else {
           isBetter = true // rekod pertama untuk acara ini
+        }
+
+        // Samai rekod — badge MRKL, tiada tuntutan (rekod tidak berubah)
+        if (isEqual && p.noKP) {
+          samaiRekodMap[p.noKP] = peringkatKej
         }
 
         if (isBetter) {
@@ -318,10 +329,19 @@ export async function runPostRasmi(db, heatDoc, acaraDoc, kejId, config = {}) {
           : tuntutanSnap.exists() ? tuntutanSnap.data() : null
 
         let isBetter = false
+        let isEqual  = false
         if (rekodSediaRelay) {
-          isBetter = newPrestasi < Number(rekodSediaRelay.prestasi)
+          const newR = Number(newPrestasi.toFixed(2))
+          const oldR = Number(Number(rekodSediaRelay.prestasi).toFixed(2))
+          isBetter = newR < oldR
+          isEqual  = !isBetter && (newR === oldR)
         } else {
           isBetter = true
+        }
+
+        // Samai rekod relay — badge MRKL, tiada tuntutan
+        if (isEqual && p.kodSekolah) {
+          samaiRekodRelayMap[p.kodSekolah] = peringkatKej
         }
 
         if (isBetter) {
@@ -366,21 +386,30 @@ export async function runPostRasmi(db, heatDoc, acaraDoc, kejId, config = {}) {
     }
   }
 
-  // ── Patch peserta dalam heat doc dengan pecahRekod flag ──────────────────────
+  // ── Patch peserta dalam heat doc dengan pecahRekod + samaiRekod flag ────────
   const hasIndivRekod = Object.keys(pecahRekodMap).length > 0
   const hasRelayRekod = Object.keys(pecahRekodRelayMap).length > 0
-  if (hasIndivRekod || hasRelayRekod) {
+  const hasIndivSamai = Object.keys(samaiRekodMap).length > 0
+  const hasRelaySamai = Object.keys(samaiRekodRelayMap).length > 0
+  if (hasIndivRekod || hasRelayRekod || hasIndivSamai || hasRelaySamai) {
     try {
       const pesertaPatched = semua.map(p => {
-        if (isRelay && pecahRekodRelayMap[p.kodSekolah])
-          return { ...p, pecahRekod: pecahRekodRelayMap[p.kodSekolah] }
-        if (!isRelay && pecahRekodMap[p.noKP])
-          return { ...p, pecahRekod: pecahRekodMap[p.noKP] }
+        if (isRelay) {
+          const pecah = pecahRekodRelayMap[p.kodSekolah]
+          const samai = samaiRekodRelayMap[p.kodSekolah]
+          if (pecah) return { ...p, pecahRekod: pecah }
+          if (samai) return { ...p, samaiRekod: samai }
+        } else {
+          const pecah = pecahRekodMap[p.noKP]
+          const samai = samaiRekodMap[p.noKP]
+          if (pecah) return { ...p, pecahRekod: pecah }
+          if (samai) return { ...p, samaiRekod: samai }
+        }
         return p
       })
       const hRef = doc(db, 'kejohanan', kejId, 'acara', acaraDoc.id, 'heat', heatDoc.id)
       await updateDoc(hRef, { peserta: pesertaPatched, updatedAt: serverTimestamp() })
       if (onPesertaPatch) onPesertaPatch(pesertaPatched)
-    } catch (e) { console.warn('patch pecahRekod:', e.message) }
+    } catch (e) { console.warn('patch rekod flag:', e.message) }
   }
 }

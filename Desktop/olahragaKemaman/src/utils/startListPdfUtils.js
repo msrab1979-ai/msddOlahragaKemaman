@@ -348,13 +348,29 @@ export function buatStartListPDFUnified({
       } else {
         const c0 = isMass ? 'Bil' : 'Lrg'
         const getPos = p => isMass ? (p.giliran ?? '—') : (p.lorong ?? '—')
+        const isFinal = heat.fasa === 'final'
         if (sal.id === 'juruhebah') {
-          head = [[c0, 'No. BIB', 'Nama Atlet', 'Sekolah']]
-          body = peserta.map(p => [
-            getPos(p), p.noBib, p.namaAtlet,
-            namaSekolahMap[p.kodSekolah] || p.kodSekolah,
-          ])
-          colStyles = { 0:{halign:'center',cellWidth:14}, 1:{cellWidth:20} }
+          if (isFinal && !isMass) {
+            // Final: tambah kolum H (Heat asal) dan Q (Kelayakan)
+            head = [[c0, 'No. BIB', 'Nama Atlet', 'Sekolah', 'H', 'Q']]
+            body = peserta.map(p => [
+              getPos(p), p.noBib, p.namaAtlet,
+              namaSekolahMap[p.kodSekolah] || p.kodSekolah,
+              p.noHeat ? `H${p.noHeat}` : (p._dariHeat ? `H${p._dariHeat}` : '—'),
+              p.qualifyType || p._qualifyType || '—',
+            ])
+            colStyles = {
+              0:{halign:'center',cellWidth:14}, 1:{cellWidth:18},
+              4:{halign:'center',cellWidth:12}, 5:{halign:'center',cellWidth:10, fontStyle:'bold'},
+            }
+          } else {
+            head = [[c0, 'No. BIB', 'Nama Atlet', 'Sekolah']]
+            body = peserta.map(p => [
+              getPos(p), p.noBib, p.namaAtlet,
+              namaSekolahMap[p.kodSekolah] || p.kodSekolah,
+            ])
+            colStyles = { 0:{halign:'center',cellWidth:14}, 1:{cellWidth:20} }
+          }
         } else if (sal.id === 'callroom') {
           head = [[c0, 'No. BIB', 'Nama Atlet', 'Sekolah', 'Hadir (✓ / DNS)']]
           body = peserta.map(p => [
