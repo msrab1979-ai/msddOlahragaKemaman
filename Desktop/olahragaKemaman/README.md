@@ -50,16 +50,20 @@ Sistem pengurusan kejohanan olahraga sekolah (MSSD) berasaskan web, dibina denga
 
 ```
 kejohanan/{kejId}
-  ├─ acara/{acaraId}         — senarai acara (noAcara, namaAcara, jantina, kategoriKod)
+  ├─ acara/{acaraId}         — senarai acara (noAcara, namaAcara, jantina, kategoriKod, jenisLorong)
+  ├─ acara/{acaraId}/heat/{heatId}  — heat (peserta[], lorong, giliran, statusKeputusan)
   ├─ pendaftaran/{noKP}      — rekod atlet (acaraIds[], kodSekolah, noBib, kategoriKod)
-  ├─ keputusan/{acaraId}     — keputusan acara (tempat, masa/jarak, dll)
-  └─ jadual/{jadualId}       — jadual pertandingan (hari, masa, gelanggang)
+  └─ jadual/{jadualId}       — jadual pertandingan (tarikhAcara, masaMula, lokasi)
 
 kategori/{kod}               — kategori atlet (jenisSekolah, label, urutan, hadAtlet)
 sekolah/{kodSekolah}         — data sekolah (namaSekolah, kategori, bibPrefix, pin)
 atlet/{noKP}                 — rekod atlet (nama, sekolah, kategoriKod)
-rekod/{id}                   — rekod kejohanan (acara, masa/jarak, pemegang, tahun)
-tetapan/home                 — tetapan papan pemuka awam
+rekod/{id}                   — rekod aktif (diluluskan admin) — acara, masa/jarak, pemegang, tahun
+rekod/{id}_tuntutan          — rekod pending (belum lulus) — auto-cipta apabila prestasi baru pecah rekod
+rekod_sejarah/{id}           — audit trail edit/padam rekod
+wa_config/{kejId}            — konfigurasi lorong WA per kejohanan (lorongKumpulan per jenisLorong)
+tetapan/home                 — tetapan papan pemuka awam (logo, tajuk)
+tetapan/finalSetup           — tetapan pilih finalis (bestHeat, bestTime per kategori)
 ```
 
 ---
@@ -70,6 +74,37 @@ Dua pandangan:
 
 1. **Ringkasan Acara** — baris = jenis acara, lajur = kategori atlet (L12, P12…), nilai = bilangan pendaftaran
 2. **Analisis Sekolah** — baris = sekolah, lajur grouped = acara × sub-kategori, rumusan ✓/✗ ikut kelengkapan pendaftaran. Filter jenis sekolah dinamik dari Firestore.
+
+---
+
+## Penetapan Lorong Final (WA)
+
+Lorong final ditetapkan mengikut piawaian World Athletics (WA) — undian rawak dalam kumpulan:
+
+| Jenis (`jenisLorong`) | Acara | Kumpulan (default) |
+|---|---|---|
+| `lurus` | 100m, Berpagar 100m/110m | [3,4,5,6] → [2,7] → [1,8] |
+| `dua_ratus` | 200m | [5,6,7] → [3,4,8] → [1,2] |
+| `selekoh` | 400m+, semua relay | [4,5,6,7] → [3,8] → [1,2] |
+
+Kumpulan boleh dikonfigurasi per kejohanan melalui **Acara Setup → WA Config**.
+
+Saringan (heat) guna undian terus standard: rank 1 → lorong 4, rank 2 → lorong 5, dll.
+
+---
+
+## Flow Rekod Kejohanan
+
+```
+Prestasi rasmi → postRasmiUtils → rekod/{id}_tuntutan  (pending)
+                                        ↓
+                              Admin semak di /dashboard/rekod → tab Tuntutan
+                                        ↓
+                              Sahkan → rekod/{id}  (aktif)
+                              Tolak  → tuntutan dipadam
+```
+
+Rekod tidak pernah ditulis secara automatik tanpa kelulusan admin.
 
 ---
 

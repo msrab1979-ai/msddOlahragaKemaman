@@ -95,6 +95,16 @@ const CARA_FINAL_OPTIONS = [
   { value: 'best_heat', label: 'Best Heat', desc: 'Top N dari setiap heat' },
 ]
 
+// ─── Kumpulan Lorong WA (8 lorong) ───────────────────────────────────────────
+// Untuk final sahaja — heat guna random draw biasa
+// Rank disusun ikut prestasi terbaik dulu, kemudian undian rawak DALAM kumpulan
+
+const WA_LORONG_KUMPULAN_DEFAULT = {
+  lurus:     { label: 'Lurus (100m, Berpagar 100m/110m)',              kumpulan: [[3,4,5,6],[2,7],[1,8]] },
+  dua_ratus: { label: '200m',                                          kumpulan: [[5,6,7],[3,4,8],[1,2]] },
+  selekoh:   { label: 'Selekoh (400m+, Berpagar 400m, Semua Relay)',   kumpulan: [[4,5,6,7],[3,8],[1,2]] },
+}
+
 const WA_CONFIG_DEFAULT = {
   windLimit: 2.0,
   falseStartRule: 'one',
@@ -103,6 +113,11 @@ const WA_CONFIG_DEFAULT = {
   handTimeAdjustOther: 0.14,
   cubaan: { peringkatAwal: 3, peringkatAkhir: 3, topFinalis: 8 },
   lorongStandard: 8,
+  lorongKumpulan: {
+    lurus:     [[3,4,5,6],[2,7],[1,8]],
+    dua_ratus: [[5,6,7],[3,4,8],[1,2]],
+    selekoh:   [[4,5,6,7],[3,8],[1,2]],
+  },
   caraPilihFinal: 'hybrid',
   wildcardSlot: 2,
 }
@@ -119,6 +134,16 @@ function detectJenisFromNama(nama) {
   if (/lompat jauh|lompat kijang|lompat tinggi/.test(n)) return 'padang_lompat'
   if (/lontar|lempar|rejam|peluru|cakera|lembing/.test(n)) return 'padang_balin'
   return 'lorong'
+}
+
+/** Auto-detect jenisLorong dari nama acara */
+function detectJenisLorongFromNama(nama) {
+  const n = (nama || '').toLowerCase()
+  // Relay semua selekoh — start stagger (4x100m, 4x200m, 4x400m)
+  if (/\d\s*x\s*\d|relay/.test(n)) return 'selekoh'
+  if (/\b200\s*m/.test(n)) return 'dua_ratus'
+  if (/\b400|\b800|\b1500|\b3000|\b5000/.test(n)) return 'selekoh'
+  return 'lurus' // 100m, 100mH, 110mH
 }
 function detectWindFromNama(nama) {
   const n = nama.toLowerCase()
@@ -1064,6 +1089,25 @@ const FormField = ({ label, hint, required, children }) => (
 
 // ─── WA Config Panel ──────────────────────────────────────────────────────────
 
+// Firestore tidak sokong nested arrays — tukar [[3,4,5,6],[2,7]] → ["3,4,5,6","2,7"]
+function serializeKumpulan(kumpulan) {
+  const out = {}
+  Object.entries(kumpulan).forEach(([jenis, grps]) => {
+    out[jenis] = grps.map(g => g.join(','))
+  })
+  return out
+}
+// Balik semula: ["3,4,5,6","2,7"] → [[3,4,5,6],[2,7]]
+function deserializeKumpulan(data) {
+  const out = {}
+  Object.entries(data).forEach(([jenis, grps]) => {
+    out[jenis] = grps.map(s =>
+      String(s).split(',').map(v => parseInt(v.trim())).filter(v => !isNaN(v))
+    )
+  })
+  return out
+}
+
 function WaConfigPanel({ kejohananId }) {
   const [open, setOpen] = useState(false)
   const [cfg, setCfg] = useState(WA_CONFIG_DEFAULT)
@@ -1073,7 +1117,14 @@ function WaConfigPanel({ kejohananId }) {
   useEffect(() => {
     if (!open || !kejohananId) return
     getDoc(doc(db, 'wa_config', kejohananId)).then(d => {
-      if (d.exists()) setCfg({ ...WA_CONFIG_DEFAULT, ...d.data() })
+      if (d.exists()) {
+        const data = d.data()
+        // Deserialize lorongKumpulan dari strings balik ke arrays
+        if (data.lorongKumpulan) {
+          data.lorongKumpulan = deserializeKumpulan(data.lorongKumpulan)
+        }
+        setCfg({ ...WA_CONFIG_DEFAULT, ...data })
+      }
     })
   }, [open, kejohananId])
 
@@ -1083,7 +1134,12 @@ function WaConfigPanel({ kejohananId }) {
     if (!kejohananId) return
     setSaving(true)
     try {
-      await setDoc(doc(db, 'wa_config', kejohananId), { ...cfg, updatedAt: serverTimestamp() }, { merge: true })
+      const payload = { ...cfg, updatedAt: serverTimestamp() }
+      // Serialize lorongKumpulan — Firestore tak sokong nested arrays
+      if (payload.lorongKumpulan) {
+        payload.lorongKumpulan = serializeKumpulan(payload.lorongKumpulan)
+      }
+      await setDoc(doc(db, 'wa_config', kejohananId), payload, { merge: true })
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } catch (e) { alert(e.message) } finally { setSaving(false) }
@@ -1147,6 +1203,56 @@ function WaConfigPanel({ kejohananId }) {
                 onChange={e => set('lorongStandard', parseInt(e.target.value))} className={inputCls} />
             </FormField>
 
+          </div>
+
+          {/* Kumpulan Lorong WA — untuk FINAL sahaja */}
+          <div className="border border-gray-100 rounded-lg p-3 bg-gray-50 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-bold text-gray-600 uppercase tracking-wide">Penetapan Lorong Final (WA)</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">Untuk final sahaja. Heat guna random draw. Rank 1 = terpantas/terbaik.</p>
+              </div>
+              <button
+                onClick={() => set('lorongKumpulan', WA_CONFIG_DEFAULT.lorongKumpulan)}
+                className="text-[10px] text-[#003399] font-semibold hover:underline shrink-0"
+              >
+                Reset WA
+              </button>
+            </div>
+            {Object.entries(WA_LORONG_KUMPULAN_DEFAULT).map(([jenisKey, meta]) => {
+              const kumpulan = (cfg.lorongKumpulan?.[jenisKey]) || meta.kumpulan
+              const rankStart = [0, kumpulan[0].length, kumpulan[0].length + kumpulan[1].length]
+              return (
+                <div key={jenisKey} className="space-y-1.5">
+                  <p className="text-[10px] font-bold text-gray-700">{meta.label}</p>
+                  {kumpulan.map((grp, gi) => (
+                    <div key={gi} className="flex items-center gap-2">
+                      <span className="text-[9px] text-gray-400 w-20 shrink-0">
+                        Rank {rankStart[gi]+1}–{rankStart[gi]+grp.length}
+                      </span>
+                      <input
+                        type="text"
+                        value={grp.join(',')}
+                        onChange={e => {
+                          const vals = e.target.value.split(',').map(v => parseInt(v.trim())).filter(v => !isNaN(v))
+                          const cur = JSON.parse(JSON.stringify(cfg.lorongKumpulan || WA_CONFIG_DEFAULT.lorongKumpulan))
+                          cur[jenisKey][gi] = vals
+                          set('lorongKumpulan', cur)
+                        }}
+                        placeholder={meta.kumpulan[gi].join(',')}
+                        className="flex-1 border border-gray-200 rounded px-2 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-[#003399]/30"
+                      />
+                      <span className="text-[9px] text-gray-300 shrink-0">lorong</span>
+                    </div>
+                  ))}
+                </div>
+              )
+            })}
+            <p className="text-[9px] text-gray-400">* Nombor lorong dipisahkan dengan koma. Rank dalam kumpulan akan diundi secara rawak.</p>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+
             {cfg.timeSystem === 'manual' && (
               <>
                 <FormField label="Pelarasan Masa — Sprint (s)" hint="Tambah ke masa tangan: 100m, 200m, 400m, relay (WA: +0.24s)">
@@ -1199,6 +1305,8 @@ function AcaraModal({ mode, initial, kejohananId, onClose, onSaved, kategoriList
     bilanganCubaan: initial?.bilanganCubaan || 6,
     hadAtletPerSekolah: initial?.hadAtletPerSekolah || 2,
     isWindReading:  initial?.isWindReading  ?? false,
+    jenisLorong:    initial?.jenisLorong    || detectJenisLorongFromNama(initial?.namaAcaraPendek || ''),
+    jenisLorongManual: false,
     jenisManual:    false,
     windManual:     false,
     showAdvanced:   false,
@@ -1208,15 +1316,16 @@ function AcaraModal({ mode, initial, kejohananId, onClose, onSaved, kategoriList
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
-  // Auto-detect jenis & wind dari nama acara
+  // Auto-detect jenis & wind & jenisLorong dari nama acara
   useEffect(() => {
     if (!form.jenisManual && form.namaAcaraPendek) {
       const jenis = detectJenisFromNama(form.namaAcaraPendek)
       const wind  = detectWindFromNama(form.namaAcaraPendek)
       setForm(f => ({
         ...f,
-        jenisAcara:   jenis,
+        jenisAcara:    jenis,
         isWindReading: f.windManual ? f.isWindReading : wind,
+        jenisLorong:   f.jenisLorongManual ? f.jenisLorong : detectJenisLorongFromNama(f.namaAcaraPendek),
       }))
     }
   }, [form.namaAcaraPendek, form.jenisManual])
@@ -1278,6 +1387,7 @@ function AcaraModal({ mode, initial, kejohananId, onClose, onSaved, kategoriList
         isWindReading:     !!form.isWindReading,
         unitUkuran:        isPadang ? 'm' : 's',
         bilanganLorong:    isLorong ? Number(form.bilanganLorong) : null,
+        jenisLorong:       isLorong ? (form.jenisLorong || 'lurus') : null,
         bilanganFinalis:   Number(form.bilanganFinalis),
         caraPilihFinal:    form.caraPilihFinal,
         wildcardSlot:      form.caraPilihFinal === 'hybrid' ? Number(form.wildcardSlot) : 0,
@@ -1526,16 +1636,40 @@ function AcaraModal({ mode, initial, kejohananId, onClose, onSaved, kategoriList
               </FormField>
 
               {isLorong && (
-                <div className="grid grid-cols-2 gap-3">
-                  <FormField label="Bilangan Lorong">
-                    <input type="number" min={4} max={10} value={form.bilanganLorong}
-                      onChange={e => set('bilanganLorong', e.target.value)} className={inputCls} />
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <FormField label="Bilangan Lorong">
+                      <input type="number" min={4} max={10} value={form.bilanganLorong}
+                        onChange={e => set('bilanganLorong', e.target.value)} className={inputCls} />
+                    </FormField>
+                    <FormField label="Bilangan Finalis">
+                      <input type="number" min={2} value={form.bilanganFinalis}
+                        onChange={e => set('bilanganFinalis', e.target.value)} className={inputCls} />
+                    </FormField>
+                  </div>
+                  <FormField label="Jenis Lorong (Final WA)" hint="Auto-detect dari nama acara — boleh override">
+                    <div className="flex gap-2 items-center">
+                      <select
+                        value={form.jenisLorong || 'lurus'}
+                        onChange={e => { set('jenisLorong', e.target.value); set('jenisLorongManual', true) }}
+                        className={inputCls + ' flex-1'}
+                      >
+                        <option value="lurus">Lurus — 100m, Berpagar (100m/110m)</option>
+                        <option value="dua_ratus">200m</option>
+                        <option value="selekoh">Selekoh — 400m+, Berpagar 400m, Relay (4×100m, 4×200m, 4×400m)</option>
+                      </select>
+                      {form.jenisLorongManual && (
+                        <button
+                          type="button"
+                          onClick={() => { set('jenisLorongManual', false); set('jenisLorong', detectJenisLorongFromNama(form.namaAcaraPendek)) }}
+                          className="text-[10px] text-gray-400 hover:text-[#003399] whitespace-nowrap"
+                        >
+                          Auto
+                        </button>
+                      )}
+                    </div>
                   </FormField>
-                  <FormField label="Bilangan Finalis">
-                    <input type="number" min={2} value={form.bilanganFinalis}
-                      onChange={e => set('bilanganFinalis', e.target.value)} className={inputCls} />
-                  </FormField>
-                </div>
+                </>
               )}
 
               {isPadang && (

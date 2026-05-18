@@ -15,6 +15,10 @@ import {
 import { selectFinalists as _selectFinalists, assignLorong as _assignLorong, getFinalistSetup as _getFinalistSetup } from '../../utils/finalistUtils'
 import { runPostRasmi } from '../../utils/postRasmiUtils'
 import { cariRekodUntukAcara, formatPrestasiRekod, tahunRekod, rekodKey as buildRekodKey } from '../../utils/rekodUtils'
+import {
+  buatStartListPDFUnified, assignLorongFinal, detectJenisLorong,
+  WA_LORONG_KUMPULAN_DEFAULT, deserializeKumpulan, katLabel as _katLabel,
+} from '../../utils/startListPdfUtils'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
 import jsPDF from 'jspdf'
@@ -1718,175 +1722,87 @@ export default function InputKeputusan() {
     await handleHantar()
   }
 
-  // ── Cetak Senarai Layak ke Final ──────────────────────────────────────────
+  // ── Cetak Start List Final (4 salinan: Juruhebah / Call Room / Teknikal / Fail) ──
 
   async function handleCetakLayakFinal() {
     if (!selectedAcara || !finalDijanaKe) return
     setCetakLayakLoading(true)
     try {
-      const cfgSnap = await getDoc(doc(db, 'tetapan', 'home')).catch(() => null)
-      const homeCfg = cfgSnap?.exists() ? cfgSnap.data() : {}
+      // 1. Cari acara final dari acaraList menggunakan noAcara
+      const finalAcara = acaraList.find(a => String(a.noAcara) === String(finalDijanaKe))
+      if (!finalAcara) throw new Error(`Acara final #${finalDijanaKe} tidak ditemui dalam senarai`)
 
-      function imgFmt(b64) {
-        if (!b64) return 'PNG'
-        return (b64.startsWith('data:image/jpeg') || b64.startsWith('data:image/jpg')) ? 'JPEG' : 'PNG'
+      // 2. Muatkan tetapan/home + wa_config serentak
+      const [homeSnap, waSnap] = await Promise.all([
+        getDoc(doc(db, 'tetapan', 'home')).catch(() => null),
+        getDoc(doc(db, 'wa_config', kejohananId)).catch(() => null),
+      ])
+      const homeCfg = homeSnap?.exists() ? homeSnap.data() : {}
+      const namaKej = homeCfg?.tajukUtama || kejohananData?.namaKejohanan || 'Kejohanan Olahraga'
+
+      // 3. Parse lorongKumpulan dari wa_config
+      let lorongKumpulan = { ...WA_LORONG_KUMPULAN_DEFAULT }
+      if (waSnap?.exists() && waSnap.data().lorongKumpulan) {
+        const parsed = deserializeKumpulan(waSnap.data().lorongKumpulan)
+        if (parsed) lorongKumpulan = { ...WA_LORONG_KUMPULAN_DEFAULT, ...parsed }
       }
 
-      const isPadangAcara = ['padang_lompat', 'padang_balin'].includes(selectedAcara.jenisAcara)
-      const isRelayAcara  = selectedAcara.jenisAcara === 'relay'
-      const namaKej       = homeCfg?.tajukUtama || kejohananData?.namaKejohanan || 'Kejohanan Olahraga'
-      const katLabel      = kategoriMap[selectedAcara.kategoriKod] || selectedAcara.kategoriKod || '—'
-      const namaAcara     = selectedAcara.namaAcara || '—'
-
-      function fmtPrestasiLayak(val) {
-        if (val == null || val === '') return '—'
-        const n = Number(val)
-        if (isNaN(n)) return String(val)
-        if (isPadangAcara) return `${n.toFixed(2)} m`
-        const min = Math.floor(n / 60)
-        const sek = (n % 60).toFixed(2).padStart(5, '0')
-        return min > 0 ? `${min}:${sek}` : `${Number(sek).toFixed(2)}s`
-      }
-
-      // Ambil finalis dengan qualifyType
+      // 4. Pilih finalis dari heats saringan semasa
       const raw = _selectFinalists(heats, selectedAcara, finalSetup)
-      const { bestHeat, bestTime } = _getFinalistSetup(selectedAcara, finalSetup)
-      const saringanHeats = heats.filter(h =>
-        h.peringkat !== 'final' && ['rasmi', 'tidak_rasmi', 'diterima'].includes(h.statusKeputusan)
-      )
-
-      // Sort: Q dulu (ikut prestasi), kemudian q (ikut prestasi)
+      const isPadangAcara = ['padang_lompat', 'padang_balin'].includes(finalAcara.jenisAcara)
+      const isMassAcara   = finalAcara.jenisAcara === 'mass_start'
       const sortFn = (a, b) => isPadangAcara ? b.keputusan - a.keputusan : a.keputusan - b.keputusan
-      const qList  = raw.filter(f => f.qualifyType === 'Q').sort(sortFn)
-      const qqList = raw.filter(f => f.qualifyType === 'q').sort(sortFn)
-      const finalisAll = [...qList, ...qqList]
 
-      const now = new Date().toLocaleString('ms-MY')
+      // Sort ikut prestasi terbaik sebelum assign lorong
+      const finalisSort = [...raw].sort(sortFn)
 
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-      const M = 14
-      const W = pdf.internal.pageSize.getWidth()
-      const BLUE = [0, 51, 153]
-
-      // ── Header ──
-      let y = 10
-      const logoW = 18, logoH = 18
-      if (homeCfg.logoKiriBase64) {
-        try { pdf.addImage(homeCfg.logoKiriBase64, imgFmt(homeCfg.logoKiriBase64), M, y, logoW, logoH) } catch {}
-      }
-      if (homeCfg.logoKananBase64) {
-        try { pdf.addImage(homeCfg.logoKananBase64, imgFmt(homeCfg.logoKananBase64), W - M - logoW, y, logoW, logoH) } catch {}
-      }
-      pdf.setFont('helvetica', 'bold')
-      pdf.setFontSize(11)
-      pdf.setTextColor(0, 0, 0)
-      pdf.text(namaKej, W / 2, y + 7, { align: 'center' })
-      pdf.setFont('helvetica', 'normal')
-      pdf.setFontSize(8.5)
-      pdf.setTextColor(60, 60, 60)
-      pdf.text('SENARAI ATLET LAYAK KE FINAL', W / 2, y + 13, { align: 'center' })
-      pdf.setFontSize(7.5)
-      pdf.setTextColor(120, 120, 120)
-      pdf.text(`Dicetak: ${now}`, W / 2, y + 18.5, { align: 'center' })
-      pdf.setDrawColor(...BLUE)
-      pdf.setLineWidth(0.7)
-      pdf.line(M, y + 22, W - M, y + 22)
-      y += 28
-
-      // ── Info acara ──
-      const jantLabel = selectedAcara.jantina === 'L' ? 'Lelaki' : selectedAcara.jantina === 'P' ? 'Perempuan' : (selectedAcara.jantina || '—')
-      const infoRows = [
-        ['Acara', namaAcara],
-        ['Kategori', katLabel],
-        ['Jantina', jantLabel],
-        ['No. Acara (Final)', `#${finalDijanaKe}`],
-        ['Bilangan Heat Saringan', `${saringanHeats.length} heat`],
-        ['Kelayakan', `${bestHeat > 0 ? `${bestHeat} terbaik setiap heat (Q)` : '—'}${bestTime > 0 ? ` + ${bestTime} masa terbaik (q)` : ''}`],
-        ['Jumlah Layak', `${finalisAll.length} atlet`],
-      ]
-
-      autoTable(pdf, {
-        startY: y,
-        body: infoRows,
-        theme: 'plain',
-        styles: { fontSize: 8, cellPadding: 1.5 },
-        columnStyles: {
-          0: { fontStyle: 'bold', textColor: [80, 80, 80], cellWidth: 52 },
-          1: { textColor: [30, 30, 30] },
-        },
-        margin: { left: M, right: M },
-      })
-      y = pdf.lastAutoTable.finalY + 5
-
-      // ── Jadual finalis ──
-      const tblHead = isRelayAcara
-        ? [['#', 'Sekolah', 'Prestasi', 'Heat', 'Kel']]
-        : [['#', 'Bib', 'Nama Atlet', 'Sekolah', 'Prestasi', 'Heat', 'Kel']]
-
-      const tblBody = finalisAll.map((f, i) => {
-        const prestasi = fmtPrestasiLayak(f.keputusan)
-        const heatLabel = `H${f.noHeat || '?'}`
-        const kel = f.qualifyType || 'q'
-        if (isRelayAcara) {
-          return [String(i + 1), f.kodSekolah || '—', prestasi, heatLabel, kel]
-        }
-        return [String(i + 1), f.noBib || '—', f.namaAtlet || '—', f.kodSekolah || '—', prestasi, heatLabel, kel]
-      })
-
-      autoTable(pdf, {
-        startY: y,
-        head: tblHead,
-        body: tblBody,
-        theme: 'striped',
-        styles: { fontSize: 8.5, cellPadding: 2.2, valign: 'middle' },
-        headStyles: { fillColor: BLUE, textColor: 255, fontStyle: 'bold', fontSize: 8 },
-        columnStyles: isRelayAcara
-          ? { 0: { cellWidth: 8, halign: 'center' }, 1: { cellWidth: 40 }, 2: { cellWidth: 28, halign: 'center' }, 3: { cellWidth: 16, halign: 'center' }, 4: { cellWidth: 14, halign: 'center', fontStyle: 'bold' } }
-          : { 0: { cellWidth: 8, halign: 'center' }, 1: { cellWidth: 14, halign: 'center' }, 2: { cellWidth: 55 }, 3: { cellWidth: 30 }, 4: { cellWidth: 24, halign: 'center' }, 5: { cellWidth: 14, halign: 'center' }, 6: { cellWidth: 14, halign: 'center', fontStyle: 'bold' } },
-        didParseCell: (data) => {
-          const colKel = isRelayAcara ? 4 : 6
-          if (data.section === 'body' && data.column.index === colKel) {
-            const val = data.cell.raw
-            if (val === 'Q') { data.cell.styles.textColor = [20, 120, 20]; data.cell.styles.fontStyle = 'bold' }
-            else if (val === 'q') { data.cell.styles.textColor = [0, 80, 180]; data.cell.styles.fontStyle = 'bold' }
-          }
-        },
-        margin: { left: M, right: M },
-      })
-      y = pdf.lastAutoTable.finalY + 5
-
-      // ── Legenda ──
-      pdf.setFontSize(7.5)
-      pdf.setFont('helvetica', 'bold')
-      pdf.setTextColor(20, 120, 20)
-      pdf.text('Q', M, y)
-      pdf.setFont('helvetica', 'normal')
-      pdf.setTextColor(60, 60, 60)
-      pdf.text(` = ${bestHeat} terbaik setiap heat (heat qualifier)`, M + 4, y)
-      y += 4.5
-      pdf.setFont('helvetica', 'bold')
-      pdf.setTextColor(0, 80, 180)
-      pdf.text('q', M, y)
-      pdf.setFont('helvetica', 'normal')
-      pdf.setTextColor(60, 60, 60)
-      pdf.text(` = ${bestTime} masa terbaik keseluruhan (time qualifier / wildcard)`, M + 4, y)
-      y += 6
-      pdf.setFontSize(7)
-      pdf.setTextColor(140, 140, 140)
-      pdf.text('* Senarai ini adalah cadangan sistem berdasarkan keputusan heat yang telah dimasukkan.', M, y)
-
-      // ── Footer ──
-      const PG = pdf.internal.getNumberOfPages()
-      for (let i = 1; i <= PG; i++) {
-        pdf.setPage(i)
-        pdf.setFontSize(7)
-        pdf.setTextColor(160, 160, 160)
-        pdf.text(`${namaKej} — Senarai Layak ke Final`, M, 291)
-        pdf.text(`Halaman ${i} / ${PG}`, W - M, 291, { align: 'right' })
+      // 5. Assign lorong / giliran menggunakan WA
+      let finalPeserta
+      if (isPadangAcara || isMassAcara) {
+        finalPeserta = finalisSort.map((p, i) => ({ ...p, giliran: i + 1 }))
+      } else {
+        const jenisLorong = detectJenisLorong(finalAcara)
+        finalPeserta = assignLorongFinal(finalisSort, jenisLorong, lorongKumpulan)
       }
 
-      const safeNama = (selectedAcara.namaAcaraPendek || namaAcara).replace(/[^a-zA-Z0-9]/g, '_')
-      pdf.save(`layak_final_${safeNama}_${katLabel}.pdf`)
+      // 6. Bina heat object untuk buatStartListPDFUnified
+      const finalHeat = {
+        heatId:  `final_${finalDijanaKe}`,
+        fasa:    'final',
+        noHeat:  1,
+        peserta: finalPeserta,
+      }
+
+      // 7. Cari jadual untuk acara final
+      const finalAceraKey = finalAcara.aceraId || finalAcara.acaraId
+      const jadualFinal = jadualAll.find(j =>
+        j.aceraId === finalAceraKey ||
+        (j.acara && j.acara.acaraId === finalAcara.acaraId)
+      ) || null
+
+      // 8. Bina kategoriList dari kategoriMap
+      const kategoriList = Object.entries(kategoriMap).map(([kod, label]) => ({ kod, label }))
+
+      // 9. Rekod DNK — guna rekod yang sudah dimuatkan untuk acara semasa
+      const rekodDNK = acaraRekod || { D: null, N: null, K: null }
+
+      // 10. Jana PDF 4 salinan
+      const pdf = buatStartListPDFUnified({
+        acara:         { ...finalAcara, noAcara: finalDijanaKe },
+        heats:         [finalHeat],
+        namaKej,
+        jadual:        jadualFinal,
+        rekodDNK,
+        namaSekolahMap: sekolahMap,
+        kategoriList,
+        logoKiri:      homeCfg.logoKiriBase64  || null,
+        logoKanan:     homeCfg.logoKananBase64 || null,
+      })
+
+      const kat      = _katLabel(finalAcara.kategoriKod, kategoriList)
+      const safeNama = (finalAcara.namaAcaraPendek || finalAcara.namaAcara || 'final')
+        .replace(/[^a-zA-Z0-9]/g, '_')
+      pdf.save(`StartList_Final_${safeNama}_${kat}.pdf`)
     } catch (err) {
       console.error('handleCetakLayakFinal error:', err)
       alert('Ralat semasa jana PDF. Sila cuba lagi.')
@@ -3160,10 +3076,10 @@ export default function InputKeputusan() {
             return (
               <div className="pb-4">
                 <div className="bg-blue-50 border border-blue-200 rounded-2xl px-4 py-3 space-y-2">
-                  <p className="text-xs font-black text-blue-800">Senarai Layak ke Final</p>
+                  <p className="text-xs font-black text-blue-800">Start List Final</p>
                   <p className="text-[11px] text-blue-600">
                     Acara final: <span className="font-bold">#{finalDijanaKe}</span>
-                    {' '}— PDF mengandungi senarai atlet layak dengan kelayakan Q / q.
+                    {' '}— Start List 4 salinan: Juruhebah · Call Room · Teknikal · Fail
                   </p>
                   <button
                     onClick={handleCetakLayakFinal}
@@ -3185,7 +3101,7 @@ export default function InputKeputusan() {
                           <path d="M9 21h6a1 1 0 001-1v-5H8v5a1 1 0 001 1z"/>
                           <path d="M7 7V3h10v4"/>
                         </svg>
-                        Cetak PDF Senarai Layak ke Final
+                        Cetak Start List Final (4 Salinan)
                       </>
                     )}
                   </button>

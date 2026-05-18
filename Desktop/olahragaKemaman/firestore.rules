@@ -193,6 +193,14 @@ service cloud.firestore {
       allow delete: if true;
     }
 
+    // ─── WA Config — tetapan peraturan WA per kejohanan ─────────────────────
+    match /wa_config/{id} {
+      allow read:   if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if false;
+    }
+
     // ─── TIADA wildcard catch-all ─────────────────────────────────────────────
     // Koleksi tidak tersenarai di atas = DITOLAK secara default.
     // Ini mencegah koleksi luar dijana oleh pihak yang tidak diketahui.

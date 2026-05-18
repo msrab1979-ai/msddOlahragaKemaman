@@ -268,18 +268,13 @@ export async function runPostRasmi(db, heatDoc, acaraDoc, kejId, config = {}) {
             updatedAt:    serverTimestamp(),
           }
 
-          // Tulis ke primary key (format baru) + tuntutan
-          await Promise.all([
-            setDoc(rekodRef, rekodData),
-            setDoc(tuntutanRef, { ...rekodData, rekodId: primaryKey + '_tuntutan', rekodAsal: primaryKey }),
-          ])
+          // Tulis ke tuntutan SAHAJA — admin perlu approve sebelum masuk rekod aktif
+          await setDoc(tuntutanRef, { ...rekodData, rekodId: primaryKey + '_tuntutan', rekodAsal: primaryKey })
 
-          // Jika rekod lama tersimpan di key lain (format lama) — padam untuk elak orphan
+          // Jika tuntutan lama tersimpan di key lain (format lama) — padam untuk elak orphan
+          // JANGAN padam rekod/{rKey} — mungkin rekod lama sudah diluluskan admin
           if (rKey !== primaryKey) {
-            await Promise.all([
-              deleteDoc(doc(db, 'rekod', rKey)).catch(() => {}),
-              deleteDoc(doc(db, 'rekod', rKey + '_tuntutan')).catch(() => {}),
-            ])
+            await deleteDoc(doc(db, 'rekod', rKey + '_tuntutan')).catch(() => {})
           }
         }
       } catch (e) { console.warn('rekod_tuntutan:', e.message) }
@@ -359,16 +354,12 @@ export async function runPostRasmi(db, heatDoc, acaraDoc, kejId, config = {}) {
             lokasiLama:   rekodLama?.namaSekolah || null,
             updatedAt:    serverTimestamp(),
           }
-          await Promise.all([
-            setDoc(rekodRef, relayData),
-            setDoc(tuntutanRef, { ...relayData, rekodId: primaryKeyR + '_tuntutan', rekodAsal: primaryKeyR }),
-          ])
-          // Jika rekod lama di key format lama — padam untuk elak orphan
+          // Tulis ke tuntutan SAHAJA — admin perlu approve sebelum masuk rekod aktif
+          await setDoc(tuntutanRef, { ...relayData, rekodId: primaryKeyR + '_tuntutan', rekodAsal: primaryKeyR })
+          // Jika tuntutan lama di key format lama — padam untuk elak orphan
+          // JANGAN padam rekod/{rKey} — mungkin rekod lama sudah diluluskan admin
           if (rKey !== primaryKeyR) {
-            await Promise.all([
-              deleteDoc(doc(db, 'rekod', rKey)).catch(() => {}),
-              deleteDoc(doc(db, 'rekod', rKey + '_tuntutan')).catch(() => {}),
-            ])
+            await deleteDoc(doc(db, 'rekod', rKey + '_tuntutan')).catch(() => {})
           }
         }
       } catch (e) { console.warn('rekod_relay:', e.message) }
