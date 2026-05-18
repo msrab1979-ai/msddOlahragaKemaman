@@ -1609,7 +1609,7 @@ export default function Rekod() {
                                 <td className="px-3 py-2.5 text-center">
                                   <div className="flex items-center gap-1.5 justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                                     <button
-                                      onClick={() => setModal({ mode: 'edit', initial: { ...r, prestasi: String(r.prestasi), windSpeed: r.windSpeed != null ? String(r.windSpeed) : '' } })}
+                                      onClick={() => setModal({ mode: 'edit', initial: { ...EMPTY_FORM, ...r, prestasi: String(r.prestasi), windSpeed: r.windSpeed != null ? String(r.windSpeed) : '' } })}
                                       className="text-[10px] px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded font-semibold transition-colors"
                                     >
                                       Edit
@@ -2191,6 +2191,7 @@ export default function Rekod() {
                                     {x.connectionType === 'kuat' && (
                                       <button
                                         onClick={() => setModal({ mode: 'edit', initial: {
+                                          ...EMPTY_FORM,
                                           ...x.rekodItem,
                                           prestasi:  String(x.rekodItem.prestasi),
                                           windSpeed: x.rekodItem.windSpeed != null ? String(x.rekodItem.windSpeed) : '',
