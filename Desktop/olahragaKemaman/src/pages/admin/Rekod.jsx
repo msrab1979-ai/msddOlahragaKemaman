@@ -71,7 +71,7 @@ const EMPTY_FORM = {
   namaDaerah: '', namaNegeri: '',
   prestasi: '', unit: 's',
   windSpeed: '', isWindLegal: true, jenisRekod: 'elektronik',
-  tarikhRekod: new Date().toISOString().split('T')[0],
+  tarikhRekod: String(new Date().getFullYear()),
   catatanKhas: '',
 }
 
@@ -141,7 +141,7 @@ function downloadTemplate(acaraList) {
     ['unit','s, m','s = masa (saat), m = jarak (meter)'],
     ['jenisRekod','elektronik, manual',''],
     ['isWindLegal','TRUE, FALSE','Angin ≤ 2.0 m/s = TRUE'],
-    ['tarikhRekod','YYYY-MM-DD','Contoh: 2025-04-12'],
+    ['tarikhRekod','YYYY','Contoh: 2025'],
     ['prestasi','Nombor positif','Masa dalam saat (12.45), Jarak dalam meter (5.80). Masa >1 min dalam saat (800m = 125.32)'],
     ['windSpeed','Nombor atau kosong','Positif atau negatif. Cth: 1.8 atau -0.5'],
     ['','',''],
@@ -238,7 +238,7 @@ function cetakRekodPDF(rekodList, kategoriList, selectedPeringkat) {
           r.windSpeed != null
             ? `${r.windSpeed >= 0 ? '+' : ''}${Number(r.windSpeed).toFixed(1)}`
             : '—',
-          r.tarikhRekod || '—',
+          r.tarikhRekod ? String(r.tarikhRekod).slice(0, 4) : '—',
         ])
 
       autoTable(pdf, {
@@ -352,7 +352,7 @@ function ImportRekodModal({ onClose, onDone }) {
             isWindLegal,
             jenisRekod:   r.jenisRekod?.toString().trim() || 'elektronik',
             statusRekod:  'aktif',
-            tarikhRekod:  r.tarikhRekod?.toString().trim() || new Date().toISOString().split('T')[0],
+            tarikhRekod:  (r.tarikhRekod?.toString().trim() || String(new Date().getFullYear())).slice(0, 4),
             kejohananId:  '',
             disahkanOleh: null,
             catatanKhas:  r.catatanKhas?.toString().trim() || '',
@@ -666,14 +666,27 @@ function RekodModal({ initial, kategoriList, acaraList, onClose, onSaved }) {
 
     setSaving(true)
     try {
-      const rKey = rekodKey(form.namaAcara, form.jantina, form.kategoriKod, form.peringkat)
+      const rKey    = rekodKey(form.namaAcara, form.jantina, form.kategoriKod, form.peringkat)
+      const oldKey  = initial?.rekodId || null
+      const keyChanged = isEdit && oldKey && oldKey !== rKey
       const ref  = doc(db, 'rekod', rKey)
       const snap = await getDoc(ref)
 
       // Kalau edit rekod aktif, archive ke sejarah dulu
-      if (isEdit && snap.exists() && snap.data().statusRekod === 'aktif') {
-        const sejarahRef = doc(collection(db, 'rekod_sejarah'))
-        await setDoc(sejarahRef, { ...snap.data(), diarchivPada: serverTimestamp() })
+      if (isEdit) {
+        // Archive dari old key (jika key berubah) atau current ref
+        const archiveSnap = keyChanged ? await getDoc(doc(db, 'rekod', oldKey)) : snap
+        if (archiveSnap.exists() && archiveSnap.data().statusRekod === 'aktif') {
+          const sejarahRef = doc(collection(db, 'rekod_sejarah'))
+          await setDoc(sejarahRef, { ...archiveSnap.data(), diarchivPada: serverTimestamp() })
+        }
+        // Padam old key jika key berubah
+        if (keyChanged) {
+          await Promise.all([
+            deleteDoc(doc(db, 'rekod', oldKey)).catch(() => {}),
+            deleteDoc(doc(db, 'rekod', oldKey + '_tuntutan')).catch(() => {}),
+          ])
+        }
       }
 
       await setDoc(ref, {
@@ -694,7 +707,7 @@ function RekodModal({ initial, kategoriList, acaraList, onClose, onSaved }) {
         isWindLegal: form.isWindLegal,
         jenisRekod:  form.jenisRekod,
         statusRekod: 'aktif',
-        tarikhRekod: form.tarikhRekod,
+        tarikhRekod: String(form.tarikhRekod || '').slice(0, 4),
         kejohananId: '',       // rekod input manual — tiada kejohanan spesifik
         disahkanOleh: userData?.uid || null,
         catatanKhas: form.catatanKhas.trim(),
@@ -745,16 +758,11 @@ function RekodModal({ initial, kategoriList, acaraList, onClose, onSaved }) {
           {/* Langkah 2: Pilih Nama Acara dari dropdown (auto-filter ikut kat+jantina) */}
           <div>
             <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Nama Acara *</label>
-            {isEdit ? (
-              <input className={inputCls + ' bg-gray-100 text-gray-500 cursor-not-allowed'}
-                value={form.namaAcara} readOnly />
-            ) : (
-              <select className={inputCls} value={form.namaAcara}
-                onChange={e => handleNamaAcaraChange(e.target.value)}>
-                <option value="">— Pilih Acara —</option>
-                {acaraOptions.map(n => <option key={n} value={n}>{n}</option>)}
-              </select>
-            )}
+            <select className={inputCls} value={form.namaAcara}
+              onChange={e => handleNamaAcaraChange(e.target.value)}>
+              <option value="">— Pilih Acara —</option>
+              {acaraOptions.map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
             {!isEdit && acaraOptions.length === 0 && form.kategoriKod && (
               <p className="text-[10px] text-amber-600 mt-1">
                 Tiada acara untuk Kat {form.kategoriKod} dalam sistem. Pilih kategori & jantina dahulu.
@@ -846,8 +854,9 @@ function RekodModal({ initial, kategoriList, acaraList, onClose, onSaved }) {
                 placeholder="cth: 990112-11-1234" />
             </div>
             <div>
-              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Tarikh Rekod</label>
-              <input className={inputCls} type="date" value={form.tarikhRekod}
+              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Tahun Rekod</label>
+              <input className={inputCls} type="number" min="1950" max="2099" step="1"
+                placeholder="2024" value={form.tarikhRekod}
                 onChange={e => set('tarikhRekod', e.target.value)} />
             </div>
           </div>
@@ -1164,8 +1173,12 @@ export default function Rekod() {
 
   // ── Baiki Orphan — re-key rekod ke namaAcara yang betul ─────────────────────
 
-  async function handleBaikiOrphan(orphan, targetNamaAcara, targetKatKod) {
+  // targetNamaAcara  = namaAcaraPendek (untuk bina key)
+  // targetKatKod     = kategoriKod baru
+  // targetNamaFull   = namaAcara penuh dari AcaraSetup (untuk disimpan dalam doc)
+  async function handleBaikiOrphan(orphan, targetNamaAcara, targetKatKod, targetNamaFull) {
     if (!targetNamaAcara || !targetKatKod) return
+    const namaAcaraSimpan = targetNamaFull || targetNamaAcara
     const peringkat = orphan.peringkat || semakPeringkat
     const newKey  = rekodKey(targetNamaAcara, orphan.jantina, targetKatKod, peringkat)
     const oldKey  = orphan.id
@@ -1193,10 +1206,11 @@ export default function Rekod() {
         const { id: _id, rekodId: _rId, ...rest } = orphan
         await setDoc(newRef, {
           ...rest,
-          rekodId:     newKey,
-          namaAcara:   targetNamaAcara,
-          kategoriKod: targetKatKod,
-          updatedAt:   serverTimestamp(),
+          rekodId:          newKey,
+          namaAcara:        namaAcaraSimpan,   // nama penuh dari AcaraSetup
+          namaAcaraPendek:  targetNamaAcara,   // nama pendek untuk key lookup
+          kategoriKod:      targetKatKod,
+          updatedAt:        serverTimestamp(),
         })
         await deleteDoc(doc(db, 'rekod', oldKey))
         setMsg({ type: 'ok', text: `Rekod berjaya dipindah: ${oldKey} → ${newKey}` })
@@ -1880,22 +1894,32 @@ export default function Rekod() {
                         const kat = katMap[r.kategoriKod]
                         const isExpanded = baikiOrphanId === r.id
                         // Dropdown: acara dalam sistem yang sama jantina (semua kategori)
-                        // Guna label dari katMap supaya user boleh kenal pasti kategori betul
+                        // value = "namaAcaraPendek::kategoriKod::namaAcara" (3 bahagian)
                         const acaraOptions = Object.values(
                           acaraList
                             .filter(a => a.jantina === r.jantina)
                             .reduce((acc, a) => {
-                              const nama = a.namaAcaraPendek || a.namaAcara
-                              const compositeKey = `${nama}::${a.kategoriKod}`
+                              const namaPendek  = a.namaAcaraPendek || a.namaAcara
+                              const namaFull    = a.namaAcara || namaPendek
+                              const compositeKey = `${namaPendek}::${a.kategoriKod}`
                               if (!acc[compositeKey]) {
                                 const katLabel = katMap[a.kategoriKod]?.label || katMap[a.kategoriKod]?.nama || a.kategoriKod
-                                acc[compositeKey] = { value: compositeKey, nama, kategoriKod: a.kategoriKod, katLabel, noAcara: a.noAcara }
+                                acc[compositeKey] = {
+                                  value:       `${namaPendek}::${a.kategoriKod}::${namaFull}`,
+                                  namaPendek,
+                                  namaFull,
+                                  kategoriKod: a.kategoriKod,
+                                  katLabel,
+                                  noAcara:     a.noAcara,
+                                }
                               }
                               return acc
                             }, {})
-                        ).sort((a, b) => a.nama.localeCompare(b.nama))
-                        const [_targetNama, _targetKat] = (baikiTargetAcara || '').includes('::')
-                          ? baikiTargetAcara.split('::') : ['', '']
+                        ).sort((a, b) => a.namaFull.localeCompare(b.namaFull))
+
+                        // Parse 3 bahagian dari composite value
+                        const [_targetNama, _targetKat, _targetNamaFull] = (baikiTargetAcara || '').includes('::')
+                          ? baikiTargetAcara.split('::') : ['', '', '']
                         const previewNewKey = _targetNama && _targetKat && isExpanded
                           ? rekodKey(_targetNama, r.jantina, _targetKat, r.peringkat || semakPeringkat)
                           : null
@@ -1985,7 +2009,7 @@ export default function Rekod() {
                                             <option value="">— Pilih acara + kategori yang betul —</option>
                                             {acaraOptions.map(opt => (
                                               <option key={opt.value} value={opt.value}>
-                                                [{opt.noAcara || '—'}] {opt.nama} · {opt.katLabel}
+                                                [{opt.noAcara || '—'}] {opt.namaFull} · {opt.katLabel}
                                               </option>
                                             ))}
                                           </select>
@@ -2015,8 +2039,8 @@ export default function Rekod() {
                                       <div className="flex items-center gap-2 pt-1">
                                         <button
                                           onClick={() => {
-                                            const [tNama, tKat] = (baikiTargetAcara || '').split('::')
-                                            handleBaikiOrphan(r, tNama, tKat)
+                                            const [tNama, tKat, tNamaFull] = (baikiTargetAcara || '').split('::')
+                                            handleBaikiOrphan(r, tNama, tKat, tNamaFull || tNama)
                                           }}
                                           disabled={!_targetNama || !_targetKat || baikiSaving || previewNewKey === r.id}
                                           className="px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-gray-200 disabled:text-gray-400 text-white text-xs font-bold rounded-lg transition-colors"
