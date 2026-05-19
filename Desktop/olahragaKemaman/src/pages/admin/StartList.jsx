@@ -2097,16 +2097,33 @@ export default function StartList() {
   }
 
   // ── Cetak Satu Heat (4 Salinan) ───────────────────────────────────────────────
+  // Normalkan heat supaya fasa + heatId sentiasa ada (InputKeputusan simpan peringkat bukan fasa)
+  function normalizeHeat(h) {
+    const docId = h.heatId || h.id
+    return {
+      ...h,
+      heatId: docId,
+      fasa: h.fasa || (h.peringkat === 'final' ? 'final' : h.peringkat === 'saringan' ? 'saringan' : 'heat'),
+      peserta: (h.peserta || []).map(p => ({
+        ...p,
+        noBib:      String(p.noBib      ?? ''),
+        namaAtlet:  String(p.namaAtlet  ?? ''),
+        kodSekolah: String(p.kodSekolah ?? ''),
+      })),
+    }
+  }
+
   async function cetakSatuHeat(heat) {
     if (!selectedAcara || !selectedKej) return
-    setCetakHeatId(heat.heatId)
+    const h = normalizeHeat(heat)
+    setCetakHeatId(h.heatId)
     try {
       const cfgSnap = await getDoc(doc(db, 'tetapan', 'home'))
       const cfg = cfgSnap.exists() ? cfgSnap.data() : {}
       const jadual = jadualMap[selectedAcara.aceraId || selectedAcara.id] || {}
       const pdf = buatStartListPDFUnified({
         acara:     selectedAcara,
-        heats:     [heat],
+        heats:     [h],
         namaKej:   cfg.tajukUtama || namaKej,
         jadual,
         rekodDNK:  rekodAcara,
@@ -2115,15 +2132,15 @@ export default function StartList() {
         logoKiri:  cfg.logoKiriBase64  || null,
         logoKanan: cfg.logoKananBase64 || null,
       })
-      pdf.save(`StartList_${selectedAcara.aceraId}_${heat.heatId}_${Date.now()}.pdf`)
+      pdf.save(`StartList_${selectedAcara.aceraId}_${h.heatId}_${Date.now()}.pdf`)
       // Rekod dalam Firestore
       const bil = (heat.bilanganCetak || 0) + 1
       await updateDoc(
-        doc(db, 'kejohanan', selectedKej, 'acara', selectedAcara.aceraId, 'heat', heat.heatId),
+        doc(db, 'kejohanan', selectedKej, 'acara', selectedAcara.aceraId, 'heat', h.heatId),
         { bilanganCetak: bil, tarikhCetak: serverTimestamp() }
       )
-      setHeatList(prev => prev.map(h =>
-        h.heatId === heat.heatId ? { ...h, bilanganCetak: bil, tarikhCetak: new Date() } : h
+      setHeatList(prev => prev.map(x =>
+        (x.heatId || x.id) === h.heatId ? { ...x, bilanganCetak: bil, tarikhCetak: new Date() } : x
       ))
     } catch (e) { alert('Gagal cetak: ' + e.message) }
     finally { setCetakHeatId(null) }
@@ -2137,9 +2154,10 @@ export default function StartList() {
       const cfgSnap = await getDoc(doc(db, 'tetapan', 'home'))
       const cfg = cfgSnap.exists() ? cfgSnap.data() : {}
       const jadual = jadualMap[selectedAcara.aceraId || selectedAcara.id] || {}
+      const normalizedHeats = heatList.map(normalizeHeat)
       const pdf = buatStartListPDFUnified({
         acara:     selectedAcara,
-        heats:     heatList,
+        heats:     normalizedHeats,
         namaKej:   cfg.tajukUtama || namaKej,
         jadual,
         rekodDNK:  rekodAcara,
@@ -2151,7 +2169,7 @@ export default function StartList() {
       pdf.save(`StartList_${selectedAcara.aceraId}_${Date.now()}.pdf`)
       // Rekod semua heat dalam Firestore
       const batch = writeBatch(db)
-      heatList.forEach(h => {
+      normalizedHeats.forEach(h => {
         batch.update(
           doc(db, 'kejohanan', selectedKej, 'acara', selectedAcara.aceraId, 'heat', h.heatId),
           { bilanganCetak: (h.bilanganCetak || 0) + 1, tarikhCetak: serverTimestamp() }
@@ -3494,7 +3512,9 @@ export default function StartList() {
                         <span className="text-[10px] font-semibold px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full">
                           {selectedAcara.jenisAcara === 'relay'
                             ? `${new Set(pesertaList.map(p => p.kodSekolah).filter(Boolean)).size} pasukan berdaftar (${pesertaList.length} atlet)`
-                            : `${pesertaList.length} peserta berdaftar`}
+                            : isFinalAcara && heatList.length > 0
+                              ? `${heatList.reduce((s, h) => s + (h.peserta || []).length, 0)} finalis`
+                              : `${pesertaList.length} peserta berdaftar`}
                         </span>
                         <span className="text-[10px] font-semibold px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full">{heatList.length} heat</span>
                       </div>
@@ -3635,7 +3655,7 @@ export default function StartList() {
                 )}
 
                 {/* Peserta belum ada heat */}
-                {pesertaList.length === 0 && (
+                {pesertaList.length === 0 && !(isFinalAcara && heatList.length > 0) && (
                   <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center">
                     <p className="text-sm font-semibold text-amber-800">Tiada peserta berdaftar untuk acara ini.</p>
                     <p className="text-xs text-amber-600 mt-1">Daftar atlet dahulu dalam modul Pendaftaran Atlet.</p>
