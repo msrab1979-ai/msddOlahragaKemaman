@@ -1046,8 +1046,18 @@ function JanaFinalModal({ acara, heatList, kejohananId, onClose, onGenerated, se
     setSaving(true)
     setMsg('')
     try {
-      const heatId = buatHeatId(acara.aceraId, 'final', 1)
-      const ref    = doc(db, 'kejohanan', kejohananId, 'acara', acara.aceraId, 'heat', heatId)
+      // Cari final acara — simpan heat di final path, bukan saringan path
+      const saringanKey = acara.aceraId || acara.id
+      const saringanNo  = String(acara.noAcara || saringanKey)
+      const finalAcaraLinked = acaraList.find(a =>
+        String(a.parentAcaraId) === saringanNo ||
+        String(a.parentAcaraId) === String(saringanKey)
+      )
+      const targetAcara = finalAcaraLinked || acara
+      const targetKey   = targetAcara.aceraId || targetAcara.id
+
+      const heatId = buatHeatId(targetKey, 'final', 1)
+      const ref    = doc(db, 'kejohanan', kejohananId, 'acara', targetKey, 'heat', heatId)
 
       // Sort ikut prestasi terbaik sebelum assign lorong (WA standard)
       const finalisUntukAssign = (!isPadang && !isMass)
@@ -1062,7 +1072,7 @@ function JanaFinalModal({ acara, heatList, kejohananId, onClose, onGenerated, se
 
       await setDoc(ref, {
         heatId,
-        aceraId:     acara.aceraId,
+        aceraId:     targetKey,
         kejohananId,
         fasa:        'final',
         noHeat:      1,
@@ -1095,17 +1105,20 @@ function JanaFinalModal({ acara, heatList, kejohananId, onClose, onGenerated, se
           _dariHeat:     p.heatId      || null,
         })),
         finalisDipilih: finalis.map(p => isRelay ? p.kodSekolah : p.noBib),
+        dariSaringan:   saringanKey,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       })
 
+      // Mark saringan — finalDijanaKe supaya InputKeputusan tunjuk betul
+      await updateDoc(
+        doc(db, 'kejohanan', kejohananId, 'acara', saringanKey),
+        { finalDijanaKe: String(targetAcara.noAcara || targetKey) }
+      ).catch(() => {})
+
       // ── Auto-register finalis ke pendaftaran acara final (individu sahaja) ────
       if (!isRelay) {
-        const saringanId = String(acara.noAcara || acara.aceraId || acara.id)
-        const finalAcara = acaraList.find(a =>
-          a.peringkat === 'akhir' &&
-          (String(a.parentAcaraId) === saringanId || String(a.parentAcaraId) === String(acara.aceraId))
-        )
+        const finalAcara = finalAcaraLinked
         if (finalAcara) {
           const finalAcaraId = finalAcara.aceraId || finalAcara.id
           const batch = writeBatch(db)
@@ -1486,6 +1499,8 @@ export default function StartList() {
   const [rekodAcara, setRekodAcara]      = useState({ D: null, N: null, K: null })
   const [loading, setLoading]            = useState(false)
   const [modal, setModal]                = useState(null)
+  const [saringanAcara, setSaringanAcara] = useState(null)   // parent saringan bila final acara dipilih
+  const [saringanHeats, setSaringanHeats] = useState([])     // heats saringan untuk jana final dari final view
 
   const [filterKat, setFilterKat]        = useState('semua')
   const [filterJenis, setFilterJenis]    = useState('semua')
@@ -1674,6 +1689,25 @@ export default function StartList() {
   }, [selectedAcara, selectedKej])
 
   useEffect(() => { fetchAcaraData() }, [fetchAcaraData])
+
+  // ── Load saringan heats bila final acara dipilih ──────────────────────────
+  useEffect(() => {
+    if (!selectedAcara?.parentAcaraId || !selectedKej) {
+      setSaringanAcara(null)
+      setSaringanHeats([])
+      return
+    }
+    const sar = acaraList.find(a =>
+      String(a.noAcara) === String(selectedAcara.parentAcaraId) ||
+      (a.aceraId || a.id) === String(selectedAcara.parentAcaraId)
+    )
+    setSaringanAcara(sar || null)
+    if (!sar) { setSaringanHeats([]); return }
+    const sarKey = sar.aceraId || sar.id
+    getDocs(collection(db, 'kejohanan', selectedKej, 'acara', sarKey, 'heat'))
+      .then(snap => setSaringanHeats(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+      .catch(() => setSaringanHeats([]))
+  }, [selectedAcara, selectedKej, acaraList])
 
   // ── Helper: semak sama ada mana-mana heat ada keputusan/rasmi ───────────────
   function heatAdaKeputusan(heats) {
@@ -2635,6 +2669,13 @@ export default function StartList() {
     heatPhaseHeats.every(h => h.statusKeputusan === 'rasmi')
   const canJanaFinal   = canEdit && allHeatRasmi && !finalExists
 
+  // ── Derived: Jana Final dari final acara view ──────────────────────────────
+  const isFinalAcara        = !!(selectedAcara?.parentAcaraId)
+  const sarPhaseHeats       = saringanHeats.filter(h => h.fasa === 'heat' || h.fasa === 'saringan')
+  const sarAllRasmi         = sarPhaseHeats.length > 0 &&
+    sarPhaseHeats.every(h => h.statusKeputusan === 'rasmi')
+  const canJanaFinalFromFinal = canEdit && isFinalAcara && heatList.length === 0 && sarAllRasmi
+
   return (
     <div className="p-5 max-w-6xl mx-auto space-y-4">
 
@@ -3565,6 +3606,26 @@ export default function StartList() {
                   </div>
                 )}
 
+                {/* Banner: Final acara — jana dari sini */}
+                {canJanaFinalFromFinal && (
+                  <div className="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-purple-600 text-lg">🏁</span>
+                      <div>
+                        <p className="text-xs font-bold text-purple-800">Final Belum Dijana</p>
+                        <p className="text-[10px] text-purple-500">
+                          Saringan #{saringanAcara?.noAcara} · {sarPhaseHeats.length} heat rasmi · Sedia jana final
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setModal({ type: 'janaFinal', fromFinal: true })}
+                      className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors shrink-0">
+                      Jana Final →
+                    </button>
+                  </div>
+                )}
+
                 {/* Banner: Final sudah wujud */}
                 {finalExists && (
                   <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-2.5 flex items-center gap-2">
@@ -3760,8 +3821,8 @@ export default function StartList() {
       )}
       {modal?.type === 'janaFinal' && selectedAcara && (
         <JanaFinalModal
-          acara={{ ...selectedAcara, _kejohananId: selectedKej }}
-          heatList={heatList}
+          acara={{ ...(modal.fromFinal && saringanAcara ? saringanAcara : selectedAcara), _kejohananId: selectedKej }}
+          heatList={modal.fromFinal ? saringanHeats : heatList}
           kejohananId={selectedKej}
           onClose={() => setModal(null)}
           onGenerated={fetchAcaraData}
