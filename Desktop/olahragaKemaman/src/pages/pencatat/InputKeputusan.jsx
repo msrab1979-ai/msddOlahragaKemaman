@@ -2183,10 +2183,24 @@ export default function InputKeputusan() {
       const _getDocs = getDocs
       const saringanKey = selectedAcara.aceraId || selectedAcara.acaraId
 
-      // Cari linked final acara — acara yang ada parentAcaraId === noAcara saringan
-      const linkedFinalAcara = acaraList.find(a =>
-        String(a.parentAcaraId) === String(selectedAcara.noAcara)
-      )
+      // Cari linked final acara — cuba beberapa strategi
+      // S1: parentAcaraId === noAcara saringan (standard)
+      let linkedFinalAcara = selectedAcara.noAcara != null
+        ? acaraList.find(a => a.parentAcaraId != null && String(a.parentAcaraId) === String(selectedAcara.noAcara))
+        : null
+      // S2: parentAcaraId === aceraId/acaraId saringan (edge: noAcara mungkin tiada/berbeza)
+      if (!linkedFinalAcara) {
+        linkedFinalAcara = acaraList.find(a =>
+          a.parentAcaraId != null && String(a.parentAcaraId) === String(saringanKey)
+        )
+      }
+      // S3: guna finalDijanaKe jika pernah jana sebelum ini (jana semula)
+      if (!linkedFinalAcara && selectedAcara.finalDijanaKe) {
+        linkedFinalAcara = acaraList.find(a =>
+          String(a.noAcara) === String(selectedAcara.finalDijanaKe) ||
+          (a.aceraId || a.acaraId) === String(selectedAcara.finalDijanaKe)
+        )
+      }
       const targetAcara    = linkedFinalAcara || selectedAcara
       const targetAceraKey = targetAcara.aceraId || targetAcara.acaraId
 
@@ -2252,11 +2266,14 @@ export default function InputKeputusan() {
 
       // Update local state
       const newFinalDijanaKe = String(targetAcara.noAcara || targetAceraKey)
-      setAcaraList(prev => prev.map(a =>
-        (a.aceraId || a.acaraId) === saringanKey
-          ? { ...a, finalDijanaKe: newFinalDijanaKe }
-          : a
-      ))
+      setAcaraList(prev => prev.map(a => {
+        if ((a.aceraId || a.acaraId) === saringanKey)
+          return { ...a, finalDijanaKe: newFinalDijanaKe }
+        // Kemaskini _totalHeat final acara supaya kad tunjuk betul
+        if (linkedFinalAcara && (a.aceraId || a.acaraId) === targetAceraKey)
+          return { ...a, _totalHeat: (a._totalHeat || 0) + 1 }
+        return a
+      }))
       // Kemaskini selectedAcara supaya butang cetak terus muncul tanpa refresh
       setSelectedAcara(prev =>
         prev && (prev.aceraId || prev.acaraId || prev.id) === saringanKey
