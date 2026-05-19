@@ -297,9 +297,10 @@ function GenerateModal({ acara, peserta, onClose, onGenerated, sekolahMap = {} }
   async function handleGenerate(kejohananId) {
     if (!preview) return
     setGen(true)
+    const aceraKey = acara.aceraId || acara.id
     try {
       // Padam heat lama dulu (supaya heat lama tidak kekal bersama heat baru)
-      const existSnap = await getDocs(collection(db, 'kejohanan', kejohananId, 'acara', acara.aceraId, 'heat'))
+      const existSnap = await getDocs(collection(db, 'kejohanan', kejohananId, 'acara', aceraKey, 'heat'))
       if (!existSnap.empty) {
         const delBatch = writeBatch(db)
         existSnap.docs.forEach(d => delBatch.delete(d.ref))
@@ -308,11 +309,11 @@ function GenerateModal({ acara, peserta, onClose, onGenerated, sekolahMap = {} }
 
       const batch = writeBatch(db)
       for (const h of preview.heats) {
-        const heatId = buatHeatId(acara.aceraId, h.fasa, h.noHeat)
-        const ref = doc(db, 'kejohanan', kejohananId, 'acara', acara.aceraId, 'heat', heatId)
+        const heatId = buatHeatId(aceraKey, h.fasa, h.noHeat)
+        const ref = doc(db, 'kejohanan', kejohananId, 'acara', aceraKey, 'heat', heatId)
         batch.set(ref, {
           heatId,
-          aceraId: acara.aceraId,
+          aceraId: aceraKey,
           kejohananId,
           fasa: h.fasa,
           noHeat: h.noHeat,
@@ -353,7 +354,7 @@ function GenerateModal({ acara, peserta, onClose, onGenerated, sekolahMap = {} }
       }
       await batch.commit()
       // Rekod masa heat dijana — untuk gate pendaftaran PP
-      await updateDoc(doc(db, 'kejohanan', kejohananId, 'acara', acara.aceraId), {
+      await updateDoc(doc(db, 'kejohanan', kejohananId, 'acara', aceraKey), {
         heatDijanaAt: serverTimestamp()
       }).catch(() => {})
       onGenerated()
@@ -530,7 +531,7 @@ function EditLorongModal({ heat, acara, kejohananId, onClose, onSaved, sekolahMa
     setSaving(true)
     try {
       await setDoc(
-        doc(db, 'kejohanan', kejohananId, 'acara', acara.aceraId, 'heat', heat.heatId),
+        doc(db, 'kejohanan', kejohananId, 'acara', acara.aceraId || acara.id, 'heat', heat.heatId),
         { peserta, updatedAt: serverTimestamp() },
         { merge: true }
       )
@@ -576,17 +577,18 @@ function EditLorongModal({ heat, acara, kejohananId, onClose, onSaved, sekolahMa
 // ─── Helper: Jana heat untuk satu acara (boleh guna batch atau individual) ────
 
 async function generateHeatsForAcara({ acara, pesertaAll, kejohananId, caraDraw, skipJikaAda, namaSekolahMap = {} }) {
+  const aceraKey = acara.aceraId || acara.id
   // Tapis peserta untuk acara ini
-  const peserta = pesertaAll.filter(p => (p.acaraIds || []).includes(acara.aceraId))
+  const peserta = pesertaAll.filter(p => (p.acaraIds || []).includes(aceraKey))
   if (peserta.length === 0) return { status: 'skip', sebab: 'tiada peserta' }
 
   // Semak heat sedia ada
   if (skipJikaAda) {
-    const existSnap = await getDocs(collection(db, 'kejohanan', kejohananId, 'acara', acara.aceraId, 'heat'))
+    const existSnap = await getDocs(collection(db, 'kejohanan', kejohananId, 'acara', aceraKey, 'heat'))
     if (!existSnap.empty) return { status: 'skip', sebab: 'heat sedia ada' }
   } else {
     // Padam heat lama
-    const existSnap = await getDocs(collection(db, 'kejohanan', kejohananId, 'acara', acara.aceraId, 'heat'))
+    const existSnap = await getDocs(collection(db, 'kejohanan', kejohananId, 'acara', aceraKey, 'heat'))
     if (!existSnap.empty) {
       const delBatch = writeBatch(db)
       existSnap.docs.forEach(d => delBatch.delete(d.ref))
@@ -628,10 +630,10 @@ async function generateHeatsForAcara({ acara, pesertaAll, kejohananId, caraDraw,
 
     const batch = writeBatch(db)
     for (const h of heats) {
-      const heatId = buatHeatId(acara.aceraId, h.fasa, h.noHeat)
-      const ref = doc(db, 'kejohanan', kejohananId, 'acara', acara.aceraId, 'heat', heatId)
+      const heatId = buatHeatId(aceraKey, h.fasa, h.noHeat)
+      const ref = doc(db, 'kejohanan', kejohananId, 'acara', aceraKey, 'heat', heatId)
       batch.set(ref, {
-        heatId, aceraId: acara.aceraId, kejohananId,
+        heatId, aceraId: aceraKey, kejohananId,
         fasa: h.fasa, noHeat: h.noHeat, status: 'belum_mula',
         windSpeed: null, isWindLegal: null,
         peserta: h.peserta.map(pp => ({
@@ -680,10 +682,10 @@ async function generateHeatsForAcara({ acara, pesertaAll, kejohananId, caraDraw,
 
   const batch = writeBatch(db)
   for (const h of heats) {
-    const heatId = buatHeatId(acara.aceraId, h.fasa, h.noHeat)
-    const ref = doc(db, 'kejohanan', kejohananId, 'acara', acara.aceraId, 'heat', heatId)
+    const heatId = buatHeatId(aceraKey, h.fasa, h.noHeat)
+    const ref = doc(db, 'kejohanan', kejohananId, 'acara', aceraKey, 'heat', heatId)
     batch.set(ref, {
-      heatId, aceraId: acara.aceraId, kejohananId,
+      heatId, aceraId: aceraKey, kejohananId,
       fasa: h.fasa, noHeat: h.noHeat, status: 'belum_mula',
       windSpeed: null, isWindLegal: null,
       peserta: h.peserta.map(pp => ({
@@ -1324,9 +1326,10 @@ function QuickJanaModal({ acara, kejohananId, onClose, onDone }) {
   async function handleSimpan() {
     if (!preview) return
     setSaving(true)
+    const aceraKey = acara.aceraId || acara.id
     try {
       // Padam heat lama untuk acara ini sahaja
-      const existSnap = await getDocs(collection(db, 'kejohanan', kejohananId, 'acara', acara.aceraId, 'heat'))
+      const existSnap = await getDocs(collection(db, 'kejohanan', kejohananId, 'acara', aceraKey, 'heat'))
       if (!existSnap.empty) {
         const delBatch = writeBatch(db)
         existSnap.docs.forEach(d => delBatch.delete(d.ref))
@@ -1335,10 +1338,10 @@ function QuickJanaModal({ acara, kejohananId, onClose, onDone }) {
       // Tulis heat baru
       const batch = writeBatch(db)
       for (const h of preview.heats) {
-        const heatId = buatHeatId(acara.aceraId, h.fasa, h.noHeat)
-        const ref = doc(db, 'kejohanan', kejohananId, 'acara', acara.aceraId, 'heat', heatId)
+        const heatId = buatHeatId(aceraKey, h.fasa, h.noHeat)
+        const ref = doc(db, 'kejohanan', kejohananId, 'acara', aceraKey, 'heat', heatId)
         batch.set(ref, {
-          heatId, aceraId: acara.aceraId, kejohananId,
+          heatId, aceraId: aceraKey, kejohananId,
           fasa: h.fasa, noHeat: h.noHeat, status: 'belum_mula',
           windSpeed: null, isWindLegal: null,
           peserta: h.peserta.map(p => ({
@@ -1603,7 +1606,7 @@ export default function StartList() {
       })
     getDocs(query(collection(db, 'kejohanan', selectedKej, 'acara'), orderBy('kategoriKod')))
       .then(snap => {
-        setAcaraList(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+        setAcaraList(snap.docs.map(d => { const data = d.data(); return { id: d.id, ...data, aceraId: data.aceraId || d.id } }))
         setSelectedAcara(null)
       }).catch(() => {})
     getDocs(query(collection(db, 'jadual_acara'), where('kejohananId', '==', selectedKej)))
@@ -1672,15 +1675,16 @@ export default function StartList() {
       return
     }
     setLoading(true)
+    const aceraKey = selectedAcara.aceraId || selectedAcara.id
     try {
       const [pendSnap, heatSnap, rekod] = await Promise.all([
         getDocs(query(collection(db, 'kejohanan', selectedKej, 'pendaftaran'))),
-        getDocs(query(collection(db, 'kejohanan', selectedKej, 'acara', selectedAcara.aceraId, 'heat'), orderBy('noHeat'))),
+        getDocs(query(collection(db, 'kejohanan', selectedKej, 'acara', aceraKey, 'heat'), orderBy('noHeat'))),
         cariRekodUntukAcara(selectedAcara),
       ])
       const peserta = pendSnap.docs
         .map(d => d.data())
-        .filter(p => (p.acaraIds || []).includes(selectedAcara.aceraId))
+        .filter(p => (p.acaraIds || []).includes(aceraKey))
       setPesertaList(peserta)
       setHeatList(heatSnap.docs.map(d => ({ id: d.id, ...d.data() })))
       setRekodAcara(rekod)
