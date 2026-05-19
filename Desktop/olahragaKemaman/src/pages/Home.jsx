@@ -640,15 +640,15 @@ function KeputusanExpanded({ heats, acara, sekolahMap, isLoading, finalSetup, re
             <span className="text-[9px] font-black tracking-widest uppercase text-teal-600">Keputusan</span>
           )}
         </div>
-        <table className="w-full text-xs min-w-max">
+        <table className="w-full text-xs">
           <thead>
             <tr className="text-[10px] text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50/30">
-              <th className="px-3 py-1.5 text-center w-8">#</th>
-              {!isRelay && <th className="px-2 py-1.5 text-center w-12">BIB</th>}
-              <th className="px-3 py-1.5 text-left">{isRelay ? 'Pasukan' : 'Nama Atlet'}</th>
-              {!isRelay && <th className="px-3 py-1.5 text-left">Sekolah</th>}
-              <th className="px-3 py-1.5 text-right">{isPadang ? 'Jarak' : 'Masa'}</th>
-              {showCatatanCol && <th className="px-2 py-1.5 text-center">Catatan</th>}
+              <th className="px-2 py-1.5 text-center w-7">#</th>
+              {!isRelay && <th className="px-1.5 py-1.5 text-center w-9">BIB</th>}
+              <th className="px-2 py-1.5 text-left">{isRelay ? 'Pasukan' : 'Nama Atlet'}</th>
+              {!isRelay && <th className="hidden sm:table-cell px-3 py-1.5 text-left">Sekolah</th>}
+              <th className="px-2 py-1.5 text-right">{isPadang ? 'Jarak' : 'Masa'}</th>
+              {showCatatanCol && <th className="px-1.5 py-1.5 text-center w-8">Q</th>}
             </tr>
           </thead>
           <tbody>
@@ -669,16 +669,16 @@ function KeputusanExpanded({ heats, acara, sekolahMap, isLoading, finalSetup, re
                   kddk === 1 ? 'bg-amber-50/40' :
                   idx % 2 === 1 ? 'bg-gray-50/20' : ''
                 }`}>
-                  <td className="px-3 py-2 text-center">
+                  <td className="px-2 py-2 text-center">
                     {medal
                       ? <span className={`text-sm ${isSementara ? 'opacity-50' : ''}`}>{medal}</span>
                       : <span className="text-[10px] text-gray-400 font-bold">{kddk || (idx + 1)}</span>
                     }
                   </td>
                   {!isRelay && (
-                    <td className="px-2 py-2 text-center font-mono text-gray-500 text-[11px]">{p.noBib || '—'}</td>
+                    <td className="px-1.5 py-2 text-center font-mono text-gray-500 text-[11px]">{p.noBib || '—'}</td>
                   )}
-                  <td className="px-3 py-2">
+                  <td className="px-2 py-2">
                     {isRelay
                       ? <div className="flex items-center gap-1.5">
                           <p className="font-semibold text-gray-800">{namaSkl}</p>
@@ -700,7 +700,8 @@ function KeputusanExpanded({ heats, acara, sekolahMap, isLoading, finalSetup, re
                             </span>
                           )}
                         </div>
-                      : <div className="flex items-center gap-1.5">
+                      : <div>
+                          <div className="flex items-center gap-1.5">
                           <p className={`font-semibold ${flagged ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
                             {p.namaAtlet || '—'}
                             {flagged && <span className="ml-1 no-underline text-red-500 font-bold"> {p.status}</span>}
@@ -722,17 +723,20 @@ function KeputusanExpanded({ heats, acara, sekolahMap, isLoading, finalSetup, re
                               MRKL
                             </span>
                           )}
+                          </div>
+                          {/* Sekolah — visible on mobile only (hidden on sm+) */}
+                          <p className="sm:hidden text-[9px] text-gray-400 mt-0.5 truncate">{namaSkl}</p>
                         </div>
                     }
                   </td>
                   {!isRelay && (
-                    <td className="px-3 py-2 text-gray-500 text-[11px] max-w-[130px] truncate">{namaSkl}</td>
+                    <td className="hidden sm:table-cell px-3 py-2 text-gray-500 text-[11px] max-w-[120px] truncate">{namaSkl}</td>
                   )}
-                  <td className={`px-3 py-2 text-right font-mono font-bold text-[11px] ${flagged ? 'text-red-400' : 'text-gray-800'}`}>
+                  <td className={`px-2 py-2 text-right font-mono font-bold text-[11px] ${flagged ? 'text-red-400' : 'text-gray-800'}`}>
                     {flagged ? p.status : (hasil || '—')}
                   </td>
                   {showCatatanCol && (
-                    <td className="px-2 py-2 text-center">
+                    <td className="px-1.5 py-2 text-center">
                       {layakFinal && (() => {
                         const qt = finalistQMap.get(isRelay ? p.kodSekolah : p.noBib) || 'q'
                         return (
@@ -869,21 +873,25 @@ function AcaraTableRow({ item, isExpanded, onToggle, heats, isLoading, sekolahMa
         onClick={onToggle}
         className="cursor-pointer hover:bg-blue-50/40 transition-colors border-b border-gray-100 group"
       >
-        <td className="px-2 py-2.5 text-center font-mono font-black text-[#003399] text-xs">{noAcara}</td>
+        <td className="hidden sm:table-cell px-2 py-2.5 text-center font-mono font-black text-[#003399] text-xs">{noAcara}</td>
         <td className="px-2 py-2.5 text-center font-mono font-bold text-gray-700 text-xs">{masaMula || '—'}</td>
-        <td className="px-3 py-2.5 text-left font-semibold text-gray-800 text-xs">
-          {acara.namaAcara || acara.namaAcaraPendek || '—'}
+        <td className="px-3 py-2.5 text-left text-xs">
+          <p className="font-semibold text-gray-800 leading-snug">{acara.namaAcara || acara.namaAcaraPendek || '—'}</p>
+          <p className="sm:hidden text-[10px] text-gray-400 mt-0.5 flex items-center gap-1">
+            <span className="font-mono text-[#003399]">{noAcara}</span>
+            {hasResult && <span className="text-teal-600 font-bold">· KEPUTUSAN</span>}
+          </p>
         </td>
         <td className="px-2 py-2.5 text-center text-gray-600 text-xs">{acara.kelas || '—'}</td>
-        <td className="px-2 py-2.5 text-center text-xs">
+        <td className="hidden sm:table-cell px-2 py-2.5 text-center text-xs">
           <span className={`font-semibold ${
             peringkatLabel === 'Saringan' ? 'text-blue-500' :
             peringkatLabel === 'Akhir' || peringkatLabel === 'Final' ? 'text-green-600' :
             peringkatLabel === 'S/Akhir' ? 'text-purple-500' : 'text-gray-400'
           }`}>{peringkatLabel}</span>
         </td>
-        <td className={`px-3 py-2.5 text-left ${catatanCls}`}>{catatanText}</td>
-        <td className="px-2 py-2.5 text-center w-8">
+        <td className={`hidden sm:table-cell px-3 py-2.5 text-left ${catatanCls}`}>{catatanText}</td>
+        <td className="px-2 py-2.5 text-center w-7">
           <svg className={`w-3.5 h-3.5 text-gray-300 group-hover:text-gray-400 transition-transform duration-150 inline-block ${isExpanded ? 'rotate-180' : ''}`}
             fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
@@ -1849,13 +1857,13 @@ export default function Home() {
                             <table className="w-full">
                               <thead>
                                 <tr className="text-[10px] font-bold text-gray-400 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
-                                  <th className="px-2 py-2 text-center w-10">No</th>
-                                  <th className="px-2 py-2 text-center w-14">Masa</th>
+                                  <th className="hidden sm:table-cell px-2 py-2 text-center w-10">No</th>
+                                  <th className="px-2 py-2 text-center w-12">Masa</th>
                                   <th className="px-3 py-2 text-left">Nama Acara</th>
-                                  <th className="px-2 py-2 text-center w-16">Kelas</th>
-                                  <th className="px-2 py-2 text-center w-20">Peringkat</th>
-                                  <th className="px-3 py-2 text-left">Catatan</th>
-                                  <th className="w-8" />
+                                  <th className="px-2 py-2 text-center w-14">Kelas</th>
+                                  <th className="hidden sm:table-cell px-2 py-2 text-center w-20">Peringkat</th>
+                                  <th className="hidden sm:table-cell px-3 py-2 text-left">Catatan</th>
+                                  <th className="w-7" />
                                 </tr>
                               </thead>
                               <tbody>
@@ -2132,16 +2140,16 @@ export default function Home() {
 
                       {/* Rekod table */}
                       {rows.length > 0 && (
-                        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                          <table className="w-full text-xs">
+                        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-x-auto">
+                          <table className="w-full text-xs min-w-[320px]">
                             <thead>
                               <tr className="bg-gray-50 border-b border-gray-100">
-                                <th className="text-left px-3 py-2 font-semibold text-gray-500 w-6">#</th>
+                                <th className="hidden sm:table-cell text-left px-3 py-2 font-semibold text-gray-500 w-6">#</th>
                                 <th className="text-left px-3 py-2 font-semibold text-gray-500">Acara</th>
                                 <th className="text-left px-3 py-2 font-semibold text-gray-500">Catatan</th>
                                 <th className="text-left px-3 py-2 font-semibold text-gray-500">Nama Atlet</th>
-                                <th className="text-left px-3 py-2 font-semibold text-gray-500">{lokasiHeader}</th>
-                                <th className="text-left px-3 py-2 font-semibold text-gray-500">Tahun</th>
+                                <th className="hidden sm:table-cell text-left px-3 py-2 font-semibold text-gray-500">{lokasiHeader}</th>
+                                <th className="text-left px-2 py-2 font-semibold text-gray-500">Thn</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -2153,12 +2161,17 @@ export default function Home() {
                                     : (r.namaNegeri || '—')
                                 return (
                                   <tr key={r.id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
-                                    <td className="px-3 py-2 text-gray-300">{i + 1}</td>
-                                    <td className="px-3 py-2 font-medium text-gray-700">{r.namaAcara || '—'}</td>
-                                    <td className="px-3 py-2 font-black text-[#003399]">{formatPrestasiRekod(r.prestasi, r.unit)}</td>
-                                    <td className="px-3 py-2 text-gray-700">{r.namaAtlet || '—'}</td>
-                                    <td className="px-3 py-2 text-gray-500">{lokasi}</td>
-                                    <td className="px-3 py-2 text-gray-400">{tahunRekod(r.tarikhRekod)}</td>
+                                    <td className="hidden sm:table-cell px-3 py-2 text-gray-300">{i + 1}</td>
+                                    <td className="px-3 py-2 font-medium text-gray-700 max-w-[100px] sm:max-w-none">
+                                      <p className="truncate">{r.namaAcara || '—'}</p>
+                                    </td>
+                                    <td className="px-3 py-2 font-black text-[#003399] whitespace-nowrap">{formatPrestasiRekod(r.prestasi, r.unit)}</td>
+                                    <td className="px-3 py-2 text-gray-700 max-w-[90px] sm:max-w-none">
+                                      <p className="truncate">{r.namaAtlet || '—'}</p>
+                                      <p className="sm:hidden text-[9px] text-gray-400 truncate">{lokasi}</p>
+                                    </td>
+                                    <td className="hidden sm:table-cell px-3 py-2 text-gray-500">{lokasi}</td>
+                                    <td className="px-2 py-2 text-gray-400 text-[11px] whitespace-nowrap">{tahunRekod(r.tarikhRekod)}</td>
                                   </tr>
                                 )
                               })}
@@ -2311,21 +2324,21 @@ export default function Home() {
                           <table className="w-full">
                             <thead>
                               <tr className="text-[10px] font-bold text-gray-400 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
-                                <th className="px-3 py-2.5 text-center w-10">No.</th>
-                                <th className="px-3 py-2.5 text-left">Nama Sekolah</th>
-                                <th className="px-2 py-2.5 text-center w-10" title="Emas">
+                                <th className="hidden sm:table-cell px-3 py-2.5 text-center w-10">No.</th>
+                                <th className="px-2 sm:px-3 py-2.5 text-left">Nama Sekolah</th>
+                                <th className="px-1 sm:px-2 py-2.5 text-center w-8 sm:w-10" title="Emas">
                                   <span className="inline-block w-3.5 h-3.5 rounded-full bg-yellow-400 border border-yellow-500" />
                                 </th>
-                                <th className="px-2 py-2.5 text-center w-10" title="Perak">
+                                <th className="px-1 sm:px-2 py-2.5 text-center w-8 sm:w-10" title="Perak">
                                   <span className="inline-block w-3.5 h-3.5 rounded-full bg-gray-300 border border-gray-400" />
                                 </th>
-                                <th className="px-2 py-2.5 text-center w-10" title="Gangsa">
+                                <th className="px-1 sm:px-2 py-2.5 text-center w-8 sm:w-10" title="Gangsa">
                                   <span className="inline-block w-3.5 h-3.5 rounded-full bg-orange-300 border border-orange-400" />
                                 </th>
                                 {extraCols.map(c => (
-                                  <th key={c.key} className="px-2 py-2.5 text-center w-8 text-gray-300 font-bold">{c.label}</th>
+                                  <th key={c.key} className="px-1 sm:px-2 py-2.5 text-center w-7 sm:w-8 text-gray-300 font-bold">{c.label}</th>
                                 ))}
-                                {showJumlahCol && <th className="px-3 py-2.5 text-center w-12">Jum</th>}
+                                {showJumlahCol && <th className="px-2 sm:px-3 py-2.5 text-center w-10 sm:w-12">Jum</th>}
                               </tr>
                             </thead>
                             <tbody>
@@ -2364,13 +2377,13 @@ export default function Home() {
                                 return (
                                   <>
                                   <tr key={t.id || i} className={`border-b border-gray-50 ${rs.row || 'hover:bg-gray-50/50'}`}>
-                                    <td className="px-3 py-3 text-center">
+                                    <td className="hidden sm:table-cell px-3 py-3 text-center">
                                       {isTop3
                                         ? <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-black ${rs.badge}`}>{t.rank}</span>
                                         : <span className="text-[10px] font-bold text-gray-400">{t.rank}</span>
                                       }
                                     </td>
-                                    <td className="px-3 py-3">
+                                    <td className="px-2 sm:px-3 py-3">
                                       {/* Klik nama → expand kategori */}
                                       <button
                                         className="text-left w-full"
@@ -2384,7 +2397,8 @@ export default function Home() {
                                         }}
                                       >
                                         <p className={`font-semibold text-xs leading-tight ${isTop3 ? 'text-gray-800' : 'text-gray-600'} flex items-center gap-1`}>
-                                          {t.namaSekolah || t.kodSekolah}
+                                          <span className="sm:hidden inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-black shrink-0 mr-0.5 ${rs.badge || 'text-gray-400'}">{t.rank}</span>
+                                          <span className="truncate max-w-[120px] sm:max-w-none">{t.namaSekolah || t.kodSekolah}</span>
                                           <svg className={`w-3 h-3 shrink-0 transition-transform text-gray-400 ${isKatExp ? 'rotate-180' : ''}`}
                                             fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
@@ -2399,19 +2413,19 @@ export default function Home() {
                                       { v: t.perak,  cls: 'text-gray-500'   },
                                       { v: t.gangsa, cls: 'text-orange-600' },
                                     ].map((m, mi) => (
-                                      <td key={mi} className="px-2 py-3 text-center">
+                                      <td key={mi} className="px-1 sm:px-2 py-3 text-center">
                                         <span className={`text-sm font-black ${(m.v||0) > 0 ? m.cls : 'text-gray-200'}`}>
                                           {m.v || 0}
                                         </span>
                                       </td>
                                     ))}
                                     {extraCols.map(c => (
-                                      <td key={c.key} className="px-2 py-3 text-center text-xs font-bold text-gray-400">
+                                      <td key={c.key} className="px-1 sm:px-2 py-3 text-center text-xs font-bold text-gray-400">
                                         {t[c.key] || 0}
                                       </td>
                                     ))}
                                     {showJumlahCol && (
-                                      <td className="px-3 py-3 text-center">
+                                      <td className="px-2 sm:px-3 py-3 text-center">
                                         <span className={`text-xs font-black ${jumlah > 0 ? 'text-gray-700' : 'text-gray-200'}`}>{jumlah}</span>
                                       </td>
                                     )}
@@ -2539,15 +2553,15 @@ export default function Home() {
                             </tbody>
                             <tfoot>
                               <tr className="bg-gray-50 border-t-2 border-gray-200">
-                                <td />
-                                <td className="px-3 py-2 text-[9px] font-bold text-gray-400 uppercase tracking-wide">{rows.length} sekolah</td>
-                                <td className="px-2 py-2 text-center text-xs font-black text-yellow-600">{rows.reduce((s,t)=>s+(t.emas||0),0)}</td>
-                                <td className="px-2 py-2 text-center text-xs font-black text-gray-500">{rows.reduce((s,t)=>s+(t.perak||0),0)}</td>
-                                <td className="px-2 py-2 text-center text-xs font-black text-orange-600">{rows.reduce((s,t)=>s+(t.gangsa||0),0)}</td>
+                                <td className="hidden sm:table-cell" />
+                                <td className="px-2 sm:px-3 py-2 text-[9px] font-bold text-gray-400 uppercase tracking-wide">{rows.length} sekolah</td>
+                                <td className="px-1 sm:px-2 py-2 text-center text-xs font-black text-yellow-600">{rows.reduce((s,t)=>s+(t.emas||0),0)}</td>
+                                <td className="px-1 sm:px-2 py-2 text-center text-xs font-black text-gray-500">{rows.reduce((s,t)=>s+(t.perak||0),0)}</td>
+                                <td className="px-1 sm:px-2 py-2 text-center text-xs font-black text-orange-600">{rows.reduce((s,t)=>s+(t.gangsa||0),0)}</td>
                                 {extraCols.map(c => (
-                                  <td key={c.key} className="px-2 py-2 text-center text-xs font-bold text-gray-400">{rows.reduce((s,t)=>s+(t[c.key]||0),0)}</td>
+                                  <td key={c.key} className="px-1 sm:px-2 py-2 text-center text-xs font-bold text-gray-400">{rows.reduce((s,t)=>s+(t[c.key]||0),0)}</td>
                                 ))}
-                                <td className="px-3 py-2 text-center text-xs font-black text-gray-600">{rows.reduce((s,t)=>s+(t.emas||0)+(t.perak||0)+(t.gangsa||0),0)}</td>
+                                <td className="px-2 sm:px-3 py-2 text-center text-xs font-black text-gray-600">{rows.reduce((s,t)=>s+(t.emas||0)+(t.perak||0)+(t.gangsa||0),0)}</td>
                               </tr>
                             </tfoot>
                           </table>
