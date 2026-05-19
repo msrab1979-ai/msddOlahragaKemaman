@@ -951,6 +951,13 @@ export default function Home() {
   const [rekodBaru,    setRekodBaru]    = useState([]) // rekod dari kejohanan semasa
   const [rekodLoading, setRekodLoading] = useState(false)
 
+  // Rekod Kejohanan (all-time, tab baru)
+  const [rekodAll,           setRekodAll]           = useState([])
+  const [rekodAllLoading,    setRekodAllLoading]    = useState(false)
+  const [rekodAllLoaded,     setRekodAllLoaded]     = useState(false)
+  const [activePeringkatRekod, setActivePeringkatRekod] = useState('D')
+  const [activeKatRekod,     setActiveKatRekod]     = useState('')
+
   // Finalist setup (tetapan/finalSetup)
   const [finalSetup,   setFinalSetup]   = useState(null)
 
@@ -1220,6 +1227,29 @@ export default function Home() {
         .sort((a, b) => (b.tarikhRekod || '').localeCompare(a.tarikhRekod || ''))
       setRekodBaru(list)
     } catch { } finally { setRekodLoading(false) }
+  }
+
+  async function loadRekodAll() {
+    if (rekodAllLoaded) return
+    setRekodAllLoading(true)
+    try {
+      const snap = await getDocs(query(collection(db, 'rekod'), where('statusRekod', '==', 'aktif')))
+      const list = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(r => !r.rekodAsal)
+        .sort((a, b) => (a.acara || '').localeCompare(b.acara || ''))
+      setRekodAll(list)
+      setRekodAllLoaded(true)
+      // Set default sub-tab to first groupKey (jantina_kategoriKod)
+      const firstGroup = list
+        .map(r => {
+          const j = r.jantina?.trim().toUpperCase() || ''
+          const k = r.kategoriKod?.trim().toUpperCase() || ''
+          return j && k ? `${j}_${k}` : null
+        })
+        .find(Boolean)
+      if (firstGroup && !activeKatRekod) setActiveKatRekod(firstGroup)
+    } catch { } finally { setRekodAllLoading(false) }
   }
 
   async function loadHeatsForAcara(acara) {
@@ -1744,8 +1774,12 @@ export default function Home() {
               {[
                 { id: 'jadual',    label: 'Jadual' },
                 { id: 'keputusan', label: 'Keputusan' },
+                { id: 'rekod',     label: 'Rekod Kejohanan' },
               ].map(t => (
-                <button key={t.id} onClick={() => setActiveTab(t.id)}
+                <button key={t.id} onClick={() => {
+                  setActiveTab(t.id)
+                  if (t.id === 'rekod') loadRekodAll()
+                }}
                   className={`px-5 py-1.5 rounded-lg text-xs font-bold transition-all ${
                     activeTab === t.id
                       ? 'bg-[#003399] text-white shadow-sm'
@@ -2001,6 +2035,138 @@ export default function Home() {
                         {filtered.length} keputusan · Klik untuk lihat keputusan
                       </p>
                     </div>
+                  )}
+                </div>
+              )
+            })()}
+
+            {/* ── Tab: Rekod Kejohanan ── */}
+            {activeTab === 'rekod' && (() => {
+              const PERINGKAT_LIST = [
+                { id: 'D', label: 'Daerah' },
+                { id: 'N', label: 'Negeri' },
+                { id: 'K', label: 'Kebangsaan' },
+              ]
+              const LOKASI_LABEL = { D: 'Sekolah', N: 'Daerah', K: 'Negeri' }
+
+              // Rekod untuk peringkat aktif sahaja
+              const rekodByPeringkat = rekodAll.filter(r =>
+                r.peringkat?.trim().toUpperCase() === activePeringkatRekod
+              )
+
+              // Group key = jantina_kategoriKod, tapis ikut peringkat aktif
+              const groupKeys = [...new Set(
+                rekodByPeringkat.map(r => {
+                  const j = r.jantina?.trim().toUpperCase() || ''
+                  const k = r.kategoriKod?.trim().toUpperCase() || ''
+                  return j && k ? `${j}_${k}` : null
+                }).filter(Boolean)
+              )].sort((a, b) => {
+                const [, ka] = a.split('_')
+                const [, kb] = b.split('_')
+                const ua = kategoriMap[ka]?.umurHad ?? 99
+                const ub = kategoriMap[kb]?.umurHad ?? 99
+                if (ua !== ub) return ua - ub
+                return a.localeCompare(b)
+              })
+
+              const activeKat = (groupKeys.includes(activeKatRekod) ? activeKatRekod : groupKeys[0]) || ''
+              const [activeJ, activeK] = activeKat.split('_')
+              const rows = rekodByPeringkat
+                .filter(r =>
+                  r.jantina?.trim().toUpperCase() === activeJ &&
+                  r.kategoriKod?.trim().toUpperCase() === activeK
+                )
+                .sort((a, b) => (a.namaAcara || '').localeCompare(b.namaAcara || ''))
+
+              const lokasiHeader = LOKASI_LABEL[activePeringkatRekod] || 'Lokasi'
+
+              return (
+                <div>
+                  {rekodAllLoading ? (
+                    <div className="flex flex-col items-center justify-center py-16 gap-3">
+                      <div className="w-8 h-8 border-[3px] border-[#003399] border-t-transparent rounded-full animate-spin" />
+                      <p className="text-sm text-gray-400">Memuatkan rekod…</p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Filter 1 — Peringkat */}
+                      <div className="flex gap-1.5 mb-3 bg-gray-100 p-1 rounded-xl w-fit">
+                        {PERINGKAT_LIST.map(p => (
+                          <button key={p.id}
+                            onClick={() => {
+                              setActivePeringkatRekod(p.id)
+                              setActiveKatRekod('')
+                            }}
+                            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                              activePeringkatRekod === p.id
+                                ? 'bg-[#003399] text-white shadow-sm'
+                                : 'text-gray-500 hover:text-gray-700'
+                            }`}>
+                            {p.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Filter 2 — Kategori (L12/P12) */}
+                      {groupKeys.length > 0 && (
+                        <div className="flex gap-1.5 mb-3 flex-wrap">
+                          {groupKeys.map(gk => {
+                            const [j, k] = gk.split('_')
+                            const umur = kategoriMap[k]?.umurHad
+                            const label = umur ? `${j}${umur}` : `${j}${k}`
+                            return (
+                              <button key={gk}
+                                onClick={() => setActiveKatRekod(gk)}
+                                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all border ${
+                                  activeKat === gk
+                                    ? 'bg-[#003399] text-white border-[#003399]'
+                                    : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
+                                }`}>
+                                {label}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+
+                      {/* Rekod table */}
+                      {rows.length > 0 && (
+                        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="bg-gray-50 border-b border-gray-100">
+                                <th className="text-left px-3 py-2 font-semibold text-gray-500 w-6">#</th>
+                                <th className="text-left px-3 py-2 font-semibold text-gray-500">Acara</th>
+                                <th className="text-left px-3 py-2 font-semibold text-gray-500">Catatan</th>
+                                <th className="text-left px-3 py-2 font-semibold text-gray-500">Nama Atlet</th>
+                                <th className="text-left px-3 py-2 font-semibold text-gray-500">{lokasiHeader}</th>
+                                <th className="text-left px-3 py-2 font-semibold text-gray-500">Tahun</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {rows.map((r, i) => {
+                                const lokasi = r.peringkat === 'D'
+                                  ? (r.namaSekolah || r.kodSekolah || '—')
+                                  : r.peringkat === 'N'
+                                    ? (r.namaDaerah || '—')
+                                    : (r.namaNegeri || '—')
+                                return (
+                                  <tr key={r.id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                                    <td className="px-3 py-2 text-gray-300">{i + 1}</td>
+                                    <td className="px-3 py-2 font-medium text-gray-700">{r.namaAcara || '—'}</td>
+                                    <td className="px-3 py-2 font-black text-[#003399]">{formatPrestasiRekod(r.prestasi, r.unit)}</td>
+                                    <td className="px-3 py-2 text-gray-700">{r.namaAtlet || '—'}</td>
+                                    <td className="px-3 py-2 text-gray-500">{lokasi}</td>
+                                    <td className="px-3 py-2 text-gray-400">{tahunRekod(r.tarikhRekod)}</td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )

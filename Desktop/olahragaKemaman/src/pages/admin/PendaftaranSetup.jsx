@@ -3358,7 +3358,10 @@ function PPDeleteAtletModal({ atlet, myPendaftaran, kejohananId, onClose, onSave
 function PPPendaftaranView({ sekolahList }) {
   const { userData } = useAuth()
   const kodSekolah = userData?.kodSekolah || null
-  const sekolahData = sekolahList.find(s => s.kodSekolah === kodSekolah) || null
+  // sekolahDataLive: diambil terus dari Firestore (untuk bypass terkini)
+  // Gunakan sekolahDataLive jika ada, fallback ke prop sekolahList
+  const [sekolahDataLive, setSekolahDataLive] = useState(null)
+  const sekolahData = sekolahDataLive || sekolahList.find(s => s.kodSekolah === kodSekolah) || null
   const namaSekolah = sekolahData?.namaSekolah || kodSekolah || 'Sekolah Saya'
 
   const [ppTab, setPpTab] = useState('atlet') // 'atlet' | 'daftar' | 'status' | 'cetak'
@@ -3370,6 +3373,7 @@ function PPPendaftaranView({ sekolahList }) {
   const [pendaftaranList, setPendaftaran]= useState([])
   const [jadualList, setJadualList]     = useState([])
   const [loading, setLoading]           = useState(false)
+  const [fetchErr, setFetchErr]         = useState('')
   const [modal, setModal]               = useState(null)
   const [selectedAcara, setSelectedAcara] = useState(null)
   const [heatDijanaMap, setHeatDijanaMap] = useState({})
@@ -3420,11 +3424,12 @@ function PPPendaftaranView({ sekolahList }) {
         const kej = { id: d.id, ...d.data() }
         setKejohanan(kej)
 
-        const [acaraSnap, pendSnap, atletSnap, jadualSnap] = await Promise.all([
+        const [acaraSnap, pendSnap, atletSnap, jadualSnap, sekolahSnap] = await Promise.all([
           getDocs(query(collection(db, 'kejohanan', d.id, 'acara'), orderBy('kategoriKod'))),
           getDocs(query(collection(db, 'kejohanan', d.id, 'pendaftaran'))),
           getDocs(query(collection(db, 'atlet'), where('kodSekolah', '==', kodSekolah))),
           getDocs(query(collection(db, 'jadual_acara'), where('kejohananId', '==', d.id))),
+          getDoc(doc(db, 'sekolah', kodSekolah)),
         ])
         setAcaraList(acaraSnap.docs.map(x => ({ id: x.id, ...x.data() })))
         setPendaftaran(pendSnap.docs.map(x => ({ id: x.id, ...x.data() })))
@@ -3432,6 +3437,7 @@ function PPPendaftaranView({ sekolahList }) {
         atlets.sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'ms'))
         setAtletSekolah(atlets)
         setJadualList(jadualSnap.docs.map(x => ({ id: x.id, ...x.data() })))
+        if (sekolahSnap.exists()) setSekolahDataLive({ id: sekolahSnap.id, ...sekolahSnap.data() })
 
         // Fetch had acara dari kategori collection (untuk UI checklist + kiraKategori)
         getDocs(collection(db, 'kategori'))
@@ -3450,31 +3456,46 @@ function PPPendaftaranView({ sekolahList }) {
           })
           .catch(() => {})
       })
-      .catch(e => console.error('PPPendaftaranView fetchAll:', e))
+      .catch(e => {
+        console.error('PPPendaftaranView fetchAll:', e)
+        setFetchErr('Gagal memuatkan data. Semak sambungan internet dan cuba muat semula.')
+      })
       .finally(() => setLoading(false))
   }, [kodSekolah])
 
-  // Refresh after save — termasuk kategoriList supaya isTerbuka sentiasa terkini
+  // Refresh selepas simpan atau manual — termasuk acaraList (ambil heatDijanaAt terkini)
+  const [refreshing, setRefreshing] = useState(false)
   const refreshData = useCallback(async () => {
     if (!kejohanan?.id || !kodSekolah) return
-    const [pendSnap, atletSnap, katSnap] = await Promise.all([
-      getDocs(query(collection(db, 'kejohanan', kejohanan.id, 'pendaftaran'))),
-      getDocs(query(collection(db, 'atlet'), where('kodSekolah', '==', kodSekolah))),
-      getDocs(collection(db, 'kategori')),
-    ])
-    setPendaftaran(pendSnap.docs.map(x => ({ id: x.id, ...x.data() })))
-    const atlets = atletSnap.docs.map(x => ({ id: x.id, ...x.data() }))
-    atlets.sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'ms'))
-    setAtletSekolah(atlets)
-    // Kemaskini kategoriList dan hadMap
-    const map = {}
-    const list = []
-    katSnap.docs.forEach(kd => {
-      map[kd.id] = { hadIndividu: kd.data().hadAcaraIndividu ?? 3, hadBeregu: kd.data().hadAcaraBeregu ?? 2 }
-      list.push({ id: kd.id, ...kd.data() })
-    })
-    setKategoriHadMap(map)
-    setKategoriList(list)
+    setRefreshing(true)
+    try {
+      const [pendSnap, atletSnap, katSnap, acaraSnap, sekolahSnap] = await Promise.all([
+        getDocs(query(collection(db, 'kejohanan', kejohanan.id, 'pendaftaran'))),
+        getDocs(query(collection(db, 'atlet'), where('kodSekolah', '==', kodSekolah))),
+        getDocs(collection(db, 'kategori')),
+        getDocs(query(collection(db, 'kejohanan', kejohanan.id, 'acara'), orderBy('kategoriKod'))),
+        getDoc(doc(db, 'sekolah', kodSekolah)),
+      ])
+      setPendaftaran(pendSnap.docs.map(x => ({ id: x.id, ...x.data() })))
+      const atlets = atletSnap.docs.map(x => ({ id: x.id, ...x.data() }))
+      atlets.sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'ms'))
+      setAtletSekolah(atlets)
+      setAcaraList(acaraSnap.docs.map(x => ({ id: x.id, ...x.data() })))
+      if (sekolahSnap.exists()) setSekolahDataLive({ id: sekolahSnap.id, ...sekolahSnap.data() })
+      // Kemaskini kategoriList dan hadMap
+      const map = {}
+      const list = []
+      katSnap.docs.forEach(kd => {
+        map[kd.id] = { hadIndividu: kd.data().hadAcaraIndividu ?? 3, hadBeregu: kd.data().hadAcaraBeregu ?? 2 }
+        list.push({ id: kd.id, ...kd.data() })
+      })
+      setKategoriHadMap(map)
+      setKategoriList(list)
+    } catch (e) {
+      console.error('PPPendaftaranView refreshData:', e)
+    } finally {
+      setRefreshing(false)
+    }
   }, [kejohanan, kodSekolah])
 
   // Load logos from tetapan/home (for Cetak tab)
@@ -3744,6 +3765,26 @@ function PPPendaftaranView({ sekolahList }) {
   const bypassDeadline = sekolahData?.bypassDeadline === true
   const tamatDaftarLepas = tarikhTamatDaftar && new Date() > new Date(tarikhTamatDaftar) && !bypassDeadline
   const pendaftaranTutup = !!tamatDaftarLepas
+
+  // ── Per-acara lock: heat dijana + bypass check ─────────────────────────────
+  function isBypassAktif(aceraId) {
+    const bukaAt  = sekolahData?.pendaftaranBukaAcara?.[aceraId]
+    const acara   = acaraList.find(a => (a.aceraId || a.id) === aceraId)
+    const dijanaAt = acara?.heatDijanaAt
+    if (sekolahData?.bypassDeadline === true) return true          // global bypass
+    if (!bukaAt) return false
+    // bypass valid hanya jika buka SELEPAS heat dijana semula
+    if (!dijanaAt) return true                                      // belum dijana semula → masih valid
+    const tBuka  = bukaAt.toMillis?.()   ?? (typeof bukaAt  === 'number' ? bukaAt  : 0)
+    const tJana  = dijanaAt.toMillis?.() ?? (typeof dijanaAt === 'number' ? dijanaAt : 0)
+    return tBuka > tJana
+  }
+
+  function isAcaraLocked(aceraId) {
+    const heatAda = heatDijanaMap[aceraId] === true
+    if (!heatAda && !tamatDaftarLepas) return false                 // tiada gate
+    return !isBypassAktif(aceraId)
+  }
 
   function formatDeadlineMY(isoStr) {
     if (!isoStr) return ''
@@ -4057,6 +4098,8 @@ function PPPendaftaranView({ sekolahList }) {
       : []
     const acaraObj    = acaraByKat.find(a => (a.aceraId || a.id) === selAcara)
     const heatAdaAcara = acaraObj ? heatDijanaMap[acaraObj.aceraId || acaraObj.id] === true : false
+    const acaraLocked  = acaraObj ? isAcaraLocked(acaraObj.aceraId || acaraObj.id) : false
+    const acaraBypassed = acaraObj ? isBypassAktif(acaraObj.aceraId || acaraObj.id) : false
 
     // Eligible athletes for selected acara
     const sudahDaftarAcara = pendaftaranList
@@ -4171,22 +4214,29 @@ function PPPendaftaranView({ sekolahList }) {
       <div className="space-y-5">
 
         {/* ── Banner Dikunci ── */}
-        {isDikunci && (
-          <div className="flex items-start gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl">
-            <svg className="w-4 h-4 text-red-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-            </svg>
-            <div>
-              <p className="text-xs font-bold text-red-700">Pendaftaran Dikunci</p>
-              <p className="text-[10px] text-red-600 mt-0.5">
-                Pendaftaran telah disahkan pada {pengesahan?.tarikhSahkan
-                  ? new Date(pengesahan.tarikhSahkan?.toDate?.() || pengesahan.tarikhSahkan).toLocaleString('ms-MY', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-                  : '—'}.
-                Hubungi penganjur untuk sebarang perubahan.
-              </p>
+        {isDikunci && (() => {
+          const bypassedCount = acaraList.filter(a => isBypassAktif(a.aceraId || a.id)).length
+          return (
+            <div className={`flex items-start gap-3 px-4 py-3 rounded-xl border ${bypassedCount > 0 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'}`}>
+              <svg className={`w-4 h-4 shrink-0 mt-0.5 ${bypassedCount > 0 ? 'text-amber-500' : 'text-red-500'}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+              <div>
+                <p className={`text-xs font-bold ${bypassedCount > 0 ? 'text-amber-700' : 'text-red-700'}`}>
+                  {bypassedCount > 0 ? `Pendaftaran Dikunci — ${bypassedCount} Acara Dibuka Semula` : 'Pendaftaran Dikunci'}
+                </p>
+                <p className={`text-[10px] mt-0.5 ${bypassedCount > 0 ? 'text-amber-600' : 'text-red-600'}`}>
+                  Pendaftaran telah disahkan pada {pengesahan?.tarikhSahkan
+                    ? new Date(pengesahan.tarikhSahkan?.toDate?.() || pengesahan.tarikhSahkan).toLocaleString('ms-MY', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                    : '—'}.
+                  {bypassedCount > 0
+                    ? ' Acara bertanda ✓ Dibuka Semula boleh ditukar atlet.'
+                    : ' Hubungi penganjur untuk sebarang perubahan.'}
+                </p>
+              </div>
             </div>
-          </div>
-        )}
+          )
+        })()}
 
         {/* ── Bahagian 1: Daftar Acara ── */}
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
@@ -4239,13 +4289,16 @@ function PPPendaftaranView({ sekolahList }) {
                     const had      = a.hadAtletPerSekolah || 2
                     const baki     = had - pSek.length
                     const heatAda  = heatDijanaMap[sid] === true
+                    const bypassed = heatAda && !isAcaraLocked(sid)
                     const jenis    = a.peringkat === 'saringan' ? '[Saringan]'
                                    : a.peringkat === 'akhir'    ? '[Terus Final]'
                                    : ''
                     return (
                       <option key={sid} value={sid}>
                         {jenis ? `${jenis} ` : ''}{a.namaAcara} ({a.jantina === 'L' ? 'Lelaki' : 'Perempuan'}) — {
-                          heatAda ? 'Heat Dijana' : baki > 0 ? `${pSek.length}/${had} slot` : 'PENUH'
+                          bypassed ? '✓ Dibuka Semula' :
+                          heatAda  ? 'Dikunci (Heat Dijana)' :
+                          baki > 0 ? `${pSek.length}/${had} slot` : 'PENUH'
                         }
                       </option>
                     )
@@ -4277,9 +4330,10 @@ function PPPendaftaranView({ sekolahList }) {
                   </div>
                 </div>
 
-                {heatAdaAcara || pendaftaranTutup ? (
-                  <div className="px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 font-semibold">
-                    {heatAdaAcara ? 'Heat sudah dijana — pendaftaran untuk acara ini ditutup.' : 'Tempoh pendaftaran telah tamat.'}
+                {acaraLocked ? (
+                  <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 font-semibold">
+                    {heatAdaAcara ? 'Heat sudah dijana — pendaftaran untuk acara ini dikunci.' : 'Tempoh pendaftaran telah tamat.'}
+                    <span className="block text-[10px] text-red-500 mt-0.5">Hubungi penganjur untuk buka semula.</span>
                   </div>
                 ) : slotBaki <= 0 ? (
                   <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 font-semibold">
@@ -4340,7 +4394,7 @@ function PPPendaftaranView({ sekolahList }) {
                   <div className="px-3 py-2 bg-amber-50 border border-amber-300 text-amber-800 text-xs rounded-lg">{daftarWarn}</div>
                 )}
 
-                {!heatAdaAcara && !pendaftaranTutup && !isDikunci && slotBaki > 0 && atletLayakBelumDaftar.length > 0 && (
+                {(acaraBypassed || (!acaraLocked && !isDikunci)) && slotBaki > 0 && atletLayakBelumDaftar.length > 0 && (
                   <button
                     onClick={handleDaftarSave}
                     disabled={daftarSaving || daftarChecked.length === 0}
@@ -4385,13 +4439,24 @@ function PPPendaftaranView({ sekolahList }) {
             </div>
           </div>
           {daftarRows.length === 0 ? (
-            <div className="py-10 text-center text-sm text-gray-400">Tiada pendaftaran untuk paparan ini.</div>
+            <div className="py-10 text-center space-y-2">
+              <p className="text-sm text-gray-400">Tiada pendaftaran untuk paparan ini.</p>
+              {myPendaftaran.length === 0 && pendaftaranList.length > 0 && (
+                <p className="text-[10px] text-amber-600">Data dimuatkan ({pendaftaranList.length} rekod) tetapi tiada untuk sekolah ini. Cuba <button onClick={refreshData} className="underline font-semibold">Muat Semula</button>.</p>
+              )}
+              {pendaftaranList.length === 0 && !loading && (
+                <p className="text-[10px] text-gray-400">Belum ada pendaftaran. Daftar atlet di tab <strong>Daftar Acara</strong>.</p>
+              )}
+            </div>
           ) : (
             <div className="divide-y divide-gray-50">
               {daftarRows.map(({ acara, peserta }) => {
                 const aceraId    = acara.aceraId || acara.id
                 const had        = acara.hadAtletPerSekolah || 2
                 const heatAda    = heatDijanaMap[aceraId] === true
+                const acaraLock  = isAcaraLocked(aceraId)
+                const bypassed   = isBypassAktif(aceraId)
+                const canEdit    = bypassed || (!acaraLock && !isDikunci)
                 return (
                   <div key={aceraId} className="px-4 py-3">
                     <div className="flex items-center gap-2 mb-2">
@@ -4399,7 +4464,8 @@ function PPPendaftaranView({ sekolahList }) {
                       <KategoriBadge kat={acara.kategoriKod} kategoriList={kategoriList} jantina={acara.jantina} />
                       <JantinaBadge j={acara.jantina} />
                       <span className="text-[9px] text-gray-400 ml-auto">{peserta.length}/{had}</span>
-                      {heatAda && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-600">Heat Dijana</span>}
+                      {heatAda && !bypassed && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-600">Heat Dijana</span>}
+                      {bypassed && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-green-50 border border-green-300 text-green-700">✓ Dibuka Semula</span>}
                     </div>
                     <div className="space-y-1 pl-2 border-l-2 border-[#003399]/20">
                       {peserta.map((p, idx) => {
@@ -4409,7 +4475,7 @@ function PPPendaftaranView({ sekolahList }) {
                             <span className="text-[9px] text-gray-400 w-4 shrink-0">{idx + 1}</span>
                             <span className="text-[9px] font-black font-mono text-[#003399] bg-blue-50 px-1.5 py-0.5 rounded shrink-0">{p.noBib || '—'}</span>
                             <span className="text-xs font-semibold text-gray-800 flex-1 truncate">{p.namaAtlet}</span>
-                            {!heatAda && !pendaftaranTutup && !isDikunci && pRec && (
+                            {canEdit && pRec && (
                               <div className="flex items-center gap-1.5 shrink-0">
                                 <button
                                   onClick={() => setTukarModal({ pRec, aceraId, acaraObj: acara })}
@@ -5224,10 +5290,36 @@ function PPPendaftaranView({ sekolahList }) {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div>
-        <h1 className="text-lg font-bold text-gray-900">Pendaftaran Atlet</h1>
-        <p className="text-xs text-gray-400 mt-0.5">{namaSekolah} — {kejohanan?.namaKejohanan || 'Tiada kejohanan aktif'}</p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-bold text-gray-900">Pendaftaran Atlet</h1>
+          <p className="text-xs text-gray-400 mt-0.5">{namaSekolah} — {kejohanan?.namaKejohanan || 'Tiada kejohanan aktif'}</p>
+        </div>
+        <button
+          onClick={refreshData}
+          disabled={refreshing || loading}
+          title="Muat semula data terkini"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 transition-colors shrink-0">
+          <svg className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          {refreshing ? 'Memuatkan…' : 'Muat Semula'}
+        </button>
       </div>
+
+      {/* Error banner */}
+      {fetchErr && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl">
+          <svg className="w-4 h-4 text-red-500 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <p className="text-xs text-red-700 flex-1">{fetchErr}</p>
+          <button onClick={() => { setFetchErr(''); refreshData() }}
+            className="text-xs font-bold text-red-700 hover:text-red-900 underline shrink-0">
+            Cuba Semula
+          </button>
+        </div>
+      )}
 
       {/* Countdown — always at top */}
       {renderCountdown()}

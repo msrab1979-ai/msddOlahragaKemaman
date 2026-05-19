@@ -1025,13 +1025,67 @@ export default function SekolahSetup() {
       }).catch(() => {})
   }, [])
 
-  // ── Bypass Deadline ──
+  // ── Bypass Deadline (global) ──
   async function doToggleBypass(s) {
     await updateDoc(doc(db, 'sekolah', s.kodSekolah), {
       bypassDeadline: !s.bypassDeadline,
       updatedAt: serverTimestamp(),
     })
     fetchList()
+  }
+
+  // ── Bypass Per Acara ──
+  const [bypassAcaraModal, setBypassAcaraModal] = useState(null) // { sekolah }
+  const [acaraHeat, setAcaraHeat] = useState([])       // { aceraId, namaAcara, heatDijanaAt }
+  const [bypassAcaraLoading, setBypassAcaraLoading] = useState(false)
+  const [bypassSaving, setBypassSaving] = useState(false)
+
+  async function openBypassAcaraModal(s) {
+    setBypassAcaraModal({ sekolah: s })
+    setBypassAcaraLoading(true)
+    try {
+      // Cari kejohanan aktif
+      const kejSnap = await getDocs(query(collection(db, 'kejohanan'),
+        where('statusKejohanan', 'in', ['aktif', 'persediaan'])))
+      if (kejSnap.empty) { setAcaraHeat([]); return }
+      const kejId = kejSnap.docs[0].id
+      // Ambil semua acara yang ada heatDijanaAt
+      const acaraSnap = await getDocs(collection(db, 'kejohanan', kejId, 'acara'))
+      const list = acaraSnap.docs
+        .map(d => ({ aceraId: d.id, ...d.data() }))
+        .filter(a => a.heatDijanaAt)
+        .sort((a, b) => (a.namaAcara || '').localeCompare(b.namaAcara || ''))
+      setAcaraHeat(list)
+    } catch { setAcaraHeat([]) }
+    finally { setBypassAcaraLoading(false) }
+  }
+
+  async function doToggleBypassAcara(sekolah, aceraId) {
+    setBypassSaving(true)
+    const field = `pendaftaranBukaAcara.${aceraId}`
+    const bukaMap = sekolah.pendaftaranBukaAcara || {}
+    try {
+      if (bukaMap[aceraId]) {
+        // Tutup bypass untuk acara ini
+        await updateDoc(doc(db, 'sekolah', sekolah.kodSekolah), {
+          [field]: deleteField(),
+          updatedAt: serverTimestamp(),
+        })
+      } else {
+        // Buka bypass untuk acara ini
+        await updateDoc(doc(db, 'sekolah', sekolah.kodSekolah), {
+          [field]: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        })
+      }
+      await fetchList()
+      // Refresh sekolah dalam modal
+      const updated = await getDoc(doc(db, 'sekolah', sekolah.kodSekolah))
+      if (updated.exists()) {
+        setBypassAcaraModal({ sekolah: { id: updated.id, ...updated.data() } })
+      }
+    } catch (e) { alert('Ralat: ' + e.message) }
+    finally { setBypassSaving(false) }
   }
 
   // ── Toggle Aktif ──
@@ -1242,8 +1296,19 @@ export default function SekolahSetup() {
                                   ? 'border-amber-400 text-amber-700 bg-amber-50 hover:bg-amber-100'
                                   : 'border-gray-200 text-gray-500 hover:bg-gray-50'
                               }`}
-                              title={s.bypassDeadline ? 'Bypass aktif — klik untuk matikan' : 'Aktifkan bypass pendaftaran (walaupun tarikh tutup)'}>
-                              {s.bypassDeadline ? 'Bypass ON' : 'Bypass'}
+                              title={s.bypassDeadline ? 'Bypass tarikh tamat aktif — klik untuk matikan' : 'Buka semula (tarikh tamat)'}>
+                              {s.bypassDeadline ? 'Bypass Tarikh' : 'Bypass Tarikh'}
+                            </button>
+                            <button onClick={() => openBypassAcaraModal(s)}
+                              className={`px-2.5 py-1.5 text-[10px] font-semibold border rounded transition-colors ${
+                                s.pendaftaranBukaAcara && Object.keys(s.pendaftaranBukaAcara).length > 0
+                                  ? 'border-green-400 text-green-700 bg-green-50 hover:bg-green-100'
+                                  : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                              }`}
+                              title="Urus buka semula pendaftaran per acara (selepas heat dijana)">
+                              {s.pendaftaranBukaAcara && Object.keys(s.pendaftaranBukaAcara).length > 0
+                                ? `Buka Acara (${Object.keys(s.pendaftaranBukaAcara).length})`
+                                : 'Buka Acara'}
                             </button>
                             <button onClick={() => { setSelected(s); setModal('toggleAktif') }}
                               className={`px-2.5 py-1.5 text-[10px] font-semibold border rounded transition-colors ${
@@ -1326,6 +1391,87 @@ export default function SekolahSetup() {
                 className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors">
                 {deleting ? 'Memadam…' : 'Ya, Padam'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Buka Acara Per Acara ── */}
+      {bypassAcaraModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+              <div>
+                <p className="text-sm font-bold text-gray-800">Buka Semula Pendaftaran</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">{bypassAcaraModal.sekolah.namaSekolah}</p>
+              </div>
+              <button onClick={() => setBypassAcaraModal(null)}
+                className="text-gray-400 hover:text-gray-600 p-1">✕</button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+              {bypassAcaraLoading ? (
+                <div className="flex items-center justify-center py-10 gap-2">
+                  <div className="w-5 h-5 border-2 border-[#003399] border-t-transparent rounded-full animate-spin" />
+                  <p className="text-xs text-gray-400">Memuatkan acara…</p>
+                </div>
+              ) : acaraHeat.length === 0 ? (
+                <div className="py-10 text-center text-sm text-gray-400">
+                  Tiada acara yang heat sudah dijana.
+                </div>
+              ) : (
+                acaraHeat.map(a => {
+                  const bukaMap = bypassAcaraModal.sekolah.pendaftaranBukaAcara || {}
+                  const bukaAt  = bukaMap[a.aceraId]
+                  const tBuka   = bukaAt?.toMillis?.() ?? 0
+                  const tJana   = a.heatDijanaAt?.toMillis?.() ?? 0
+                  const aktif   = bukaAt && tBuka > tJana
+                  return (
+                    <div key={a.aceraId}
+                      className="flex items-center justify-between px-3 py-2.5 rounded-xl border border-gray-100 bg-gray-50">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold text-gray-800 truncate">{a.namaAcara}</p>
+                        <p className="text-[10px] text-gray-400">
+                          Kat {a.kategoriKod} · {a.jantina === 'L' ? 'Lelaki' : 'Perempuan'}
+                        </p>
+                        {aktif && (
+                          <p className="text-[9px] text-green-600 font-bold mt-0.5">Bypass aktif</p>
+                        )}
+                        {bukaAt && !aktif && (
+                          <p className="text-[9px] text-amber-600 font-bold mt-0.5">Expired — heat dijana semula</p>
+                        )}
+                      </div>
+                      <button
+                        disabled={bypassSaving}
+                        onClick={() => doToggleBypassAcara(bypassAcaraModal.sekolah, a.aceraId)}
+                        className={`ml-3 px-3 py-1.5 text-[10px] font-bold rounded-lg border transition-colors shrink-0 ${
+                          aktif
+                            ? 'bg-green-500 text-white border-green-500 hover:bg-green-600'
+                            : 'bg-white text-gray-500 border-gray-200 hover:border-[#003399] hover:text-[#003399]'
+                        }`}>
+                        {aktif ? 'Buka ✓' : 'Buka'}
+                      </button>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+
+            <div className="px-4 py-3 border-t border-gray-100 shrink-0 space-y-2">
+              <div className="flex items-start gap-2 px-3 py-2.5 bg-amber-50 border border-amber-200 rounded-xl">
+                <svg className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                </svg>
+                <div>
+                  <p className="text-[10px] font-bold text-amber-700">Perlu Jana Heat Semula</p>
+                  <p className="text-[9px] text-amber-600 mt-0.5 leading-relaxed">
+                    Selepas PP siap tukar atlet, pergi <strong>StartList → Status Panel → klik acara</strong> dan jana heat semula untuk acara berkenaan. Tanpa ini, start list masih tunjuk atlet lama.
+                  </p>
+                </div>
+              </div>
+              <p className="text-[9px] text-gray-400 text-center">
+                Bypass auto tamat bila admin jana heat semula untuk acara tersebut.
+              </p>
             </div>
           </div>
         </div>

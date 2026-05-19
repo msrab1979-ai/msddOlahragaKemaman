@@ -352,6 +352,10 @@ function GenerateModal({ acara, peserta, onClose, onGenerated, sekolahMap = {} }
         }, { merge: false })
       }
       await batch.commit()
+      // Rekod masa heat dijana — untuk gate pendaftaran PP
+      await updateDoc(doc(db, 'kejohanan', kejohananId, 'acara', acara.aceraId), {
+        heatDijanaAt: serverTimestamp()
+      }).catch(() => {})
       onGenerated()
       onClose()
     } catch (e) {
@@ -815,6 +819,10 @@ function JanaSemuaModal({ kejohananId, acaraList, kategoriList = [], namaSekolah
         if (result.status === 'ok') {
           berjaya++
           log.push({ status:'ok', msg:`✓ ${label} — ${result.heatCount} heat, ${result.pesertaCount} peserta` })
+          // Rekod masa heat dijana — untuk gate pendaftaran PP
+          updateDoc(doc(db, 'kejohanan', kejohananId, 'acara', acara.aceraId || acara.id), {
+            heatDijanaAt: serverTimestamp()
+          }).catch(() => {})
         } else {
           dilangkau++
           log.push({ status:'skip', msg:`⟳ ${label} — dilangkau (${result.sebab})` })

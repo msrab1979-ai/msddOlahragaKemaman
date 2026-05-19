@@ -59,9 +59,9 @@ service cloud.firestore {
       allow delete: if true; // admin boleh padam sekolah dari UI
     }
 
-    // ─── Atlet — data peribadi (noKP) — hadkan baca kepada pengguna app ────────
+    // ─── Atlet — PP guna sessionStorage auth (bukan Firebase Auth), jadi baca awam
     match /atlet/{noKP} {
-      allow read:   if request.auth != null; // anonymous auth cukup — halang scraper luar
+      allow read:   if true;
       allow create: if true;
       allow update: if true;
       allow delete: if true; // reset sistem perlu padam atlet
