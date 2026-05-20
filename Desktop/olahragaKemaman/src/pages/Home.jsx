@@ -1637,11 +1637,14 @@ export default function Home() {
         )}
         <p className="text-[10px] text-white/30 uppercase tracking-[0.25em] mb-2">{cfg.namaOrganisasi}</p>
 
-        {kejohanan ? (
-          <div className="space-y-2">
-            <h1 className="text-xl sm:text-2xl font-black text-white tracking-wide leading-tight px-2">
-              {kejohanan.namaKejohanan}
-            </h1>
+        <div className="space-y-2">
+          <h1 className="text-xl sm:text-2xl font-black text-white tracking-wide leading-tight px-2">
+            {cfg.tajukUtama}
+          </h1>
+          {cfg.tajukKecil && !kejohanan && (
+            <p className="text-xl font-light text-white/60">{cfg.tajukKecil}</p>
+          )}
+          {kejohanan && (
             <div className="flex flex-wrap items-center justify-center gap-2 mt-2">
               {kejohanan.tarikhMula && (
                 <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-white/80 text-xs">
@@ -1654,14 +1657,9 @@ export default function Home() {
                 </span>
               )}
             </div>
-            {cfg.namaPenganjur && <p className="text-[10px] text-white/30 mt-1">{cfg.namaPenganjur}</p>}
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <h1 className="text-3xl font-black text-white tracking-wide">{cfg.tajukUtama}</h1>
-            <p className="text-xl font-light text-white/60">{cfg.tajukKecil}</p>
-          </div>
-        )}
+          )}
+          {cfg.namaPenganjur && <p className="text-[10px] text-white/30 mt-1">{cfg.namaPenganjur}</p>}
+        </div>
 
         <div className="flex items-center justify-center gap-3 mt-5">
           <div className="h-px w-16 bg-white/15" />
