@@ -3815,7 +3815,7 @@ function PPPendaftaranView({ sekolahList }) {
       }, {})
     : {} // kosong semasa load — katDibenar → null → tunjuk semua
   const katDibenar = kategoriSekolah ? (KAT_BY_JENIS[kategoriSekolah] || null) : null
-  const isDikunci  = pengesahan?.disahkan === true
+  const isDikunci  = pengesahan?.disahkan === true && !sekolahData?.bypassPengesahan
 
   // Buang SEMUA acara yang ada parentAcaraId — itu final yang ditentukan sistem
   const acaraIkutSekolah = katDibenar
