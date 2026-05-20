@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { doc, getDoc, updateDoc, deleteField, serverTimestamp, collection, query, where, getDocs, orderBy } from 'firebase/firestore'
+import { doc, getDoc, onSnapshot, updateDoc, deleteField, serverTimestamp, collection, query, where, getDocs, orderBy } from 'firebase/firestore'
 import { selectFinalists as _selectFinalists } from '../utils/finalistUtils'
 import { cariRekodUntukAcara, formatPrestasiRekod, tahunRekod } from '../utils/rekodUtils'
 import { db } from '../firebase/config'
@@ -974,10 +974,16 @@ export default function Home() {
     if (user) navigate('/dashboard', { replace: true })
   }, [user, navigate])
 
-  // Load config + sekolah + kategori sekali sahaja
+  // Config — real-time listener supaya Home auto-update bila TetapanHome disimpan
   useEffect(() => {
-    getDoc(doc(db, 'tetapan', 'home'))
-      .then(s => { if (s.exists()) setCfg({ ...TETAPAN_DEFAULTS, ...s.data() }) })
+    const unsub = onSnapshot(doc(db, 'tetapan', 'home'), s => {
+      if (s.exists()) setCfg({ ...TETAPAN_DEFAULTS, ...s.data() })
+    })
+    return () => unsub()
+  }, [])
+
+  // Load finalSetup + sekolah + kategori sekali sahaja
+  useEffect(() => {
     getDoc(doc(db, 'tetapan', 'finalSetup'))
       .then(s => { if (s.exists()) setFinalSetup(s.data()) })
       .catch(() => {})
