@@ -13,6 +13,7 @@ import PendaftaranSetup from './pages/admin/PendaftaranSetup'
 import StartList from './pages/admin/StartList'
 import InputKeputusanAdmin from './pages/admin/InputKeputusan'
 import InputKeputusanPencatat from './pages/pencatat/InputKeputusan'
+import CetakanHadiah from './pages/pencatat/CetakanHadiah'
 import Olahragawan from './pages/admin/Olahragawan'
 import Rekod from './pages/admin/Rekod'
 import CetakAcara from './pages/admin/CetakAcara'
@@ -98,6 +99,11 @@ function AppRoutes() {
       <Route path="/dashboard/keputusan" element={
         <ProtectedRoute>
           <DashboardLayout><InputKeputusanRoute /></DashboardLayout>
+        </ProtectedRoute>
+      } />
+      <Route path="/dashboard/cetakanhadiah" element={
+        <ProtectedRoute>
+          <DashboardLayout><CetakanHadiah /></DashboardLayout>
         </ProtectedRoute>
       } />
       <Route path="/dashboard/rekod" element={

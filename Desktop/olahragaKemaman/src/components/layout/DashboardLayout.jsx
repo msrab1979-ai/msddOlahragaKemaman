@@ -43,6 +43,7 @@ const NAV_ITEMS = [
     items: [
       // Pencatat — input masa/jarak
       { label: 'Input Keputusan',  path: '/dashboard/keputusan',   icon: 'clipboard',   roles: ['pencatat'] },
+      { label: 'Cetakan Hadiah',   path: '/dashboard/cetakanhadiah', icon: 'gift',      roles: ['pencatat', 'superadmin', 'admin', 'pengurus_teknik', 'urusetia'] },
       // Paparan data — semua staff boleh lihat kecuali pengurus_pasukan
       { label: 'Rekod Semasa',     path: '/dashboard/rekod',       icon: 'star',        roles: ['superadmin', 'pengurus_teknik', 'admin', 'pencatat', 'viewer'] },
       { label: 'Olahragawan',      path: '/dashboard/olahragawan', icon: 'award',       roles: ['superadmin', 'admin', 'pengurus_teknik', 'pencatat', 'viewer'] },
@@ -89,6 +90,7 @@ const Icons = {
   chart: <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>,
   trash: <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>,
   backup: <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>,
+  gift: <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" /></svg>,
   logout: <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>,
 }
 
