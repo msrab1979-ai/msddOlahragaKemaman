@@ -72,35 +72,61 @@ function tentukanFasa(bilanganPeserta, bilanganLorong) {
 }
 
 /**
- * Interleave peserta supaya atlet dari sekolah yang sama tersebar merata
- * antara heat. Sekolah dengan atlet paling ramai diutamakan — diasingkan dahulu.
- * Dipanggil sebelum bahagikanKeHeat untuk larian (bukan relay/padang/mass).
+ * Bahagi peserta kepada heat dengan MEMINIMUMKAN atlet sekolah sama dalam heat sama.
  *
- * Cara kerja:
- *   1. Group by kodSekolah
- *   2. Sort bucket: sekolah terbesar dahulu
- *   3. Round-robin pick 1 dari setiap sekolah bergilir
+ * Kaedah: greedy direct assignment — setiap atlet dihantar terus ke heat terbaik:
+ *   1. Sekolah terbesar diproses dahulu (lebih ramai atlet → perlu tersebar awal)
+ *   2. Untuk setiap atlet: pilih heat dengan paling sikit atlet dari sekolah sama
+ *   3. Tiebreak: pilih heat dengan paling sikit jumlah atlet (keseimbangan)
+ *   4. Saiz heat dikawal: max = ceil(n/H), tiada heat boleh melebihi had ini
  *
- * Contoh: A×4, B×2, C×1 → [A,B,C, A,B, A, A]
- * Serpentine 2 heat: H1=[A,C,A,A], H2=[B,A,B] → A tersebar 2-2 ✓
+ * Ini lebih tepat dari serpentine kerana serpentine ada corak zigzag (period≠H)
+ * yang boleh bawa atlet sekolah sama kembali ke heat sama walaupun sudah interleave.
+ *
+ * Contoh: A×5, B×4, C×3, 3 heat → A tersebar 2-2-1 (minimum teori: ceil(5/3)=2) ✓
  */
-function interleaveBySekolah(peserta) {
-  if (peserta.length <= 1) return peserta
-  const map = {}
+function bahagikanKeHeatAdil(peserta, bilanganLorong) {
+  const n = peserta.length
+  if (n === 0) return []
+  const H = Math.ceil(n / bilanganLorong)
+  if (H === 1) return [peserta]
+
+  const maxSize = Math.ceil(n / H)
+  const heats   = Array.from({ length: H }, () => [])
+
+  // Susun: sekolah terbesar dahulu, kekalkan urutan dalam sekolah
+  // (urutan dalam sekolah sudah rawak jika caraDraw='random' — caller shuffle dulu)
+  const groups = {}
   for (const p of peserta) {
     const k = p.kodSekolah || '__'
-    if (!map[k]) map[k] = []
-    map[k].push(p)
+    if (!groups[k]) groups[k] = []
+    groups[k].push(p)
   }
-  // Bucket terbesar dahulu agar sekolah ramai tersebar lebih awal
-  const buckets = Object.values(map).sort((a, b) => b.length - a.length)
-  const out = []
-  while (buckets.some(b => b.length > 0)) {
-    for (const b of buckets) {
-      if (b.length > 0) out.push(b.shift())
+  const sorted = Object.values(groups)
+    .sort((a, b) => b.length - a.length)
+    .flat()
+
+  for (const atlet of sorted) {
+    const ks = atlet.kodSekolah || '__'
+    const same  = heats.map(h => h.filter(p => (p.kodSekolah || '__') === ks).length)
+    const total = heats.map(h => h.length)
+
+    let best = -1
+    for (let i = 0; i < H; i++) {
+      if (total[i] >= maxSize) continue               // heat penuh
+      if (best === -1) { best = i; continue }
+      if (same[i] < same[best]) { best = i; continue }
+      if (same[i] === same[best] && total[i] < total[best]) best = i
     }
+    // Fallback: semua heat penuh (sangat jarang) → masuk yang paling sikit
+    if (best === -1) {
+      let minT = Infinity
+      for (let i = 0; i < H; i++) if (total[i] < minT) { minT = total[i]; best = i }
+    }
+    heats[best].push(atlet)
   }
-  return out
+
+  return heats
 }
 
 /**
@@ -320,7 +346,7 @@ function GenerateModal({ acara, peserta, onClose, onGenerated, sekolahMap = {} }
         : assignLorongFinal(p, jenis, LORONG_KUMPULAN)
       heats = [{ fasa: 'final', noHeat: 1, peserta: pesertaAssigned }]
     } else {
-      const bahagiHeat = bahagikanKeHeat(interleaveBySekolah(p), bilL)
+      const bahagiHeat = bahagikanKeHeatAdil(p, bilL)
       heats = bahagiHeat.map((hp, i) => ({ fasa: 'heat', noHeat: i + 1, peserta: assignLorongHeat(hp, jenis, bilL, LORONG_HEAT_REMOVE) }))
     }
     setPreview({ fasa, heats })
@@ -708,7 +734,7 @@ async function generateHeatsForAcara({ acara, pesertaAll, kejohananId, caraDraw,
       : assignLorongFinal(p, jenisLorongNonRelay, LORONG_KUMPULAN)
     heats = [{ fasa: 'final', noHeat: 1, peserta: assigned }]
   } else {
-    const bahagiHeat = bahagikanKeHeat(interleaveBySekolah(p), bilLorong)
+    const bahagiHeat = bahagikanKeHeatAdil(p, bilLorong)
     heats = bahagiHeat.map((hp, i) => ({ fasa: 'heat', noHeat: i + 1, peserta: assignLorongHeat(hp, jenisLorongNonRelay, bilLorong, LORONG_HEAT_REMOVE) }))
   }
 
@@ -1349,7 +1375,7 @@ function QuickJanaModal({ acara, kejohananId, onClose, onDone }) {
         : assignLorongFinal(p, jenis2, LORONG_KUMPULAN)
       heats = [{ fasa: 'final', noHeat: 1, peserta: assigned }]
     } else {
-      heats = bahagikanKeHeat(interleaveBySekolah(p), bilL2)
+      heats = bahagikanKeHeatAdil(p, bilL2)
         .map((hp, i) => ({ fasa: 'heat', noHeat: i + 1, peserta: assignLorongHeat(hp, jenis2, bilL2, LORONG_HEAT_REMOVE) }))
     }
     setPreview({ fasa, heats })
