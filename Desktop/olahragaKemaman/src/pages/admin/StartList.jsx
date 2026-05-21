@@ -2174,6 +2174,39 @@ export default function StartList() {
       pdf.setTextColor(0)
 
       pdf.save(`StartList_${tarikh}.pdf`)
+
+      // 5. Kemaskini bilanganCetak semua heat yang dicetak
+      const now = new Date()
+      const batch = writeBatch(db)
+      acaraWithHeats.forEach(a => {
+        const aid = a.aceraId || a.id
+        a.heats.forEach(heat => {
+          if (!heat.heatId && !heat.id) return
+          const heatId = heat.heatId || heat.id
+          const hRef = doc(db, 'kejohanan', selectedKej, 'acara', aid, 'heat', heatId)
+          batch.update(hRef, {
+            bilanganCetak: (heat.bilanganCetak || 0) + 1,
+            tarikhCetak:   serverTimestamp(),
+          })
+        })
+      })
+      await batch.commit()
+
+      // Kemaskini hariHeatMap (local state) supaya counter tunjuk segera
+      setHariHeatMap(prev => {
+        const next = { ...prev }
+        acaraWithHeats.forEach(a => {
+          const aid = a.aceraId || a.id
+          if (next[aid]) {
+            next[aid] = next[aid].map(h => {
+              const match = a.heats.find(x => (x.heatId || x.id) === (h.heatId || h.id))
+              if (!match) return h
+              return { ...h, bilanganCetak: (h.bilanganCetak || 0) + 1, tarikhCetak: now }
+            })
+          }
+        })
+        return next
+      })
     } catch (e) { alert('Gagal cetak: ' + e.message) }
     finally { setCetakLoading(false) }
   }
