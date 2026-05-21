@@ -37,8 +37,8 @@ const TOGGLES = [
   {
     id: 'keputusan',
     label: 'Keputusan & Heat',
-    desc: 'Padam semua heat (termasuk keputusan & start list) + reset status acara',
-    collections: ['kejohanan/.../acara/.../heat', 'bantahan'],
+    desc: 'Padam semua heat (termasuk keputusan & start list) + reset status acara + reset pengesahan PP ke Belum Sah',
+    collections: ['kejohanan/.../acara/.../heat', 'bantahan', 'kejohanan/.../pengesahan'],
     level: 'bahaya',
     icon: '🏁',
   },
@@ -320,9 +320,15 @@ export default function ResetSistem() {
             updatedAt: new Date(),
           }).catch(() => {})
         }))
-        const bantSnap = await getDocs(query(collection(db, 'bantahan'), where('kejohananId', '==', kejId)))
-        await batchDelete(bantSnap.docs.map(d => d.ref))
-        log(`✓ Keputusan & Heat — ${heatTotal} heat dipadam, ${bantSnap.size} bantahan dipadam`, true)
+        const [bantSnap, pengesahanSnap] = await Promise.all([
+          getDocs(query(collection(db, 'bantahan'), where('kejohananId', '==', kejId))),
+          getDocs(collection(db, 'kejohanan', kejId, 'pengesahan')),
+        ])
+        await Promise.all([
+          batchDelete(bantSnap.docs.map(d => d.ref)),
+          batchDelete(pengesahanSnap.docs.map(d => d.ref)),
+        ])
+        log(`✓ Keputusan & Heat — ${heatTotal} heat dipadam, ${bantSnap.size} bantahan dipadam, ${pengesahanSnap.size} pengesahan PP diset semula`, true)
       }
 
       // ── Rekod Baru Kejohanan ──
