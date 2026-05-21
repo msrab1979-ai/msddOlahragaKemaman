@@ -5,205 +5,205 @@ service cloud.firestore {
     // ─── NOTA KESELAMATAN ─────────────────────────────────────────────────────
     // Sistem guna PIN custom + Firebase Anonymous Auth.
     // App auto sign-in anonymously → semua pengguna app ada request.auth != null.
-    // Scraper luar tiada token → ditolak pada koleksi sensitif.
-    // Fasa 2: migrate pencatat/admin ke Firebase Auth untuk enforce write juga.
+    // Scraper luar tiada token → ditolak pada semua write.
+    // Read awam kekal (Home.jsx viewer tidak perlu login).
+    // Fasa 2: migrate pencatat/admin ke Firebase Auth untuk enforce write lebih ketat.
 
     // ─── Kejohanan + sub-koleksi ──────────────────────────────────────────────
     match /kejohanan/{id} {
       allow read:   if true;
-      allow create: if true;
-      allow update: if true;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
       allow delete: if false; // padam kejohanan melalui Firebase Console sahaja
 
       match /acara/{aceraId} {
         allow read:   if true;
-        allow create: if true;
-        allow update: if true;
-        allow delete: if true; // admin boleh padam acara
+        allow create: if request.auth != null;
+        allow update: if request.auth != null;
+        allow delete: if request.auth != null;
 
         match /heat/{heatId} {
           allow read:   if true;
-          allow create: if true;
-          allow update: if true;
-          allow delete: if true; // StartList boleh redo heat
+          allow create: if request.auth != null;
+          allow update: if request.auth != null;
+          allow delete: if request.auth != null;
 
           match /keputusan/{kId} {
             allow read:   if true;
-            allow create: if true;
-            allow update: if true;
-            allow delete: if true;
+            allow create: if request.auth != null;
+            allow update: if request.auth != null;
+            allow delete: if request.auth != null;
           }
         }
       }
 
       match /pendaftaran/{noKP} {
         allow read:   if true;
-        allow create: if true;
-        allow update: if true;
-        allow delete: if true; // pengurus boleh buang atlet
+        allow create: if request.auth != null;
+        allow update: if request.auth != null;
+        allow delete: if request.auth != null;
       }
 
       match /pengesahan/{kodSekolah} {
         allow read:   if true;
-        allow create: if true;
-        allow update: if true;
-        allow delete: if true; // admin boleh reset pengesahan apabila heat direset
+        allow create: if request.auth != null;
+        allow update: if request.auth != null;
+        allow delete: if request.auth != null;
       }
     }
 
     // ─── Sekolah ──────────────────────────────────────────────────────────────
     match /sekolah/{kodSekolah} {
       allow read:   if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if true; // admin boleh padam sekolah dari UI
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
     }
 
-    // ─── Atlet — PP guna sessionStorage auth (bukan Firebase Auth), jadi baca awam
+    // ─── Atlet ────────────────────────────────────────────────────────────────
     match /atlet/{noKP} {
       allow read:   if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if true; // reset sistem perlu padam atlet
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
     }
 
-    // ─── Rekod — delete dibenar (ResetSistem admin padam rekod kejohanan) ────
+    // ─── Rekod ────────────────────────────────────────────────────────────────
     match /rekod/{id} {
       allow read:   if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if true; // ResetSistem admin — upgrade ke Firebase Auth untuk hadkan
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
     }
 
     // ─── Rekod Sejarah — audit trail edit/padam rekod ────────────────────────
     match /rekod_sejarah/{id} {
       allow read:   if true;
-      allow create: if true;
+      allow create: if request.auth != null;
       allow update: if false; // audit trail — tidak boleh diubah
       allow delete: if false; // audit trail kekal
     }
 
     match /rekod_tuntutan/{id} {
       allow read:   if true;
-      allow create: if true;
-      allow update: if true;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
       allow delete: if false;
     }
 
-    // ─── Medal Tally — delete dibenar (ResetSistem admin perlu padam) ────────
+    // ─── Medal Tally ──────────────────────────────────────────────────────────
     match /medal_tally/{id} {
       allow read:   if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if true; // ResetSistem admin — upgrade ke Firebase Auth untuk hadkan
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
     }
 
     match /medal_tally_kat/{id} {
       allow read:   if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if true;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
     }
 
-    // ─── Mata Olahragawan — delete dibenar (ResetSistem admin perlu padam) ───
+    // ─── Mata Olahragawan ─────────────────────────────────────────────────────
     match /mata_olahragawan/{id} {
       allow read:   if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if true; // ResetSistem admin — upgrade ke Firebase Auth untuk hadkan
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
     }
 
-    // ─── Pilihan Olahragawan — delete dibenar (ResetSistem admin perlu padam) ─
+    // ─── Pilihan Olahragawan ──────────────────────────────────────────────────
     match /pilihan_olahragawan/{id} {
       allow read:   if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if true; // ResetSistem admin — upgrade ke Firebase Auth untuk hadkan
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
     }
 
     // ─── Log Reset — audit trail reset sistem ────────────────────────────────
     match /log_reset/{id} {
       allow read:   if true;
-      allow create: if true;
+      allow create: if request.auth != null;
       allow update: if false;
-      allow delete: if false; // audit trail kekal
+      allow delete: if false;
     }
 
     // ─── Tetapan sistem ───────────────────────────────────────────────────────
     match /tetapan/{id} {
       allow read:   if true;
-      allow create: if true;
-      allow update: if true;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
       allow delete: if false;
     }
 
     // ─── Jadual Acara ─────────────────────────────────────────────────────────
     match /jadual_acara/{id} {
       allow read:   if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if true;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
     }
 
-    // ─── Pengguna sistem — ada pinHash — hadkan baca kepada pengguna app ───────
+    // ─── Pengguna sistem — pinHash sensitif ───────────────────────────────────
     match /users/{uid} {
-      allow read:   if request.auth != null; // anonymous auth cukup — halang scraper luar
-      allow create: if true;
-      allow update: if true;
+      allow read:   if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
       allow delete: if false;
     }
 
     // ─── Kategori ─────────────────────────────────────────────────────────────
     match /kategori/{id} {
       allow read:   if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if true;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
     }
 
-    // ─── Bantahan — delete dibenar untuk ResetSistem admin ──────────────────
+    // ─── Bantahan ─────────────────────────────────────────────────────────────
     match /bantahan/{id} {
       allow read:   if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if true; // ResetSistem admin — upgrade ke Firebase Auth untuk hadkan
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
     }
 
-    // ─── Pendaftaran Counter — noBib auto-increment per sekolah ─────────────────
+    // ─── Pendaftaran Counter — noBib auto-increment per sekolah ──────────────
     match /pendaftaran_counter/{id} {
-      allow read:   if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if false; // counter kekal sebagai audit trail
+      allow read:   if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
     }
 
-    // ─── Login Attempts — rate limiting (R-NEW-3) ─────────────────────────────
+    // ─── Login Attempts — rate limiting ───────────────────────────────────────
+    // Mesti baca/tulis tanpa auth (proses login belum ada token lagi)
     match /login_attempts/{id} {
-      allow read:   if true;  // auth.js perlu baca sebelum semak
-      allow create: if true;  // rekod pertama
-      allow update: if true;  // kemas kini kiraan
-      allow delete: if false; // rekod kekal sebagai audit trail
-    }
-
-    // ─── Anugerah Custom — admin cipta/padam anugerah khas kejohanan ─────────
-    match /anugerah_custom/{id} {
-      allow read:   if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if true;
-    }
-
-    // ─── WA Config — tetapan peraturan WA per kejohanan ─────────────────────
-    match /wa_config/{id} {
       allow read:   if true;
       allow create: if true;
       allow update: if true;
       allow delete: if false;
     }
 
+    // ─── Anugerah Custom ──────────────────────────────────────────────────────
+    match /anugerah_custom/{id} {
+      allow read:   if true;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+
+    // ─── WA Config ────────────────────────────────────────────────────────────
+    match /wa_config/{id} {
+      allow read:   if true;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if false;
+    }
+
     // ─── TIADA wildcard catch-all ─────────────────────────────────────────────
     // Koleksi tidak tersenarai di atas = DITOLAK secara default.
-    // Ini mencegah koleksi luar dijana oleh pihak yang tidak diketahui.
   }
 }
-
