@@ -3695,9 +3695,11 @@ function PPPendaftaranView({ sekolahList }) {
   }
 
   // Heat map
+  const [heatMapLoading, setHeatMapLoading] = useState(true)
   useEffect(() => {
-    if (!kejohanan?.id || acaraList.length === 0) { setHeatDijanaMap({}); return }
+    if (!kejohanan?.id || acaraList.length === 0) { setHeatDijanaMap({}); setHeatMapLoading(false); return }
     let cancelled = false
+    setHeatMapLoading(true)
     Promise.all(
       acaraList.map(async a => {
         try {
@@ -3707,7 +3709,12 @@ function PPPendaftaranView({ sekolahList }) {
           return [a.aceraId || a.id, snap.data().count > 0]
         } catch { return [a.aceraId || a.id, false] }
       })
-    ).then(entries => { if (!cancelled) setHeatDijanaMap(Object.fromEntries(entries)) })
+    ).then(entries => {
+      if (!cancelled) {
+        setHeatDijanaMap(Object.fromEntries(entries))
+        setHeatMapLoading(false)
+      }
+    })
     return () => { cancelled = true }
   }, [kejohanan, acaraList])
 
@@ -5101,19 +5108,31 @@ function PPPendaftaranView({ sekolahList }) {
         {acaraDenganHeat.length === 0 ? (
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-5">
             <div className="text-center space-y-1">
-              <svg className="w-8 h-8 text-gray-200 mx-auto" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-              </svg>
-              <p className="text-xs font-bold text-gray-500">Belum Bersedia untuk Pengesahan</p>
-              <p className="text-[10px] text-gray-400">Butang tab berwarna <strong>kelabu</strong> bermaksud start list belum dijana oleh penganjur.</p>
+              {heatMapLoading ? (
+                <>
+                  <svg className="w-6 h-6 text-gray-300 mx-auto animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z"/>
+                  </svg>
+                  <p className="text-xs text-gray-400">Menyemak start list…</p>
+                </>
+              ) : (
+                <>
+                  <svg className="w-8 h-8 text-gray-200 mx-auto" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                  </svg>
+                  <p className="text-xs font-bold text-gray-500">Belum Bersedia untuk Pengesahan</p>
+                  <p className="text-[10px] text-gray-400">Butang tab berwarna <strong>kelabu</strong> bermaksud start list belum dijana oleh penganjur.</p>
+                </>
+              )}
             </div>
 
-            {/* Aliran proses */}
-            <div className="space-y-0">
+            {/* Aliran proses — sembunyikan semasa loading */}
+            {!heatMapLoading && <div className="space-y-0">
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-3">Aliran Pengesahan Pendaftaran</p>
               {[
                 { no: 1, label: 'Daftar semua atlet ke acara',         done: myPendaftaran.length > 0,  sub: myPendaftaran.length > 0 ? `${myPendaftaran.length} atlet sudah didaftarkan` : 'Pergi ke tab "Daftar Acara"' },
-                { no: 2, label: 'Penganjur jana start list (heat)',     done: false,                     sub: 'Menunggu penganjur jana heat — tiada tindakan diperlukan dari anda', waiting: true },
+                { no: 2, label: 'Penganjur jana start list (heat)',     done: pengesahanReady,            sub: pengesahanReady ? 'Start list sudah dijana oleh penganjur' : 'Menunggu penganjur jana heat — tiada tindakan diperlukan dari anda', waiting: !pengesahanReady },
                 { no: 3, label: 'Semak Start List pasukan anda',        done: false,                     sub: 'Tab ini akan bertukar BIRU apabila start list tersedia' },
                 { no: 4, label: 'Klik "Sahkan & Kunci" pendaftaran',    done: false,                     sub: 'Pendaftaran akan dikunci selepas disahkan' },
               ].map(step => (
@@ -5129,7 +5148,7 @@ function PPPendaftaranView({ sekolahList }) {
                   </div>
                 </div>
               ))}
-            </div>
+            </div>}
           </div>
         ) : (
           <>

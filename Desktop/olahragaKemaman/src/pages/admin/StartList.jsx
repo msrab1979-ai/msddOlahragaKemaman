@@ -1851,6 +1851,27 @@ export default function StartList() {
         doc(db, 'kejohanan', selectedKej, 'acara', aid),
         { finalDijanaKe: deleteField() }
       ).catch(() => {})
+      // Reset pengesahan sekolah yang daftar acara ini sahaja
+      const pendSnap = await getDocs(collection(db, 'kejohanan', selectedKej, 'pendaftaran'))
+      const skolahTerkesan = new Set(
+        pendSnap.docs
+          .filter(d => (d.data().acaraIds || []).includes(aid))
+          .map(d => d.data().kodSekolah)
+          .filter(Boolean)
+      )
+      if (skolahTerkesan.size > 0) {
+        const pgSnap = await getDocs(collection(db, 'kejohanan', selectedKej, 'pengesahan'))
+        const pgBatch = writeBatch(db)
+        pgSnap.docs
+          .filter(d => skolahTerkesan.has(d.id))
+          .forEach(d => pgBatch.delete(d.ref))
+        await pgBatch.commit()
+        setPengesahanMap(prev => {
+          const next = { ...prev }
+          skolahTerkesan.forEach(k => delete next[k])
+          return next
+        })
+      }
       if (selectedAcara && (selectedAcara.aceraId || selectedAcara.id) === aid) {
         setHeatList([])
       }
@@ -1883,10 +1904,18 @@ export default function StartList() {
           { finalDijanaKe: deleteField() }
         ).catch(() => {})
       }
+      // Reset semua pengesahan
+      const pgSnap = await getDocs(collection(db, 'kejohanan', selectedKej, 'pengesahan'))
+      if (!pgSnap.empty) {
+        const pgBatch = writeBatch(db)
+        pgSnap.docs.forEach(d => pgBatch.delete(d.ref))
+        await pgBatch.commit()
+        setPengesahanMap({})
+      }
       setHeatList([])
       setHeatCountTick(t => t + 1)
       setResetAllConfirm(false)
-      alert('Reset berjaya. Semua start list telah dipadamkan.')
+      alert('Reset berjaya. Semua start list dan pengesahan telah dipadamkan.')
     } catch (e) { alert(e.message) }
     finally { setResetingAll(false) }
   }
