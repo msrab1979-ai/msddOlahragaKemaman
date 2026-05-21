@@ -47,7 +47,7 @@ service cloud.firestore {
         allow read:   if true;
         allow create: if true;
         allow update: if true;
-        allow delete: if false; // pengesahan kekal sebagai audit trail
+        allow delete: if true; // admin boleh reset pengesahan apabila heat direset
       }
     }
 
