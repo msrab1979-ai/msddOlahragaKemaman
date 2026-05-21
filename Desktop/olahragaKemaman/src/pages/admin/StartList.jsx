@@ -3428,11 +3428,22 @@ export default function StartList() {
                                             ? 'bg-[#003399] text-white border-[#003399]'
                                             : 'border-[#003399] text-[#003399] hover:bg-blue-50'
                                         }`}>
-                                        {isLoadingH
-                                          ? '…'
-                                          : <><svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
-                                          {heat} Heat {isExpanded ? '▲' : '▼'}</>
-                                        }
+                                        {isLoadingH ? '…' : (() => {
+                                          const totalCetak = hariHeats.reduce((s, h) => s + (h.bilanganCetak || 0), 0)
+                                          const sudahCetak = hariHeats.length > 0 && totalCetak > 0
+                                          return (
+                                            <span className="flex items-center gap-1">
+                                              <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                                              {heat} Heat
+                                              {hariHeats.length > 0 && (
+                                                sudahCetak
+                                                  ? <span className={`ml-0.5 text-[8px] font-black px-1 py-0.5 rounded ${isExpanded ? 'bg-white/20 text-white' : 'bg-green-100 text-green-700'}`}>✓{totalCetak}</span>
+                                                  : <span className={`ml-0.5 text-[8px] px-1 py-0.5 rounded ${isExpanded ? 'bg-white/20 text-white/70' : 'bg-gray-100 text-gray-400'}`}>○</span>
+                                              )}
+                                              {isExpanded ? '▲' : '▼'}
+                                            </span>
+                                          )
+                                        })()}
                                       </button>
                                     ) : (
                                       <span className="text-gray-200">—</span>
