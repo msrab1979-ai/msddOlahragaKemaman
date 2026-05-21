@@ -1771,12 +1771,13 @@ export default function Home() {
                   </button>
                 )}
                 {/* Refresh */}
-                <button onClick={loadJadualData} disabled={jadualLoading}
-                  className="p-2 text-gray-400 hover:text-[#003399] hover:bg-white rounded-xl transition-all disabled:opacity-50"
-                  title="Muat semula">
-                  <svg className={`w-4 h-4 ${jadualLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                <button onClick={() => { setHeatCache({}); setExpandedAcara(new Set()); loadJadualData() }} disabled={jadualLoading}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-bold text-gray-500 hover:text-[#003399] bg-white border border-gray-200 hover:border-[#003399]/30 rounded-xl transition-all disabled:opacity-50 shadow-sm"
+                  title="Muat semula keputusan terkini">
+                  <svg className={`w-3.5 h-3.5 ${jadualLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                   </svg>
+                  {jadualLoading ? 'Memuatkan…' : 'Kemaskini'}
                 </button>
               </div>
             </div>
