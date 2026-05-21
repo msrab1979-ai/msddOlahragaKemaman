@@ -120,7 +120,7 @@ Reset data kejohanan secara selektif. Setiap toggle bebas dan boleh digabung:
 |---|---|---|
 | Pendaftaran Atlet | `atlet.noBib`, `kejohanan/.../pendaftaran`, `pendaftaran_counter` | Sederhana |
 | Jadual Acara | `jadual_acara` | Sederhana |
-| Keputusan & Heat | `kejohanan/.../acara/.../heat`, `bantahan` | Bahaya |
+| Keputusan & Heat | `kejohanan/.../acara/.../heat`, `bantahan`, `kejohanan/.../pengesahan` | Bahaya |
 | Rekod Pecah Kejohanan | `rekod (filter kejohananId)` | Sederhana |
 | Medal Tally | `medal_tally`, `medal_tally_kat` | Sederhana |
 | Mata & Pilihan Olahragawan | `mata_olahragawan`, `pilihan_olahragawan` | Sederhana |
@@ -129,6 +129,28 @@ Reset data kejohanan secara selektif. Setiap toggle bebas dan boleh digabung:
 | Sekolah | `sekolah` | Bahaya |
 
 Reset Pendaftaran juga memadam `pendaftaran_counter` supaya noBib mula semula dari 1 selepas reset.
+
+Reset Keputusan & Heat juga memadam `pengesahan` — status PP kembali ke Belum Sah.
+
+---
+
+## Keselamatan
+
+- **Firestore rules** — semua write memerlukan `request.auth != null` (anonymous token). Bot luar tanpa token ditolak.
+- **PIN hashing** — PBKDF2-SHA256, 10,000 iterasi. Auto-migrate dari plain text semasa login pertama.
+- **Rate limiting** — 5 percubaan gagal → kunci 30 minit (`login_attempts` collection).
+- **Audit trail** — `rekod_sejarah` dan `log_reset` immutable (update/delete = false).
+- **sessionStorage** — sesi pencatat/PP luput bila tab ditutup. Bukan localStorage.
+- **Blaze plan** — set Budget Alert di Firebase Console (cadang: USD 5 warning, USD 20 critical).
+
+## Start List — Counter Cetak
+
+Field `bilanganCetak` disimpan dalam setiap heat doc. Paparan dalam tab Hari:
+
+- `○` — belum dicetak
+- `✓N` — dicetak N kali
+
+Selepas Reset Keputusan & Heat + Jana Heat semula → counter bermula dari 0.
 
 ---
 
