@@ -1,7 +1,12 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { doc, getDoc } from 'firebase/firestore'
+import { db } from './firebase/config'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import DashboardLayout from './components/layout/DashboardLayout'
 import Home from './pages/Home'
+import Login from './pages/Login'
+import Maintenance from './pages/Maintenance'
 import Dashboard from './pages/Dashboard'
 import UserManagement from './pages/admin/UserManagement'
 import KejohananSetup from './pages/admin/KejohananSetup'
@@ -30,6 +35,40 @@ function ProtectedRoute({ children }) {
   return children
 }
 
+function SistemTutupGuard({ children }) {
+  const { userRole, loading: authLoading } = useAuth()
+  const location = useLocation()
+  const [sistemTutup, setSistemTutup] = useState(false)
+  const [mesejTutup,  setMesejTutup]  = useState('')
+  const [flagLoaded,  setFlagLoaded]  = useState(false)
+
+  useEffect(() => {
+    getDoc(doc(db, 'tetapan', 'home'))
+      .then(snap => {
+        if (snap.exists()) {
+          setSistemTutup(snap.data().sistemTutup || false)
+          setMesejTutup(snap.data().mesejTutup   || '')
+        }
+      })
+      .catch(() => {})
+      .finally(() => setFlagLoaded(true))
+  }, [])
+
+  if (!flagLoaded || authLoading) return null
+
+  // Sistem buka — akses biasa
+  if (!sistemTutup) return children
+
+  // Sistem tutup — admin & superadmin kekal boleh akses
+  if (userRole === 'superadmin' || userRole === 'admin') return children
+
+  // Sistem tutup — /login sentiasa boleh akses (untuk admin login)
+  if (location.pathname === '/login') return children
+
+  // Semua pengguna lain → halaman maintenance
+  return <Maintenance mesej={mesejTutup} />
+}
+
 function InputKeputusanRoute() {
   const { userRole, loading } = useAuth()
   if (loading) return null
@@ -52,12 +91,13 @@ function ComingSoon({ title }) {
 
 function AppRoutes() {
   return (
-    <Routes>
+    <SistemTutupGuard>
+      <Routes>
       {/* Home — login awam (3 cards + gear modal) */}
       <Route path="/" element={<Home />} />
 
-      {/* /login redirect ke / untuk backward-compat */}
-      <Route path="/login" element={<Navigate to="/" replace />} />
+      {/* /login — Login page (superadmin + sistem tutup admin access) */}
+      <Route path="/login" element={<Login />} />
 
       {/* Dashboard — protected */}
       <Route path="/dashboard" element={
@@ -168,7 +208,8 @@ function AppRoutes() {
       } />
 
       <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+      </Routes>
+    </SistemTutupGuard>
   )
 }
 

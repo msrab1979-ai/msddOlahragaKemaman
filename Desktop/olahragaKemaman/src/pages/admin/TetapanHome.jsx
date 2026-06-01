@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react'
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
 
@@ -252,17 +252,42 @@ function HomePreview({ cfg }) {
 
 export default function TetapanHome() {
   const { user } = useAuth()
-  const [cfg,     setCfg]     = useState(TETAPAN_DEFAULTS)
-  const [busy,    setBusy]    = useState(false)
-  const [saved,   setSaved]   = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [cfg,          setCfg]         = useState(TETAPAN_DEFAULTS)
+  const [busy,         setBusy]        = useState(false)
+  const [saved,        setSaved]       = useState(false)
+  const [loading,      setLoading]     = useState(true)
+  const [sistemTutup,  setSistemTutup] = useState(false)
+  const [mesejTutup,   setMesejTutup]  = useState('')
+  const [toggling,     setToggling]    = useState(false)
+  const [konfirmTutup, setKonfirmTutup] = useState(false)
 
   useEffect(() => {
     getDoc(doc(db, 'tetapan', 'home'))
-      .then(snap => { if (snap.exists()) setCfg({ ...TETAPAN_DEFAULTS, ...snap.data() }) })
+      .then(snap => {
+        if (snap.exists()) {
+          setCfg({ ...TETAPAN_DEFAULTS, ...snap.data() })
+          setSistemTutup(snap.data().sistemTutup || false)
+          setMesejTutup(snap.data().mesejTutup   || '')
+        }
+      })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
+
+  async function handleToggleSistem(tutup) {
+    setToggling(true)
+    try {
+      await updateDoc(doc(db, 'tetapan', 'home'), {
+        sistemTutup: tutup,
+        mesejTutup:  mesejTutup.trim(),
+        updatedAt:   serverTimestamp(),
+        updatedBy:   user?.uid || '',
+      })
+      setSistemTutup(tutup)
+      setKonfirmTutup(false)
+    } catch (err) { alert(`Gagal: ${err.message}`) }
+    finally { setToggling(false) }
+  }
 
   function set(k, v) { setCfg(prev => ({ ...prev, [k]: v })); setSaved(false) }
 
@@ -285,6 +310,68 @@ export default function TetapanHome() {
       <div className="mb-6">
         <h1 className="text-lg font-bold text-gray-800">Tetapan Halaman Utama</h1>
         <p className="text-xs text-gray-500 mt-0.5">Ubah logo, nama, warna dan paparan halaman login awam (/)</p>
+      </div>
+
+      {/* ── Kawalan Sistem ── */}
+      <div className={`mb-6 rounded-xl border-2 p-5 ${sistemTutup ? 'border-red-300 bg-red-50' : 'border-gray-200 bg-white'}`}>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-0.5">Kawalan Sistem</p>
+            <p className="text-[11px] text-gray-400">Tutup akses awam — hanya admin boleh masuk untuk selenggara</p>
+            <div className="flex items-center gap-2 mt-2">
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                sistemTutup ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${sistemTutup ? 'bg-red-500' : 'bg-green-500'}`} />
+                {sistemTutup ? 'SISTEM DITUTUP' : 'SISTEM AKTIF'}
+              </span>
+            </div>
+          </div>
+          <div className="shrink-0">
+            {sistemTutup ? (
+              <button onClick={() => handleToggleSistem(false)} disabled={toggling}
+                className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white text-xs font-bold rounded-lg transition-colors">
+                {toggling ? 'Memproses…' : '✓ Buka Sistem'}
+              </button>
+            ) : (
+              <button onClick={() => setKonfirmTutup(true)} disabled={toggling}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-300 text-white text-xs font-bold rounded-lg transition-colors">
+                Tutup Sistem
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Mesej tutup */}
+        {(sistemTutup || konfirmTutup) && (
+          <div className="mt-4 pt-4 border-t border-red-200">
+            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5">
+              Mesej untuk Pengguna (optional)
+            </label>
+            <input value={mesejTutup} onChange={e => setMesejTutup(e.target.value)}
+              placeholder="Sistem dalam penyelenggaraan. Sila cuba sebentar lagi."
+              className={inputCls} />
+          </div>
+        )}
+
+        {/* Dialog konfirmasi tutup */}
+        {konfirmTutup && (
+          <div className="mt-4 pt-4 border-t border-red-200">
+            <p className="text-xs font-bold text-red-700 mb-3">
+              ⚠ Semua pengguna (Pencatat, Pengurus Pasukan, Awam) tidak dapat akses sistem. Admin kekal boleh masuk.
+            </p>
+            <div className="flex gap-2">
+              <button onClick={() => setKonfirmTutup(false)}
+                className="px-4 py-2 border border-gray-300 text-xs text-gray-600 rounded-lg hover:bg-gray-50">
+                Batal
+              </button>
+              <button onClick={() => handleToggleSistem(true)} disabled={toggling}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-300 text-white text-xs font-bold rounded-lg transition-colors">
+                {toggling ? 'Memproses…' : 'Ya, Tutup Sistem Sekarang'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6 items-start">
