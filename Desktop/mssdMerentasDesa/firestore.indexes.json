@@ -1,0 +1,106 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "atlet",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kategoriId", "order": "ASCENDING" },
+        { "fieldPath": "noBib", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "atlet",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "pasukanId", "order": "ASCENDING" },
+        { "fieldPath": "aktif", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "atlet",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kategoriId", "order": "ASCENDING" },
+        { "fieldPath": "aktif", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "atlet",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "noKPHash", "order": "ASCENDING" },
+        { "fieldPath": "kategoriId", "order": "ASCENDING" },
+        { "fieldPath": "aktif", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "keputusan",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kategoriId", "order": "ASCENDING" },
+        { "fieldPath": "kedudukan", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "keputusan",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kategoriId", "order": "ASCENDING" },
+        { "fieldPath": "pasukanId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "keputusan",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kategoriId", "order": "ASCENDING" },
+        { "fieldPath": "statusAtlet", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "auditLog",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "uid", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "kategori",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "aktif", "order": "ASCENDING" },
+        { "fieldPath": "jenis", "order": "ASCENDING" },
+        { "fieldPath": "kod", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "atlet",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "pasukanId", "order": "ASCENDING" },
+        { "fieldPath": "kategoriId", "order": "ASCENDING" },
+        { "fieldPath": "aktif", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "atlet",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "noBib", "order": "ASCENDING" },
+        { "fieldPath": "kategoriId", "order": "ASCENDING" },
+        { "fieldPath": "aktif", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "atlet",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "noBib", "order": "ASCENDING" },
+        { "fieldPath": "jenis", "order": "ASCENDING" },
+        { "fieldPath": "aktif", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

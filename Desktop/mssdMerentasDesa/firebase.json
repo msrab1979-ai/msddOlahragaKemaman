@@ -1,0 +1,32 @@
+{
+  "hosting": {
+    "public": "public",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      { "source": "/admin", "destination": "/admin/index.html" },
+      { "source": "/admin/**", "destination": "/admin/index.html" },
+      { "source": "/pencatat", "destination": "/pencatat/index.html" },
+      { "source": "/pencatat/**", "destination": "/pencatat/index.html" },
+      { "source": "/pengurus", "destination": "/pengurus/index.html" },
+      { "source": "/pengurus/**", "destination": "/pengurus/index.html" },
+      { "source": "/papan/individu", "destination": "/papan/individu.html" },
+      { "source": "/papan/pasukan", "destination": "/papan/pasukan.html" }
+    ],
+    "headers": [
+      {
+        "source": "**/*.js",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache" }
+        ]
+      }
+    ]
+  },
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  }
+}

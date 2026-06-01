@@ -1,0 +1,62 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Sistem MSSD Merentas Desa — tiada Firebase Auth dependency
+    // Semua login guna sessionStorage (Admin, Pengurus, Pencatat)
+    // Firestore rules: read/write terbuka untuk fungsi sistem
+
+    match /settings/{doc} {
+      allow read:  if true;
+      allow write: if true;
+    }
+
+    match /kategori/{id} {
+      allow read:  if true;
+      allow write: if true;
+    }
+
+    match /kumpulanLarian/{id} {
+      allow read:  if true;
+      allow write: if true;
+    }
+
+    match /pasukan/{id} {
+      allow read:  if true;
+      allow write: if true;
+    }
+
+    match /atlet/{id} {
+      allow read:   if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;
+    }
+
+    match /keputusan/{id} {
+      allow read:   if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;
+    }
+
+    match /publikasi/{id} {
+      allow read:  if true;
+      allow write: if true;
+    }
+
+    match /users/{uid} {
+      allow read:   if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if false;
+    }
+
+    match /auditLog/{id} {
+      allow read:   if true;
+      allow create: if true;
+      allow update: if false;
+      allow delete: if false;
+    }
+  }
+}

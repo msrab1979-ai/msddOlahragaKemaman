@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pencatat — Sistem Merentas Desa</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'DM Sans', sans-serif; }
+    .font-heading { font-family: 'Bebas Neue', cursive; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+    tr.baris-sunting td { background: #eff6ff; }
+    tr.baris-catatan { opacity: 0.65; }
+    input:disabled { background: #f9fafb; cursor: not-allowed; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+<!-- Skrin Log Masuk -->
+<div id="loginScreen" class="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-900 to-indigo-700 p-4">
+  <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-sm">
+    <div class="text-center mb-8">
+      <h1 class="font-heading text-4xl text-blue-900 tracking-wide">PENCATAT</h1>
+      <p class="text-gray-500 text-sm mt-1">Rekod Keputusan Larian</p>
+    </div>
+    <div class="space-y-4">
+      <input id="loginEmail" type="email" placeholder="E-mel"
+        class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+      <div class="relative">
+        <input id="loginPassword" type="password" placeholder="Kata Laluan"
+          class="w-full border border-gray-300 rounded-lg px-4 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+        <button type="button" onclick="toggleTampak('loginPassword',this)"
+          class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm select-none">👁</button>
+      </div>
+      <div id="loginError" class="text-red-600 text-sm hidden"></div>
+      <button id="loginBtn" class="w-full bg-blue-900 hover:bg-blue-800 text-white font-semibold py-2.5 rounded-lg transition">Log Masuk</button>
+      <a href="/" class="block text-center text-xs text-gray-400 hover:text-gray-600">← Laman Utama</a>
+    </div>
+  </div>
+</div>
+
+<!-- Papan Pemuka -->
+<div id="dash" class="hidden">
+
+  <!-- Bar Navigasi -->
+  <nav class="bg-blue-900 text-white px-4 py-3 flex items-center justify-between sticky top-0 z-50 shadow">
+    <div>
+      <h1 class="font-heading text-xl tracking-wide">PENCATAT</h1>
+      <p class="text-blue-300 text-xs" id="namaKategoriNav"></p>
+    </div>
+    <div class="flex items-center gap-3">
+      <span id="userNama" class="text-xs text-blue-200 hidden md:block"></span>
+      <button id="logoutBtn" class="bg-red-600 hover:bg-red-700 px-3 py-1.5 rounded text-xs font-medium">Keluar</button>
+    </div>
+  </nav>
+
+  <div class="max-w-4xl mx-auto p-4 space-y-4">
+
+    <!-- Pilih Kategori -->
+    <div class="bg-white rounded-xl shadow p-4">
+      <label class="block text-sm font-medium text-gray-700 mb-2">Kategori Larian</label>
+      <select id="pilihanKategori" onchange="tukarKategori()"
+        class="border border-gray-300 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-500">
+        <option value="">-- Pilih Kategori --</option>
+      </select>
+    </div>
+
+    <!-- Penyemak Tally -->
+    <div id="tallyBar" class="hidden bg-white rounded-xl shadow p-4">
+      <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+        <div class="flex items-center gap-3">
+          <span class="text-sm font-medium text-gray-700">Direkod:</span>
+          <span class="font-heading text-2xl text-blue-900" id="tallyDirekod">0</span>
+          <span class="text-gray-400 text-sm">/</span>
+          <span class="font-heading text-2xl text-gray-500" id="tallyJumlah">0</span>
+          <span class="text-xs font-mono text-gray-400" id="tallyPct">0%</span>
+        </div>
+        <button id="btnBelum" onclick="togolBelum()"
+          class="text-xs font-medium px-3 py-1.5 rounded-lg border transition hidden">
+        </button>
+      </div>
+      <div class="w-full bg-gray-100 rounded-full h-2.5 mb-3">
+        <div id="tallyBar2" class="bg-blue-600 h-2.5 rounded-full transition-all" style="width:0%"></div>
+      </div>
+      <!-- Panel Belum Direkod -->
+      <div id="panelBelum" class="hidden border-t border-gray-100 pt-3 mt-1">
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Belum Direkod</p>
+        <div id="senaraiBelum" class="space-y-0 max-h-64 overflow-y-auto"></div>
+      </div>
+    </div>
+
+    <!-- Borang Input -->
+    <div id="borangInput" class="hidden bg-white rounded-xl shadow p-4">
+      <p class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Rekod Keputusan</p>
+
+      <!-- Baris input -->
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_70px_110px_120px] sm:items-end">
+        <!-- No Bib -->
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">No Bib</label>
+          <input id="inputBib" type="text" placeholder="SRL001" maxlength="10" autocomplete="off"
+            oninput="semakBib(this.value.toUpperCase()); this.value = this.value.toUpperCase()"
+            onkeydown="if(event.key==='Enter') document.getElementById('inputKedudukan').focus()"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <p id="bibInfo" class="text-xs mt-1 min-h-[1rem]"></p>
+        </div>
+        <!-- Kedudukan -->
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Ked.</label>
+          <input id="inputKedudukan" type="number" min="1" placeholder="1"
+            onkeydown="if(event.key==='Enter') document.getElementById('inputMasa').focus()"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono text-center focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+        <!-- Masa -->
+        <div id="wrapmasa">
+          <label class="block text-xs font-medium text-gray-600 mb-1">Masa <span id="labelAmbang" class="text-gray-400 font-normal"></span></label>
+          <input id="inputMasa" type="text" placeholder="45:23" maxlength="8"
+            onkeydown="if(event.key==='Enter') simpanKeputusan()"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+        <!-- Catatan -->
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Catatan</label>
+          <select id="inputCatatan" onchange="tukarCatatan()"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="">— Selesai</option>
+            <option value="dns">DNS</option>
+            <option value="dnf">DNF</option>
+            <option value="dq">DQ</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Butang -->
+      <div class="flex gap-2 mt-3">
+        <button id="btnSimpan" onclick="simpanKeputusan()"
+          class="flex-1 bg-blue-900 hover:bg-blue-800 text-white py-2.5 rounded-lg font-semibold text-sm transition">
+          + Simpan
+        </button>
+        <button onclick="kosongkanBorang()"
+          class="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm transition">
+          Kosong
+        </button>
+      </div>
+      <div id="inputAmaran" class="text-xs text-amber-600 hidden mt-2"></div>
+    </div>
+
+    <!-- Bar Statistik -->
+    <div id="statsBar" class="hidden bg-white rounded-xl shadow px-4 py-3 flex items-center justify-between flex-wrap gap-2">
+      <div class="text-sm">
+        <span class="text-gray-500">Jumlah rekod:</span>
+        <span id="jumlahRekod" class="font-mono font-bold text-blue-900 ml-1">0</span>
+      </div>
+      <div class="flex gap-2">
+        <button onclick="susunSemulaByMasa()"
+          class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-medium transition">
+          Susun Semula by Masa
+        </button>
+      </div>
+    </div>
+
+    <!-- Jadual Keputusan -->
+    <div id="jadualWrap" class="hidden bg-white rounded-xl shadow overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm min-w-[640px]">
+          <thead>
+            <tr class="bg-gray-50 border-b border-gray-100 text-left">
+              <th class="px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-12 text-center">Ked.</th>
+              <th class="px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">No Bib</th>
+              <th class="px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Nama</th>
+              <th class="px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Pasukan</th>
+              <th class="px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Masa</th>
+              <th class="px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-20">Catatan</th>
+              <th class="px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Tindakan</th>
+            </tr>
+          </thead>
+          <tbody id="badanJadual"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="fixed bottom-6 right-6 z-50 hidden">
+  <div id="toastMsg" class="px-5 py-3 rounded-xl shadow-lg text-white text-sm font-medium"></div>
+</div>
+
+<script type="module">
+  import { db } from '../js/firebase-config.js'
+  import { login, logout, getUserData, attachSessionListeners, onAuth } from '../js/auth.js'
+  import {
+    doc, getDoc, addDoc, updateDoc, deleteDoc, getDocs,
+    collection, query, where, orderBy,
+    writeBatch, serverTimestamp
+  } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js'
+
+  // ── Keadaan ───────────────────────────────────────────────────
+  let currentUser  = null
+  let kategoriData = null
+  let threshold    = 20
+  let fungsiMasa   = true
+  let atletKategori  = []   // semua atlet untuk kategori dipilih
+  let pasukanCache   = {}   // pasukanId → data pasukan
+  let semuaKeputusan = []   // semua rekod keputusan
+  let editingId      = null // id baris yang sedang disunting
+  let belumTerbuka   = false
+
+  // ── Pengesahan ────────────────────────────────────────────────
+  onAuth(async (user) => {
+    if (user) {
+      const data = await getUserData(user.uid)
+      if (!data || (data.role !== 'pencatat' && data.role !== 'admin') || !data.aktif) {
+        await logout(); tunjukLogin(); return
+      }
+      currentUser = { uid: user.uid, ...data }
+      document.getElementById('userNama').textContent = data.nama
+      tunjukDash()
+      attachSessionListeners()
+      await muatTetapan()
+      await muatKategoriDropdown()
+    } else {
+      tunjukLogin()
+    }
+  })
+
+  function tunjukLogin() {
+    document.getElementById('loginScreen').classList.remove('hidden')
+    document.getElementById('dash').classList.add('hidden')
+  }
+
+  function tunjukDash() {
+    document.getElementById('loginScreen').classList.add('hidden')
+    document.getElementById('dash').classList.remove('hidden')
+  }
+
+  async function doLogin() {
+    const errDiv = document.getElementById('loginError')
+    errDiv.classList.add('hidden')
+    try {
+      await login(
+        document.getElementById('loginEmail').value.trim(),
+        document.getElementById('loginPassword').value
+      )
+      window.location.reload()
+    } catch (e) {
+      errDiv.textContent = e.message
+      errDiv.classList.remove('hidden')
+    }
+  }
+
+  document.getElementById('loginBtn').addEventListener('click', doLogin)
+  document.getElementById('loginPassword').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin() })
+  document.getElementById('logoutBtn').addEventListener('click', async () => { await logout(); window.location.reload() })
+
+  window.toggleTampak = (id, btn) => {
+    const el = document.getElementById(id)
+    el.type = el.type === 'password' ? 'text' : 'password'
+    btn.textContent = el.type === 'password' ? '👁' : '🙈'
+  }
+
+  // ── Tetapan ───────────────────────────────────────────────────
+  async function muatTetapan() {
+    const snap = await getDoc(doc(db, 'settings', 'main'))
+    if (snap.exists()) {
+      threshold  = snap.data().thresholdTanpaMasa || 20
+      fungsiMasa = snap.data().fungsiMasa !== false
+    }
+    document.getElementById('labelAmbang').textContent = fungsiMasa ? `(wajib ≤ ${threshold})` : '(pilihan)'
+  }
+
+  // ── Kategori ──────────────────────────────────────────────────
+  async function muatKategoriDropdown() {
+    const snap = await getDocs(query(collection(db, 'kategori'), where('aktif', '==', true), orderBy('kod')))
+    const sel = document.getElementById('pilihanKategori')
+    sel.innerHTML = '<option value="">-- Pilih Kategori --</option>' +
+      snap.docs.map(d => `<option value="${d.id}">${d.data().nama}</option>`).join('')
+  }
+
+  window.tukarKategori = async () => {
+    const katId = document.getElementById('pilihanKategori').value
+    const sembunyikan = id => document.getElementById(id).classList.add('hidden')
+    const tunjukkan  = id => document.getElementById(id).classList.remove('hidden')
+
+    if (!katId) {
+      ['tallyBar','borangInput','statsBar','jadualWrap'].forEach(sembunyikan)
+      document.getElementById('namaKategoriNav').textContent = ''
+      atletKategori = []; semuaKeputusan = []; editingId = null
+      return
+    }
+
+    const snap = await getDoc(doc(db, 'kategori', katId))
+    kategoriData = { id: katId, ...snap.data() }
+    editingId = null; belumTerbuka = false
+    document.getElementById('namaKategoriNav').textContent = kategoriData.nama
+    document.getElementById('panelBelum').classList.add('hidden')
+
+    await muatAtletKategori()
+    await muatKeputusan()
+
+    ;['tallyBar','borangInput','statsBar','jadualWrap'].forEach(tunjukkan)
+    kosongkanBorang()
+    renderTally()
+    renderJadual()
+  }
+
+  // ── Atlet ─────────────────────────────────────────────────────
+  async function muatAtletKategori() {
+    const snap = await getDocs(query(
+      collection(db, 'atlet'),
+      where('kategoriId', '==', kategoriData.id),
+      where('aktif', '==', true)
+    ))
+    atletKategori = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    atletKategori.sort((a, b) => (a.noBib || '').localeCompare(b.noBib || ''))
+
+    const pasukanIds = [...new Set(atletKategori.map(a => a.pasukanId).filter(Boolean))]
+    await Promise.all(pasukanIds.map(async pid => {
+      if (!pasukanCache[pid]) {
+        const pSnap = await getDoc(doc(db, 'pasukan', pid))
+        if (pSnap.exists()) pasukanCache[pid] = pSnap.data()
+      }
+    }))
+  }
+
+  // ── Keputusan ─────────────────────────────────────────────────
+  async function muatKeputusan() {
+    const snap = await getDocs(query(
+      collection(db, 'keputusan'),
+      where('kategoriId', '==', kategoriData.id)
+    ))
+    const raw = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    // selesai dahulu (ikut kedudukan), kemudian catatan (dns/dnf/dq)
+    const selesai  = raw.filter(k => k.statusAtlet === 'selesai').sort((a, b) => (a.kedudukan || 9999) - (b.kedudukan || 9999))
+    const catatan  = raw.filter(k => ['dns','dnf','dq'].includes(k.statusAtlet))
+    semuaKeputusan = [...selesai, ...catatan]
+    document.getElementById('jumlahRekod').textContent = semuaKeputusan.length
+  }
+
+  // ── Penyemak Tally ────────────────────────────────────────────
+  function kiraTally() {
+    const direkodSet = new Set(semuaKeputusan.map(k => k.atletId))
+    return {
+      jumlahDaftar:  atletKategori.length,
+      jumlahDirekod: direkodSet.size,
+      belum: atletKategori.filter(a => !direkodSet.has(a.id))
+    }
+  }
+
+  function renderTally() {
+    const { jumlahDaftar, jumlahDirekod, belum } = kiraTally()
+    const pct = jumlahDaftar > 0 ? Math.round((jumlahDirekod / jumlahDaftar) * 100) : 0
+
+    document.getElementById('tallyDirekod').textContent = jumlahDirekod
+    document.getElementById('tallyJumlah').textContent  = jumlahDaftar
+    document.getElementById('tallyPct').textContent     = `${pct}%`
+
+    const bar2 = document.getElementById('tallyBar2')
+    bar2.style.width = `${pct}%`
+    bar2.className = `h-2.5 rounded-full transition-all ${pct === 100 ? 'bg-green-600' : 'bg-blue-600'}`
+
+    const btn = document.getElementById('btnBelum')
+    btn.classList.remove('hidden')
+    if (belum.length === 0) {
+      btn.textContent = 'Lengkap ✓'
+      btn.className = 'text-xs font-medium px-3 py-1.5 rounded-lg border transition bg-green-50 border-green-200 text-green-700 cursor-default'
+    } else {
+      btn.textContent = `${belum.length} belum direkod ${belumTerbuka ? '▲' : '▼'}`
+      btn.className = 'text-xs font-medium px-3 py-1.5 rounded-lg border transition bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'
+    }
+
+    renderSenaraiBelum(belum)
+    if (belumTerbuka && belum.length > 0) {
+      document.getElementById('panelBelum').classList.remove('hidden')
+    } else {
+      document.getElementById('panelBelum').classList.add('hidden')
+    }
+  }
+
+  window.togolBelum = () => {
+    const { belum } = kiraTally()
+    if (belum.length === 0) return
+    belumTerbuka = !belumTerbuka
+    renderTally()
+  }
+
+  function renderSenaraiBelum(belum) {
+    const el = document.getElementById('senaraiBelum')
+    if (belum.length === 0) {
+      el.innerHTML = '<p class="text-green-600 text-sm text-center py-2">Semua atlet telah direkod.</p>'
+      return
+    }
+    el.innerHTML = belum.map(a => {
+      const pas = pasukanCache[a.pasukanId] || {}
+      return `
+        <div class="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+          <div class="flex items-center gap-3 min-w-0">
+            <span class="font-mono text-xs font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded shrink-0">${a.noBib || '—'}</span>
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-gray-800 truncate">${a.nama}</p>
+              <p class="text-xs text-gray-400 truncate">${pas.nama || '—'}</p>
+            </div>
+          </div>
+          <div class="flex gap-1.5 shrink-0 ml-2">
+            <button onclick="simpanCatatan('${a.id}','dns')"
+              class="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded font-bold transition">DNS</button>
+            <button onclick="simpanCatatan('${a.id}','dnf')"
+              class="text-xs px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-700 rounded font-bold transition">DNF</button>
+            <button onclick="simpanCatatan('${a.id}','dq')"
+              class="text-xs px-2 py-1 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded font-bold transition">DQ</button>
+          </div>
+        </div>
+      `
+    }).join('')
+  }
+
+  // ── Borang Input ──────────────────────────────────────────────
+  window.semakBib = (bib) => {
+    const info = document.getElementById('bibInfo')
+    if (!bib) { info.textContent = ''; return }
+    const atlet = cariAtletLokal(bib)
+    if (!atlet) {
+      info.textContent = 'Bib tidak dijumpai dalam kategori ini'
+      info.className = 'text-xs mt-1 font-medium text-red-500'
+      return
+    }
+    const pas = pasukanCache[atlet.pasukanId] || {}
+    const sudah = semuaKeputusan.find(k => k.atletId === atlet.id)
+    if (sudah) {
+      const labelCatatan = { selesai: `Tempat ${sudah.kedudukan}`, dns: 'DNS', dnf: 'DNF', dq: 'DQ' }
+      info.textContent = `⚠ ${atlet.nama} — sudah direkod (${labelCatatan[sudah.statusAtlet] || sudah.statusAtlet})`
+      info.className = 'text-xs mt-1 font-medium text-amber-600'
+    } else {
+      info.textContent = `✓ ${atlet.nama} · ${pas.nama || '—'}`
+      info.className = 'text-xs mt-1 font-medium text-green-600'
+    }
+  }
+
+  function cariAtletLokal(bib) {
+    return atletKategori.find(a => (a.noBib || '').toUpperCase() === bib.toUpperCase())
+  }
+
+  function cadangKedudukan() {
+    const senarai = semuaKeputusan.filter(k => k.statusAtlet === 'selesai' && k.kedudukan)
+    if (senarai.length === 0) return 1
+    return Math.max(...senarai.map(k => k.kedudukan)) + 1
+  }
+
+  window.tukarCatatan = () => {
+    const catatan = document.getElementById('inputCatatan').value
+    const adaCatatan = ['dns','dnf','dq'].includes(catatan)
+    const kedEl  = document.getElementById('inputKedudukan')
+    const masaEl = document.getElementById('inputMasa')
+    kedEl.disabled  = adaCatatan
+    masaEl.disabled = adaCatatan
+    if (adaCatatan) {
+      kedEl.value = ''; masaEl.value = ''
+    } else {
+      kedEl.value = cadangKedudukan()
+    }
+  }
+
+  window.kosongkanBorang = () => {
+    document.getElementById('inputBib').value      = ''
+    document.getElementById('inputKedudukan').value = cadangKedudukan()
+    document.getElementById('inputMasa').value     = ''
+    document.getElementById('inputCatatan').value  = ''
+    document.getElementById('bibInfo').textContent = ''
+    document.getElementById('inputAmaran').classList.add('hidden')
+    document.getElementById('inputKedudukan').disabled = false
+    document.getElementById('inputMasa').disabled      = false
+    document.getElementById('inputBib').focus()
+  }
+
+  window.simpanKeputusan = async () => {
+    const bib        = document.getElementById('inputBib').value.trim().toUpperCase()
+    const catatanVal = document.getElementById('inputCatatan').value
+    const adaCatatan = ['dns','dnf','dq'].includes(catatanVal)
+    const statusAtlet = adaCatatan ? catatanVal : 'selesai'
+
+    if (!bib) { tunjukToast('No Bib wajib diisi', 'red'); return }
+
+    const atlet = cariAtletLokal(bib)
+    if (!atlet) { tunjukToast('Bib tidak dijumpai dalam kategori ini', 'red'); return }
+
+    const sudahAda = semuaKeputusan.find(k => k.atletId === atlet.id)
+    if (sudahAda) {
+      tunjukToast(`${atlet.nama} sudah direkod`, 'red'); return
+    }
+
+    let kedudukan = null
+    let masa      = null
+
+    if (!adaCatatan) {
+      kedudukan = parseInt(document.getElementById('inputKedudukan').value) || null
+      masa      = document.getElementById('inputMasa').value.trim() || null
+      if (!kedudukan) { tunjukToast('Kedudukan wajib diisi', 'red'); return }
+      if (fungsiMasa && kedudukan <= threshold && !masa) {
+        tunjukToast(`Masa wajib untuk kedudukan ≤ ${threshold}`, 'red'); return
+      }
+      // Amaran kedudukan sama (bukan sekatan)
+      const samaNombor = semuaKeputusan.find(k => k.statusAtlet === 'selesai' && k.kedudukan === kedudukan)
+      if (samaNombor) {
+        const atletSama = atletKategori.find(a => a.id === samaNombor.atletId)
+        document.getElementById('inputAmaran').textContent =
+          `Amaran: Kedudukan ${kedudukan} sudah digunakan oleh ${atletSama?.nama || '?'}`
+        document.getElementById('inputAmaran').classList.remove('hidden')
+      } else {
+        document.getElementById('inputAmaran').classList.add('hidden')
+      }
+    }
+
+    const btn = document.getElementById('btnSimpan')
+    btn.disabled = true; btn.textContent = 'Menyimpan...'
+
+    try {
+      await addDoc(collection(db, 'keputusan'), {
+        atletId:    atlet.id,
+        pasukanId:  atlet.pasukanId,
+        kategoriId: kategoriData.id,
+        kedudukan,
+        masa,
+        adaMasa:    !!masa,
+        statusAtlet,
+        createdBy:  currentUser.uid,
+        createdAt:  serverTimestamp(),
+        updatedAt:  serverTimestamp()
+      })
+      await muatKeputusan()
+      renderJadual()
+      renderTally()
+      kosongkanBorang()
+      const label = adaCatatan ? catatanVal.toUpperCase() : `Tempat ${kedudukan}`
+      tunjukToast(`✓ ${atlet.nama} — ${label}`, 'green')
+    } catch (e) {
+      tunjukToast('Gagal simpan: ' + e.message, 'red')
+    }
+
+    btn.disabled = false; btn.textContent = '+ Simpan'
+  }
+
+  // ── Simpan Catatan dari Panel Belum ───────────────────────────
+  window.simpanCatatan = async (atletId, catatan) => {
+    const sudahAda = semuaKeputusan.find(k => k.atletId === atletId)
+    if (sudahAda) { tunjukToast('Atlet sudah ada rekod', 'red'); return }
+    const atlet = atletKategori.find(a => a.id === atletId)
+    if (!atlet) return
+    try {
+      await addDoc(collection(db, 'keputusan'), {
+        atletId,
+        pasukanId:  atlet.pasukanId,
+        kategoriId: kategoriData.id,
+        kedudukan:  null,
+        masa:       null,
+        adaMasa:    false,
+        statusAtlet: catatan,
+        createdBy:  currentUser.uid,
+        createdAt:  serverTimestamp(),
+        updatedAt:  serverTimestamp()
+      })
+      await muatKeputusan()
+      renderJadual()
+      renderTally()
+      tunjukToast(`${atlet.nama} — ${catatan.toUpperCase()} direkod`, 'green')
+    } catch (e) {
+      tunjukToast('Gagal: ' + e.message, 'red')
+    }
+  }
+
+  // ── Jadual Keputusan ──────────────────────────────────────────
+  const WARNA_CATATAN = {
+    dns: 'bg-gray-100 text-gray-600',
+    dnf: 'bg-amber-100 text-amber-700',
+    dq:  'bg-purple-100 text-purple-700'
+  }
+
+  function renderJadual() {
+    const el = document.getElementById('badanJadual')
+    if (semuaKeputusan.length === 0) {
+      el.innerHTML = `<tr><td colspan="7" class="px-4 py-10 text-center text-gray-400 text-sm">Belum ada keputusan direkod.</td></tr>`
+      return
+    }
+    el.innerHTML = semuaKeputusan.map(k => {
+      const atlet  = atletKategori.find(a => a.id === k.atletId) || {}
+      const pasukan = pasukanCache[k.pasukanId] || {}
+      return k.id === editingId
+        ? renderBarisSunting(k, atlet, pasukan)
+        : renderBarisLihat(k, atlet, pasukan)
+    }).join('')
+  }
+
+  function renderBarisLihat(k, atlet, pasukan) {
+    const adaCatatan = ['dns','dnf','dq'].includes(k.statusAtlet)
+    const badgeCatatan = adaCatatan
+      ? `<span class="text-xs font-bold px-2 py-0.5 rounded ${WARNA_CATATAN[k.statusAtlet]}">${k.statusAtlet.toUpperCase()}</span>`
+      : '<span class="text-gray-300 text-xs">—</span>'
+    return `
+      <tr class="border-b border-gray-50 hover:bg-gray-50 transition ${adaCatatan ? 'baris-catatan' : ''}">
+        <td class="px-3 py-2.5 text-center">
+          <span class="font-heading text-xl text-blue-900">${k.kedudukan || '—'}</span>
+        </td>
+        <td class="px-3 py-2.5">
+          <span class="font-mono text-xs font-bold text-gray-700">${atlet.noBib || '?'}</span>
+        </td>
+        <td class="px-3 py-2.5">
+          <p class="text-sm font-medium text-gray-800">${atlet.nama || '?'}</p>
+        </td>
+        <td class="px-3 py-2.5">
+          <p class="text-xs text-gray-500">${pasukan.nama || '?'}</p>
+        </td>
+        <td class="px-3 py-2.5">
+          <span class="font-mono text-sm text-blue-800">${k.masa || '—'}</span>
+        </td>
+        <td class="px-3 py-2.5">${badgeCatatan}</td>
+        <td class="px-3 py-2.5">
+          <div class="flex gap-1">
+            <button onclick="mulaEdit('${k.id}')"
+              class="text-blue-600 hover:text-blue-800 text-xs px-2 py-1 rounded hover:bg-blue-50 transition">Sunting</button>
+            <button onclick="padamKeputusan('${k.id}')"
+              class="text-red-500 hover:text-red-700 text-xs px-2 py-1 rounded hover:bg-red-50 transition">Padam</button>
+          </div>
+        </td>
+      </tr>
+    `
+  }
+
+  function renderBarisSunting(k, atlet, pasukan) {
+    const adaCatatan = ['dns','dnf','dq'].includes(k.statusAtlet)
+    const disabledClass = adaCatatan ? 'bg-gray-100 text-gray-400' : ''
+    return `
+      <tr class="baris-sunting border-b border-blue-100">
+        <td class="px-3 py-2">
+          <input id="suntingKed" type="number" min="1" value="${k.kedudukan || ''}" ${adaCatatan ? 'disabled' : ''}
+            class="w-14 border border-blue-300 rounded px-2 py-1.5 text-sm font-mono text-center focus:outline-none focus:ring-2 focus:ring-blue-400 ${disabledClass}">
+        </td>
+        <td class="px-3 py-2">
+          <span class="font-mono text-xs font-bold text-gray-500">${atlet.noBib || '?'}</span>
+        </td>
+        <td class="px-3 py-2">
+          <p class="text-sm text-gray-700">${atlet.nama || '?'}</p>
+        </td>
+        <td class="px-3 py-2">
+          <p class="text-xs text-gray-400">${pasukan.nama || '?'}</p>
+        </td>
+        <td class="px-3 py-2">
+          <input id="suntingMasa" type="text" value="${k.masa || ''}" placeholder="45:23" maxlength="8" ${adaCatatan ? 'disabled' : ''}
+            class="w-24 border border-blue-300 rounded px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-400 ${disabledClass}">
+        </td>
+        <td class="px-3 py-2">
+          <select id="suntingCatatan" onchange="togolSuntingCatatan()"
+            class="border border-blue-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400">
+            <option value="selesai" ${k.statusAtlet==='selesai'?'selected':''}>Selesai</option>
+            <option value="dns"     ${k.statusAtlet==='dns'    ?'selected':''}>DNS</option>
+            <option value="dnf"     ${k.statusAtlet==='dnf'    ?'selected':''}>DNF</option>
+            <option value="dq"      ${k.statusAtlet==='dq'     ?'selected':''}>DQ</option>
+          </select>
+        </td>
+        <td class="px-3 py-2">
+          <div class="flex gap-1.5">
+            <button onclick="simpanSunting('${k.id}')"
+              class="bg-blue-700 hover:bg-blue-800 text-white text-xs px-3 py-1.5 rounded font-semibold transition">Simpan</button>
+            <button onclick="batalEdit()"
+              class="text-gray-600 text-xs px-2 py-1.5 rounded hover:bg-gray-200 transition">Batal</button>
+          </div>
+        </td>
+      </tr>
+    `
+  }
+
+  window.mulaEdit = (id) => { editingId = id; renderJadual() }
+  window.batalEdit = () => { editingId = null; renderJadual() }
+
+  window.togolSuntingCatatan = () => {
+    const catatan = document.getElementById('suntingCatatan')?.value
+    const adaCatatan = ['dns','dnf','dq'].includes(catatan)
+    const kedEl  = document.getElementById('suntingKed')
+    const masaEl = document.getElementById('suntingMasa')
+    if (!kedEl || !masaEl) return
+    kedEl.disabled  = adaCatatan
+    masaEl.disabled = adaCatatan
+    kedEl.className  = `w-14 border border-blue-300 rounded px-2 py-1.5 text-sm font-mono text-center focus:outline-none focus:ring-2 focus:ring-blue-400 ${adaCatatan ? 'bg-gray-100 text-gray-400' : ''}`
+    masaEl.className = `w-24 border border-blue-300 rounded px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-400 ${adaCatatan ? 'bg-gray-100 text-gray-400' : ''}`
+    if (adaCatatan) { kedEl.value = ''; masaEl.value = '' }
+  }
+
+  window.simpanSunting = async (id) => {
+    const catatan    = document.getElementById('suntingCatatan')?.value
+    const adaCatatan = ['dns','dnf','dq'].includes(catatan)
+    const kedudukan  = adaCatatan ? null : (parseInt(document.getElementById('suntingKed')?.value) || null)
+    const masa       = adaCatatan ? null : (document.getElementById('suntingMasa')?.value.trim() || null)
+
+    if (!adaCatatan && !kedudukan) {
+      tunjukToast('Kedudukan wajib untuk rekod selesai', 'red'); return
+    }
+    try {
+      await updateDoc(doc(db, 'keputusan', id), {
+        kedudukan, masa, adaMasa: !!masa, statusAtlet: catatan,
+        updatedAt: serverTimestamp()
+      })
+      editingId = null
+      await muatKeputusan()
+      renderJadual()
+      renderTally()
+      tunjukToast('Rekod dikemaskini', 'green')
+    } catch (e) {
+      tunjukToast('Gagal kemaskini: ' + e.message, 'red')
+    }
+  }
+
+  window.padamKeputusan = async (id) => {
+    if (!confirm('Padam rekod ini?')) return
+    await deleteDoc(doc(db, 'keputusan', id))
+    await muatKeputusan()
+    renderJadual()
+    renderTally()
+    tunjukToast('Rekod dipadam', 'red')
+  }
+
+  // ── Susun Semula by Masa ──────────────────────────────────────
+  window.susunSemulaByMasa = async () => {
+    const selesai = semuaKeputusan.filter(k => k.statusAtlet === 'selesai')
+    if (selesai.length === 0) { tunjukToast('Tiada rekod selesai untuk disusun', 'red'); return }
+    if (!confirm('Susun semula kedudukan berdasarkan masa?\n\nNombor kedudukan semua rekod selesai akan ditetapkan semula tanpa lubang.')) return
+
+    const denganMasa  = selesai.filter(k => k.masa).sort((a, b) => a.masa.localeCompare(b.masa))
+    const tanpaMasa   = selesai.filter(k => !k.masa).sort((a, b) => (a.kedudukan || 9999) - (b.kedudukan || 9999))
+    const tersusun    = [...denganMasa, ...tanpaMasa]
+
+    const batch = writeBatch(db)
+    tersusun.forEach((r, i) => {
+      batch.update(doc(db, 'keputusan', r.id), { kedudukan: i + 1, updatedAt: serverTimestamp() })
+    })
+    // DNS / DNF / DQ → kedudukan null
+    semuaKeputusan.filter(k => ['dns','dnf','dq'].includes(k.statusAtlet)).forEach(r => {
+      batch.update(doc(db, 'keputusan', r.id), { kedudukan: null, updatedAt: serverTimestamp() })
+    })
+
+    await batch.commit()
+    await muatKeputusan()
+    renderJadual()
+    tunjukToast('Kedudukan disusun semula', 'green')
+  }
+
+  // ── Pembantu ──────────────────────────────────────────────────
+  function tunjukToast(msg, color) {
+    const t = document.getElementById('toast')
+    const m = document.getElementById('toastMsg')
+    m.textContent = msg
+    m.className = `px-5 py-3 rounded-xl shadow-lg text-white text-sm font-medium ${color === 'green' ? 'bg-green-700' : 'bg-red-600'}`
+    t.classList.remove('hidden')
+    setTimeout(() => t.classList.add('hidden'), 3000)
+  }
+</script>
+</body>
+</html>

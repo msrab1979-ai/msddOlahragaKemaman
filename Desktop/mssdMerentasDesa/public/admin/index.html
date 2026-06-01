@@ -1,0 +1,1668 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin — Sistem Merentas Desa</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'DM Sans', sans-serif; }
+    .font-heading { font-family: 'Bebas Neue', cursive; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+    .dash-card { cursor: pointer; }
+    .dash-card:active { transform: scale(0.97); }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+<!-- Login Screen -->
+<div id="loginScreen" class="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-900 to-blue-700 p-4">
+  <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-sm">
+    <div class="text-center mb-8">
+      <h1 class="font-heading text-4xl text-blue-900 tracking-wide">ADMIN</h1>
+      <p class="text-gray-500 text-sm mt-1">Sistem Merentas Desa</p>
+    </div>
+    <div class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+        <input id="loginEmail" type="email" placeholder="admin@email.com"
+          class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Kata Laluan</label>
+        <div class="relative">
+          <input id="loginPassword" type="password" placeholder="••••••••"
+            class="w-full border border-gray-300 rounded-lg px-4 py-2.5 pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+          <button type="button" onclick="toggleTampak('loginPassword',this)"
+            class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm select-none">👁</button>
+        </div>
+      </div>
+      <div id="loginError" class="text-red-600 text-sm hidden"></div>
+      <button id="loginBtn" class="w-full bg-blue-900 hover:bg-blue-800 text-white font-semibold py-2.5 rounded-lg transition">
+        Log Masuk
+      </button>
+      <a href="/" class="block text-center text-xs text-gray-400 hover:text-gray-600 mt-1">← Laman Utama</a>
+    </div>
+  </div>
+</div>
+
+<!-- Admin Dashboard -->
+<div id="adminDash" class="hidden">
+
+  <!-- Top Nav -->
+  <nav class="bg-blue-900 text-white px-4 md:px-6 py-3.5 flex items-center justify-between sticky top-0 z-50 shadow">
+    <div class="flex items-center gap-3">
+      <button id="backBtn" class="hidden bg-blue-800 hover:bg-blue-700 px-3 py-1.5 rounded-lg text-sm flex items-center gap-1.5 transition">
+        ‹ Balik
+      </button>
+      <div>
+        <h1 class="font-heading text-xl md:text-2xl tracking-wide leading-tight" id="pageTitle">ADMIN PANEL</h1>
+        <p class="text-blue-300 text-xs hidden md:block" id="pageSubtitle">Pengurusan Kejohanan</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-3">
+      <span id="adminNama" class="text-sm text-blue-200 hidden md:block"></span>
+      <button id="logoutBtn" class="bg-red-600 hover:bg-red-700 px-3 py-1.5 rounded text-sm font-medium transition">Keluar</button>
+    </div>
+  </nav>
+
+  <div class="max-w-2xl mx-auto p-4 md:p-6">
+
+    <!-- PANEL: HOME DASHBOARD -->
+    <div id="panel-home" class="tab-panel">
+
+      <!-- Setup Steps -->
+      <div class="mb-6">
+        <div class="flex items-center gap-2 mb-3">
+          <span class="text-xs font-bold text-gray-400 uppercase tracking-widest">Setup Sistem</span>
+          <span class="text-xs text-gray-300">— ikut urutan ini</span>
+        </div>
+        <div class="space-y-3">
+
+          <!-- 1: Tetapan -->
+          <button onclick="tukarTab('tetapan')" class="dash-card w-full text-left bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex items-center gap-4 hover:shadow-md transition">
+            <div class="w-11 h-11 rounded-xl bg-blue-600 flex items-center justify-center text-white font-heading text-2xl shrink-0">1</div>
+            <div class="flex-1 min-w-0">
+              <p class="font-semibold text-gray-800">Tetapan Kejohanan</p>
+              <p class="text-xs text-gray-500 mt-0.5">Nama kejohanan, tarikh, lokasi</p>
+            </div>
+            <span class="text-gray-300 text-xl">›</span>
+          </button>
+
+          <!-- 2: Kategori -->
+          <button onclick="tukarTab('kategori')" class="dash-card w-full text-left bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex items-center gap-4 hover:shadow-md transition">
+            <div class="w-11 h-11 rounded-xl bg-indigo-600 flex items-center justify-center text-white font-heading text-2xl shrink-0">2</div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <p class="font-semibold text-gray-800">Kategori Larian</p>
+                <span id="dash-kat-count" class="hidden text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-mono"></span>
+              </div>
+              <p class="text-xs text-gray-500 mt-0.5">Jenis larian — SK L12, SK P12, SM L15, SM L18...</p>
+            </div>
+            <span class="text-gray-300 text-xl">›</span>
+          </button>
+
+          <!-- 3: Pasukan / Sekolah -->
+          <button onclick="tukarTab('pasukan')" class="dash-card w-full text-left bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex items-center gap-4 hover:shadow-md transition">
+            <div class="w-11 h-11 rounded-xl bg-green-600 flex items-center justify-center text-white font-heading text-2xl shrink-0">3</div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <p class="font-semibold text-gray-800">Daftar Sekolah</p>
+                <span id="dash-pas-count" class="hidden text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-mono"></span>
+              </div>
+              <p class="text-xs text-gray-500 mt-0.5">Tambah sekolah peserta — nama, bib, PIN pengurus</p>
+            </div>
+            <span class="text-gray-300 text-xl">›</span>
+          </button>
+
+          <!-- 4: Pengguna -->
+          <button onclick="tukarTab('pengguna')" class="dash-card w-full text-left bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex items-center gap-4 hover:shadow-md transition">
+            <div class="w-11 h-11 rounded-xl bg-violet-600 flex items-center justify-center text-white font-heading text-2xl shrink-0">4</div>
+            <div class="flex-1 min-w-0">
+              <p class="font-semibold text-gray-800">Pengguna Sistem</p>
+              <p class="text-xs text-gray-500 mt-0.5">Buat akaun pencatat keputusan & admin lain</p>
+            </div>
+            <span class="text-gray-300 text-xl">›</span>
+          </button>
+
+        </div>
+      </div>
+
+      <!-- Operasi -->
+      <div class="mb-5">
+        <div class="flex items-center gap-2 mb-3">
+          <span class="text-xs font-bold text-gray-400 uppercase tracking-widest">Operasi</span>
+        </div>
+        <button onclick="tukarTab('publish')" class="dash-card w-full text-left bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex items-center gap-4 hover:shadow-md transition">
+          <div class="w-11 h-11 rounded-xl bg-amber-500 flex items-center justify-center text-2xl shrink-0">📢</div>
+          <div class="flex-1 min-w-0">
+            <p class="font-semibold text-gray-800">Publish Keputusan</p>
+            <p class="text-xs text-gray-500 mt-0.5">Terbit keputusan untuk paparan awam & pengurus</p>
+          </div>
+          <span class="text-gray-300 text-xl">›</span>
+        </button>
+      </div>
+
+      <!-- Lanjutan -->
+      <div>
+        <div class="flex items-center gap-2 mb-3">
+          <span class="text-xs font-bold text-gray-400 uppercase tracking-widest">Lanjutan</span>
+          <span class="text-xs text-gray-300">— kebanyakan admin tidak perlu guna ini</span>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+
+          <button onclick="tukarTab('kumpulan')" class="dash-card text-left bg-gray-50 rounded-2xl border border-gray-200 p-4 hover:bg-white hover:shadow-sm transition">
+            <div class="text-2xl mb-2">🗂️</div>
+            <p class="font-medium text-gray-700 text-sm">Kumpulan Larian</p>
+            <p class="text-xs text-gray-400 mt-1">Gabungkan beberapa kategori yang lari serentak dalam satu group start</p>
+          </button>
+
+          <button onclick="tukarTab('reset')" class="dash-card text-left bg-red-50 rounded-2xl border border-red-100 p-4 hover:bg-red-100 transition">
+            <div class="text-2xl mb-2">⚠️</div>
+            <p class="font-medium text-red-700 text-sm">Reset Sistem</p>
+            <p class="text-xs text-red-400 mt-1">Padam data — tindakan ini tidak boleh diundur</p>
+          </button>
+
+        </div>
+      </div>
+
+    </div>
+
+    <!-- PANEL: TETAPAN -->
+    <div id="panel-tetapan" class="tab-panel hidden">
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4">
+        <div class="grid grid-cols-1 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Nama Kejohanan Baris 1</label>
+            <input id="namaB1" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Nama Kejohanan Baris 2</label>
+            <input id="namaB2" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Nama Kejohanan Baris 3 <span class="font-normal text-gray-400">(pilihan)</span></label>
+            <input id="namaB3" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Tarikh Kejohanan</label>
+              <input id="tarikh" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Tarikh Tutup Pendaftaran</label>
+              <input id="tarikhTutupPendaftaran" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <p class="text-xs text-gray-400 mt-1">Selepas tarikh ini pengurus tidak boleh daftar atlet</p>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Threshold Tanpa Masa</label>
+              <input id="thresholdTanpaMasa" type="number" value="20" min="1"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Lokasi</label>
+            <input id="lokasi" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Penganjur</label>
+            <input id="penganjur" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Logo Kiri</label>
+              <input id="logoKiriInput" type="file" accept="image/*" onchange="previewLogo('kiri', this)"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+              <img id="previewKiri" class="mt-2 h-16 hidden rounded border">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Logo Kanan</label>
+              <input id="logoKananInput" type="file" accept="image/*" onchange="previewLogo('kanan', this)"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+              <img id="previewKanan" class="mt-2 h-16 hidden rounded border">
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <input id="fungsiMasa" type="checkbox" class="rounded">
+            <label class="text-sm font-medium text-gray-700">Fungsi masa diaktifkan</label>
+          </div>
+        </div>
+        <button onclick="simpanTetapan()" class="w-full bg-blue-900 hover:bg-blue-800 text-white px-6 py-2.5 rounded-lg font-medium text-sm transition">
+          Simpan Tetapan
+        </button>
+        <div id="tetapanMsg" class="text-sm hidden"></div>
+      </div>
+    </div>
+
+    <!-- PANEL: KATEGORI -->
+    <div id="panel-kategori" class="tab-panel hidden">
+      <div class="flex items-center justify-between mb-4">
+        <p class="text-xs text-gray-500">Tetapkan jenis larian mengikut SK / SM / PPKI</p>
+        <button onclick="bukaModalKategori()" class="bg-blue-900 hover:bg-blue-800 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5">
+          <span class="text-lg leading-none">+</span> Tambah
+        </button>
+      </div>
+
+      <!-- Group SK -->
+      <div class="mb-5">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-1 rounded-full">SK</span>
+          <span class="text-sm font-semibold text-gray-600">Sekolah Rendah</span>
+        </div>
+        <div id="senaraKategori-SK" class="space-y-2 pl-2">
+          <p class="text-gray-400 text-xs italic">Tiada kategori SK.</p>
+        </div>
+      </div>
+
+      <!-- Group SM -->
+      <div class="mb-5">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="bg-purple-100 text-purple-800 text-xs font-bold px-2.5 py-1 rounded-full">SM</span>
+          <span class="text-sm font-semibold text-gray-600">Sekolah Menengah</span>
+        </div>
+        <div id="senaraKategori-SM" class="space-y-2 pl-2">
+          <p class="text-gray-400 text-xs italic">Tiada kategori SM.</p>
+        </div>
+      </div>
+
+      <!-- Group PPKI -->
+      <div class="mb-5">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="bg-orange-100 text-orange-800 text-xs font-bold px-2.5 py-1 rounded-full">PPKI</span>
+          <span class="text-sm font-semibold text-gray-600">Pendidikan Khas</span>
+        </div>
+        <div id="senaraKategori-PPKI" class="space-y-2 pl-2">
+          <p class="text-gray-400 text-xs italic">Tiada kategori PPKI.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- PANEL: KUMPULAN -->
+    <div id="panel-kumpulan" class="tab-panel hidden">
+      <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-5 text-sm text-blue-700">
+        <strong>Apa itu Kumpulan Larian?</strong><br>
+        Jika beberapa kategori lari dalam kumpulan start yang sama — contoh SK L12 + SK L15 lepas serentak — gabungkan di sini. Kebanyakan kejohanan tidak perlu guna ini.
+      </div>
+      <div class="flex items-center justify-between mb-4">
+        <span class="text-sm text-gray-500">Kumpulan start serentak</span>
+        <button onclick="bukaModalKumpulan()" class="bg-blue-900 hover:bg-blue-800 text-white px-4 py-2 rounded-lg text-sm font-medium">+ Tambah</button>
+      </div>
+      <div id="senaraKumpulan" class="space-y-3"></div>
+    </div>
+
+    <!-- PANEL: PASUKAN -->
+    <div id="panel-pasukan" class="tab-panel hidden">
+
+      <!-- Action bar -->
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+        <p class="text-xs text-gray-500">Setiap sekolah dapat kod + PIN untuk pengurus login</p>
+        <div class="flex gap-2 flex-wrap">
+          <button onclick="downloadTemplatePasukan()"
+            class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-lg text-xs font-medium flex items-center gap-1.5 transition">
+            ⬇ Template Excel
+          </button>
+          <label class="bg-green-700 hover:bg-green-800 text-white px-3 py-2 rounded-lg text-xs font-medium flex items-center gap-1.5 cursor-pointer transition">
+            📂 Upload Excel
+            <input type="file" id="excelInput" accept=".xlsx,.xls,.csv" class="hidden" onchange="prosesExcel(this)">
+          </label>
+          <button onclick="bukaModalPasukan()"
+            class="bg-blue-900 hover:bg-blue-800 text-white px-3 py-2 rounded-lg text-xs font-medium flex items-center gap-1.5 transition">
+            + Tambah
+          </button>
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm min-w-[640px]">
+            <thead>
+              <tr class="bg-gray-50 border-b border-gray-100">
+                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Kod Sekolah</th>
+                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Nama Sekolah</th>
+                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Email</th>
+                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Bib</th>
+                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Login PIN</th>
+                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide"></th>
+              </tr>
+            </thead>
+            <tbody id="tablePasukan">
+              <tr><td colspan="6" class="px-4 py-8 text-center text-gray-400 text-sm">Tiada sekolah.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="pasCount" class="text-xs text-gray-400 mt-2 text-right hidden"></div>
+    </div>
+
+    <!-- PANEL: PENGGUNA -->
+    <div id="panel-pengguna" class="tab-panel hidden">
+      <div class="flex items-center justify-between mb-4">
+        <p class="text-xs text-gray-500">Admin & pencatat sahaja — pengurus sekolah login di halaman Pengurus</p>
+        <button onclick="bukaModalPengguna()" class="bg-blue-900 hover:bg-blue-800 text-white px-4 py-2 rounded-lg text-sm font-medium">+ Tambah</button>
+      </div>
+      <div id="senaraPengguna" class="space-y-3"></div>
+    </div>
+
+    <!-- PANEL: PUBLISH -->
+    <div id="panel-publish" class="tab-panel hidden">
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-700 mb-1">Pilih Kategori</label>
+        <select id="publishKategori" onchange="muatPublishInfo()" class="border border-gray-300 rounded-lg px-3 py-2 text-sm w-full max-w-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <option value="">-- Pilih --</option>
+        </select>
+      </div>
+      <div id="publishPanel" class="hidden bg-white rounded-xl shadow-sm border border-gray-100 p-5 space-y-4">
+        <div id="publishStatus" class="text-sm font-medium"></div>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Dari Kedudukan</label>
+            <input id="pubDari" type="number" value="1" min="1" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Hingga Kedudukan</label>
+            <input id="pubHingga" type="number" value="20" min="1" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Nota (pilihan)</label>
+          <input id="pubNote" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+        </div>
+        <div class="flex flex-wrap gap-3">
+          <button onclick="doPublish('draft')" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium">Draft</button>
+          <button onclick="doPublish('tidakRasmi')" class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-medium">Tidak Rasmi</button>
+          <button onclick="doPublish('rasmi')" class="bg-green-700 hover:bg-green-800 text-white px-4 py-2 rounded-lg text-sm font-medium">Rasmi</button>
+        </div>
+        <div id="publishMsg" class="text-sm hidden"></div>
+      </div>
+    </div>
+
+    <!-- PANEL: RESET -->
+    <div id="panel-reset" class="tab-panel hidden">
+      <div class="bg-red-50 border border-red-200 rounded-xl p-4 mb-5 text-sm text-red-700">
+        ⚠️ Tindakan reset <strong>tidak boleh diundur</strong>. Taip teks yang ditetapkan untuk sahkan.
+      </div>
+      <div class="space-y-4">
+        <div class="bg-white border border-gray-200 rounded-xl p-5">
+          <h3 class="font-semibold text-gray-800 mb-1">Reset Keputusan Sahaja</h3>
+          <p class="text-xs text-gray-500 mb-3">Semua rekod keputusan & publikasi dipadam. Atlet, pasukan, kategori kekal.</p>
+          <div class="flex gap-3">
+            <input type="text" placeholder="Taip: RESET KEPUTUSAN" class="konfirm-input flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono">
+            <button onclick="doReset('keputusan', this)" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium">Reset</button>
+          </div>
+        </div>
+        <div class="bg-white border border-gray-200 rounded-xl p-5">
+          <h3 class="font-semibold text-gray-800 mb-1">Reset Pendaftaran Atlet</h3>
+          <p class="text-xs text-gray-500 mb-3">Semua atlet dipadam. Pasukan & kategori kekal.</p>
+          <div class="flex gap-3">
+            <input type="text" placeholder="Taip: RESET ATLET" class="konfirm-input flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono">
+            <button onclick="doReset('atlet', this)" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium">Reset</button>
+          </div>
+        </div>
+        <div class="bg-white border border-gray-200 rounded-xl p-5">
+          <h3 class="font-semibold text-gray-800 mb-1">Reset Pasukan & Atlet</h3>
+          <p class="text-xs text-gray-500 mb-3">Pasukan, atlet, keputusan & publikasi dipadam. Kategori kekal.</p>
+          <div class="flex gap-3">
+            <input type="text" placeholder="Taip: RESET PASUKAN" class="konfirm-input flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono">
+            <button onclick="doReset('pasukan', this)" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium">Reset</button>
+          </div>
+        </div>
+        <div class="bg-white border border-red-200 rounded-xl p-5 border-2">
+          <h3 class="font-semibold text-red-700 mb-1">Reset Penuh</h3>
+          <p class="text-xs text-gray-500 mb-3">SEMUA DATA dipadam kecuali tetapan kejohanan.</p>
+          <div class="flex gap-3">
+            <input type="text" placeholder="Taip: RESET PENUH" class="konfirm-input flex-1 border border-red-300 rounded-lg px-3 py-2 text-sm font-mono">
+            <button onclick="doReset('penuh', this)" class="bg-red-800 hover:bg-red-900 text-white px-4 py-2 rounded-lg text-sm font-medium">Reset</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════════ MODALS ═══════════════ -->
+
+<!-- Modal Kategori -->
+<div id="modalKategori" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+    <div class="flex items-center justify-between p-5 border-b">
+      <div>
+        <h3 class="font-heading text-xl text-blue-900" id="modalKategoriTitle">TAMBAH KATEGORI</h3>
+        <p class="text-xs text-gray-400 mt-0.5" id="modalKategoriSubtitle">Tetapkan acara larian baharu</p>
+      </div>
+      <button onclick="tutupModal('modalKategori')" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+    </div>
+
+    <div class="p-5 space-y-5">
+      <input type="hidden" id="katId">
+
+      <!-- STEP 1: Jenis Sekolah -->
+      <div>
+        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">1 — Jenis Sekolah</label>
+        <div class="flex gap-2">
+          <button type="button" onclick="pilihJenis('SK')" id="jenisBtn-SK"
+            class="jenis-btn flex-1 py-2.5 rounded-xl text-sm font-semibold border-2 border-blue-600 bg-blue-600 text-white transition">
+            SK<br><span class="text-xs font-normal opacity-80">Rendah</span>
+          </button>
+          <button type="button" onclick="pilihJenis('SM')" id="jenisBtn-SM"
+            class="jenis-btn flex-1 py-2.5 rounded-xl text-sm font-semibold border-2 border-gray-200 text-gray-500 hover:border-purple-400 hover:text-purple-700 transition">
+            SM<br><span class="text-xs font-normal opacity-80">Menengah</span>
+          </button>
+          <button type="button" onclick="pilihJenis('PPKI')" id="jenisBtn-PPKI"
+            class="jenis-btn flex-1 py-2.5 rounded-xl text-sm font-semibold border-2 border-gray-200 text-gray-500 hover:border-orange-400 hover:text-orange-700 transition">
+            PPKI<br><span class="text-xs font-normal opacity-80">Khas</span>
+          </button>
+        </div>
+        <input type="hidden" id="katJenis" value="SK">
+      </div>
+
+      <!-- STEP 2: Jantina -->
+      <div>
+        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">2 — Jantina</label>
+        <div class="flex gap-2">
+          <button type="button" onclick="pilihJantina('L')" id="jantinaBtn-L"
+            class="jantina-btn flex-1 py-2.5 rounded-xl text-sm font-semibold border-2 border-sky-600 bg-sky-600 text-white transition">
+            ♂ Lelaki
+          </button>
+          <button type="button" onclick="pilihJantina('P')" id="jantinaBtn-P"
+            class="jantina-btn flex-1 py-2.5 rounded-xl text-sm font-semibold border-2 border-gray-200 text-gray-500 hover:border-pink-400 hover:text-pink-700 transition">
+            ♀ Perempuan
+          </button>
+        </div>
+        <input type="hidden" id="katJantina" value="L">
+      </div>
+
+      <!-- STEP 3: Umur -->
+      <div>
+        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">3 — Had Umur</label>
+        <div class="flex items-center gap-3">
+          <div class="flex-1">
+            <label class="block text-xs text-gray-500 mb-1">Min (tahun)</label>
+            <input id="katUmurMin" type="number" min="1" max="25" placeholder="12"
+              oninput="cadangKod()"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-center font-mono focus:outline-none focus:ring-2 focus:ring-blue-400">
+          </div>
+          <span class="text-gray-400 text-lg mt-4">–</span>
+          <div class="flex-1">
+            <label class="block text-xs text-gray-500 mb-1">Max (tahun)</label>
+            <input id="katUmurMax" type="number" min="1" max="25" placeholder="14"
+              oninput="cadangKod()"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-center font-mono focus:outline-none focus:ring-2 focus:ring-blue-400">
+          </div>
+          <div class="flex-1">
+            <label class="block text-xs text-gray-500 mb-1">Contoh</label>
+            <div id="katUmurPreview" class="border border-gray-200 rounded-lg px-3 py-2 text-sm text-center text-gray-400 bg-gray-50">— thn</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 4: Nama + Kod -->
+      <div>
+        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">4 — Nama & Kod</label>
+        <div class="grid grid-cols-3 gap-3">
+          <div class="col-span-2">
+            <label class="block text-xs text-gray-500 mb-1">Nama penuh</label>
+            <input id="katNama" type="text" placeholder="SK Lelaki 12 Tahun"
+              oninput="cadangKod()"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">Kod ringkas</label>
+            <input id="katKod" type="text" placeholder="SRL12"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono uppercase text-center focus:outline-none focus:ring-2 focus:ring-blue-400">
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 5: Peraturan Pasukan -->
+      <div class="bg-gray-50 rounded-xl p-4 space-y-3">
+        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide">5 — Peraturan Pasukan</label>
+
+        <div class="grid grid-cols-3 gap-3">
+          <div class="text-center">
+            <label class="block text-xs text-gray-500 mb-1">Had Daftar<br>/ Pasukan</label>
+            <input id="katHadDaftar" type="number" value="6" min="1"
+              oninput="cadangKod()"
+              class="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm text-center font-mono font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
+            <p class="text-xs text-gray-400 mt-1">Max atlet/sekolah</p>
+          </div>
+          <div class="text-center">
+            <label class="block text-xs text-gray-500 mb-1">Kiraan<br>Pasukan</label>
+            <input id="katKiraanPasukan" type="number" value="4" min="1"
+              oninput="cadangKod()"
+              class="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm text-center font-mono font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
+            <p class="text-xs text-gray-400 mt-1">Pelari dikira</p>
+          </div>
+          <div class="text-center">
+            <label class="block text-xs text-gray-500 mb-1">Min<br>Layak</label>
+            <input id="katMinLayak" type="number" value="4" min="1"
+              oninput="cadangKod()"
+              class="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm text-center font-mono font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
+            <p class="text-xs text-gray-400 mt-1">Min finish</p>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Jika pelari kurang dari min layak:</label>
+          <div class="flex gap-2">
+            <button type="button" onclick="pilihKaedah('dnq')" id="kaedahBtn-dnq"
+              class="kaedah-btn flex-1 py-2 rounded-lg text-xs font-semibold border-2 border-red-500 bg-red-500 text-white transition">
+              DNQ — Tidak Layak
+            </button>
+            <button type="button" onclick="pilihKaedah('ambilSemua')" id="kaedahBtn-ambilSemua"
+              class="kaedah-btn flex-1 py-2 rounded-lg text-xs font-semibold border-2 border-gray-200 text-gray-500 hover:border-green-400 transition">
+              Ambil Semua Pelari
+            </button>
+          </div>
+          <input type="hidden" id="katKaedahKurang" value="dnq">
+        </div>
+
+        <div id="katSummary" class="bg-white border border-blue-100 rounded-lg px-3 py-2 text-xs text-blue-700 hidden">
+          Tiap sekolah max <strong id="sumHad">6</strong> atlet daftar.
+          Pelari terbaik <strong id="sumKiraan">4</strong> dikira untuk markah pasukan.
+          Perlu min <strong id="sumMin">4</strong> finish untuk layak.
+        </div>
+      </div>
+
+      <!-- Aktif -->
+      <div class="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+        <div>
+          <p class="text-sm font-medium text-gray-700">Status Kategori</p>
+          <p class="text-xs text-gray-400">Kategori tidak aktif tidak muncul semasa pendaftaran</p>
+        </div>
+        <label class="relative inline-flex items-center cursor-pointer">
+          <input type="checkbox" id="katAktif" checked class="sr-only peer">
+          <div class="w-11 h-6 bg-gray-200 peer-focus:ring-2 peer-focus:ring-blue-400 rounded-full peer peer-checked:bg-blue-600 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-5"></div>
+        </label>
+      </div>
+
+      <div id="katMsg" class="text-sm hidden px-1"></div>
+    </div>
+
+    <div class="flex justify-end gap-3 p-5 border-t">
+      <button onclick="tutupModal('modalKategori')" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Batal</button>
+      <button onclick="simpanKategori()" class="bg-blue-900 hover:bg-blue-800 text-white px-6 py-2 rounded-lg text-sm font-semibold">Simpan Kategori</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Kumpulan -->
+<div id="modalKumpulan" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+    <div class="flex items-center justify-between p-5 border-b">
+      <h3 class="font-heading text-xl text-blue-900">KUMPULAN LARIAN</h3>
+      <button onclick="tutupModal('modalKumpulan')" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+    </div>
+    <div class="p-5 space-y-4">
+      <input type="hidden" id="kumpId">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Nama Kumpulan</label>
+        <input id="kumpNama" type="text" placeholder="cth: SK Lelaki Semua Umur" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2">Kategori dalam kumpulan ini</label>
+        <div id="kumpKategoriList" class="space-y-1 max-h-40 overflow-y-auto border border-gray-200 rounded-lg p-3"></div>
+      </div>
+      <div class="space-y-2">
+        <div class="flex items-center gap-2">
+          <input id="kumpLepasanSama" type="checkbox" class="rounded">
+          <label class="text-sm text-gray-700">Lepasan masa sama</label>
+        </div>
+        <div class="flex items-center gap-2">
+          <input id="kumpIndividuBersama" type="checkbox" class="rounded">
+          <label class="text-sm text-gray-700">Keputusan individu bersama</label>
+        </div>
+        <div class="flex items-center gap-2">
+          <input id="kumpPasukanBersama" type="checkbox" class="rounded">
+          <label class="text-sm text-gray-700">Keputusan pasukan bersama</label>
+        </div>
+      </div>
+      <div id="kumpMsg" class="text-sm hidden"></div>
+    </div>
+    <div class="flex justify-end gap-3 p-5 border-t">
+      <button onclick="tutupModal('modalKumpulan')" class="px-4 py-2 text-sm text-gray-600">Batal</button>
+      <button onclick="simpanKumpulan()" class="bg-blue-900 hover:bg-blue-800 text-white px-5 py-2 rounded-lg text-sm font-medium">Simpan</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Pasukan -->
+<div id="modalPasukan" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+    <div class="flex items-center justify-between p-5 border-b">
+      <h3 class="font-heading text-xl text-blue-900" id="modalPasukanTitle">TAMBAH SEKOLAH</h3>
+      <button onclick="tutupModal('modalPasukan')" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+    </div>
+    <div class="p-5 space-y-4">
+      <input type="hidden" id="pasId">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Nama Sekolah</label>
+        <input id="pasNama" type="text" placeholder="SK Tok Dor" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Jenis Sekolah</label>
+          <select id="pasJenis" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <option value="SK">SK — Rendah</option>
+            <option value="SM">SM — Menengah</option>
+            <option value="PPKI">PPKI</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Bib Prefix</label>
+          <input id="pasBib" type="text" placeholder="SKT" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono uppercase">
+          <p class="text-xs text-gray-400 mt-1">cth: PP → PP001, PP002</p>
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Kod Sekolah <span class="text-gray-400 font-normal">(untuk pengurus login)</span></label>
+        <input id="pasKod" type="text" placeholder="SKI001" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono uppercase">
+        <p id="pasKodNote" class="text-xs text-gray-400 mt-1">Kod tidak boleh diubah selepas disimpan.</p>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Email Sekolah <span class="text-gray-400 font-normal">(untuk recovery PIN)</span></label>
+        <input id="pasEmail" type="email" placeholder="sekolah@edu.my" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">PIN Login <span class="text-gray-400 font-normal">(4 digit — kongsi kepada pengurus)</span></label>
+        <div class="flex gap-2">
+          <div class="relative flex-1">
+            <input id="pasPin" type="password" maxlength="4"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 pr-10 text-sm font-mono tracking-widest text-center text-lg" readonly>
+            <button type="button" onclick="toggleTampak('pasPin',this)"
+              class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm select-none">👁</button>
+          </div>
+          <button type="button" onclick="janaPinBaru()" class="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm text-gray-700">Jana Baru</button>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <input id="pasAktif" type="checkbox" checked class="rounded">
+        <label class="text-sm font-medium text-gray-700">Sekolah aktif</label>
+      </div>
+      <div id="pasMsg" class="text-sm hidden"></div>
+    </div>
+    <div class="flex justify-end gap-3 p-5 border-t">
+      <button onclick="tutupModal('modalPasukan')" class="px-4 py-2 text-sm text-gray-600">Batal</button>
+      <button onclick="simpanPasukan()" class="bg-blue-900 hover:bg-blue-800 text-white px-5 py-2 rounded-lg text-sm font-medium">Simpan</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Pengguna -->
+<div id="modalPengguna" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+    <div class="flex items-center justify-between p-5 border-b">
+      <div>
+        <h3 class="font-heading text-xl text-blue-900">TAMBAH PENGGUNA</h3>
+        <p class="text-xs text-gray-400 mt-0.5">Admin & pencatat sahaja</p>
+      </div>
+      <button onclick="tutupModal('modalPengguna')" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+    </div>
+    <div class="p-5 space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Nama</label>
+        <input id="pengNama" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+        <input id="pengEmail" type="email" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Kata Laluan</label>
+        <div class="relative">
+          <input id="pengPassword" type="password" placeholder="Kata laluan untuk log masuk"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 pr-10 text-sm">
+          <button type="button" onclick="toggleTampak('pengPassword',this)"
+            class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm select-none">👁</button>
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Role</label>
+        <select id="pengRole" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+          <option value="pencatat">Pencatat — input keputusan</option>
+          <option value="admin">Admin — akses penuh</option>
+        </select>
+      </div>
+      <div class="flex items-center gap-2">
+        <input id="pengAktif" type="checkbox" checked class="rounded">
+        <label class="text-sm font-medium text-gray-700">Akaun aktif</label>
+      </div>
+      <div id="pengMsg" class="text-sm hidden"></div>
+    </div>
+    <div class="flex justify-end gap-3 p-5 border-t">
+      <button onclick="tutupModal('modalPengguna')" class="px-4 py-2 text-sm text-gray-600">Batal</button>
+      <button onclick="simpanPengguna()" class="bg-blue-900 hover:bg-blue-800 text-white px-5 py-2 rounded-lg text-sm font-medium">Simpan</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Excel Preview -->
+<div id="modalExcel" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+    <div class="flex items-center justify-between p-5 border-b shrink-0">
+      <div>
+        <h3 class="font-heading text-xl text-blue-900">PREVIEW UPLOAD EXCEL</h3>
+        <p class="text-xs text-gray-400 mt-0.5" id="excelPreviewInfo">Semak data sebelum simpan</p>
+      </div>
+      <button onclick="tutupModal('modalExcel')" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+    </div>
+
+    <!-- Legend -->
+    <div class="px-5 pt-3 pb-1 flex gap-4 text-xs shrink-0">
+      <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-green-100 inline-block border border-green-300"></span> Baru — akan disimpan</span>
+      <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-amber-100 inline-block border border-amber-300"></span> Sudah ada — akan dikemaskini</span>
+      <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-red-100 inline-block border border-red-300"></span> Ralat — tidak akan disimpan</span>
+    </div>
+
+    <div class="overflow-auto flex-1 px-5 pb-2">
+      <table class="w-full text-xs min-w-[600px] border-collapse">
+        <thead class="sticky top-0 bg-white">
+          <tr class="border-b border-gray-200">
+            <th class="text-left py-2 pr-3 text-gray-500 font-semibold">#</th>
+            <th class="text-left py-2 pr-3 text-gray-500 font-semibold">Kod Sekolah</th>
+            <th class="text-left py-2 pr-3 text-gray-500 font-semibold">Nama Sekolah</th>
+            <th class="text-left py-2 pr-3 text-gray-500 font-semibold">Jenis</th>
+            <th class="text-left py-2 pr-3 text-gray-500 font-semibold">Email</th>
+            <th class="text-left py-2 pr-3 text-gray-500 font-semibold">Bib</th>
+            <th class="text-left py-2 pr-3 text-gray-500 font-semibold">PIN</th>
+            <th class="text-left py-2 text-gray-500 font-semibold">Status</th>
+          </tr>
+        </thead>
+        <tbody id="excelPreviewBody"></tbody>
+      </table>
+    </div>
+
+    <div class="flex justify-between items-center p-5 border-t shrink-0">
+      <p class="text-xs text-gray-500" id="excelSaveInfo"></p>
+      <div class="flex gap-3">
+        <button onclick="tutupModal('modalExcel')" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Batal</button>
+        <button id="btnSimpanExcel" onclick="simpanExcelBatch()"
+          class="bg-green-700 hover:bg-green-800 text-white px-6 py-2 rounded-lg text-sm font-semibold">
+          Simpan Semua
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="fixed bottom-6 right-6 z-50 hidden">
+  <div id="toastMsg" class="px-5 py-3 rounded-xl shadow-lg text-white text-sm font-medium"></div>
+</div>
+
+<script type="module">
+  import { db } from '../js/firebase-config.js'
+  import { login, logout, getUserData, attachSessionListeners, auditLog, onAuth } from '../js/auth.js'
+  import {
+    doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc,
+    collection, getDocs, query, where, orderBy,
+    serverTimestamp, Timestamp, writeBatch
+  } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js'
+
+  let currentUser = null
+  let logoKiriBase64 = null
+  let logoKananBase64 = null
+  let allKategori = []
+  let allPasukan = []
+
+  // ── Auth ──────────────────────────────────────────────────────
+  onAuth(async (user) => {
+    if (user) {
+      const data = await getUserData(user.uid)
+      if (!data || data.role !== 'admin' || !data.aktif) {
+        await logout()
+        showLogin()
+        return
+      }
+      currentUser = { uid: user.uid, ...data }
+      document.getElementById('adminNama').textContent = data.nama
+      showDash()
+      attachSessionListeners()
+      await muatTetapan()
+      await muatKategori()
+      await muatPasukan()
+      await muatPengguna()
+    } else {
+      showLogin()
+    }
+  })
+
+  function showLogin() {
+    document.getElementById('loginScreen').classList.remove('hidden')
+    document.getElementById('adminDash').classList.add('hidden')
+  }
+
+  function showDash() {
+    document.getElementById('loginScreen').classList.add('hidden')
+    document.getElementById('adminDash').classList.remove('hidden')
+    tukarTab('home')
+  }
+
+  async function doLogin() {
+    const email = document.getElementById('loginEmail').value.trim()
+    const password = document.getElementById('loginPassword').value
+    const btn = document.getElementById('loginBtn')
+    const errDiv = document.getElementById('loginError')
+    errDiv.classList.add('hidden')
+    btn.disabled = true
+    btn.textContent = 'Masuk...'
+    try {
+      await login(email, password)
+      window.location.reload()
+    } catch (e) {
+      errDiv.textContent = e.message
+      errDiv.classList.remove('hidden')
+      btn.disabled = false
+      btn.textContent = 'Log Masuk'
+    }
+  }
+
+  window.toggleTampak = (id, btn) => {
+    const el = document.getElementById(id)
+    el.type = el.type === 'password' ? 'text' : 'password'
+    btn.textContent = el.type === 'password' ? '👁' : '🙈'
+  }
+
+  document.getElementById('loginBtn').addEventListener('click', doLogin)
+  document.getElementById('loginPassword').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin() })
+
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
+    await logout()
+    window.location.reload()
+  })
+
+  document.getElementById('backBtn').addEventListener('click', () => tukarTab('home'))
+
+  // ── Navigation ────────────────────────────────────────────────
+  const PAGE_INFO = {
+    home:     ['ADMIN PANEL', 'Pengurusan Kejohanan'],
+    tetapan:  ['Tetapan Kejohanan', 'Langkah 1 — Nama, tarikh, lokasi'],
+    kategori: ['Kategori Larian', 'Langkah 2 — Jenis larian'],
+    pasukan:  ['Daftar Sekolah', 'Langkah 3 — Sekolah peserta'],
+    pengguna: ['Pengguna Sistem', 'Langkah 4 — Admin & pencatat'],
+    kumpulan: ['Kumpulan Larian', 'Lanjutan — gabung kategori start serentak'],
+    publish:  ['Publish Keputusan', 'Terbit keputusan untuk paparan awam'],
+    reset:    ['Reset Sistem', 'Padam data — tidak boleh diundur'],
+  }
+
+  window.tukarTab = async (tab) => {
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'))
+    document.getElementById(`panel-${tab}`).classList.remove('hidden')
+
+    const [title, subtitle] = PAGE_INFO[tab] || ['ADMIN PANEL', '']
+    document.getElementById('pageTitle').textContent = title
+    document.getElementById('pageSubtitle').textContent = subtitle
+    document.getElementById('backBtn').classList.toggle('hidden', tab === 'home')
+
+    if (tab === 'publish') isiDropdownKategori()
+    if (tab === 'kumpulan') await muatKumpulan()
+  }
+
+  window.tutupModal = (id) => document.getElementById(id).classList.add('hidden')
+
+  // ── Dashboard ─────────────────────────────────────────────────
+  function renderDashboard() {
+    const katEl = document.getElementById('dash-kat-count')
+    katEl.textContent = allKategori.length + ' kategori'
+    katEl.classList.toggle('hidden', allKategori.length === 0)
+
+    const pasEl = document.getElementById('dash-pas-count')
+    pasEl.textContent = allPasukan.length + ' sekolah'
+    pasEl.classList.toggle('hidden', allPasukan.length === 0)
+  }
+
+  // ── TETAPAN ───────────────────────────────────────────────────
+  async function muatTetapan() {
+    const snap = await getDoc(doc(db, 'settings', 'main'))
+    if (!snap.exists()) return
+    const s = snap.data()
+    document.getElementById('namaB1').value = s.namaB1 || ''
+    document.getElementById('namaB2').value = s.namaB2 || ''
+    document.getElementById('namaB3').value = s.namaB3 || ''
+    document.getElementById('lokasi').value = s.lokasi || ''
+    document.getElementById('penganjur').value = s.penganjur || ''
+    document.getElementById('thresholdTanpaMasa').value = s.thresholdTanpaMasa || 20
+    document.getElementById('fungsiMasa').checked = s.fungsiMasa || false
+    if (s.tarikh) {
+      const d = s.tarikh.toDate()
+      document.getElementById('tarikh').value = d.toISOString().split('T')[0]
+    }
+    if (s.tarikhTutupPendaftaran) {
+      const d = s.tarikhTutupPendaftaran.toDate()
+      document.getElementById('tarikhTutupPendaftaran').value = d.toISOString().split('T')[0]
+    }
+    if (s.logoKiri) {
+      logoKiriBase64 = s.logoKiri
+      const img = document.getElementById('previewKiri')
+      img.src = s.logoKiri; img.classList.remove('hidden')
+    }
+    if (s.logoKanan) {
+      logoKananBase64 = s.logoKanan
+      const img = document.getElementById('previewKanan')
+      img.src = s.logoKanan; img.classList.remove('hidden')
+    }
+  }
+
+  window.previewLogo = (side, input) => {
+    const file = input.files[0]; if (!file) return
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const base64 = e.target.result
+      if (side === 'kiri') {
+        logoKiriBase64 = base64
+        const img = document.getElementById('previewKiri')
+        img.src = base64; img.classList.remove('hidden')
+      } else {
+        logoKananBase64 = base64
+        const img = document.getElementById('previewKanan')
+        img.src = base64; img.classList.remove('hidden')
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
+  window.simpanTetapan = async () => {
+    const tarikhVal = document.getElementById('tarikh').value
+    const tarikhTutupVal = document.getElementById('tarikhTutupPendaftaran').value
+    const data = {
+      namaB1: document.getElementById('namaB1').value.trim(),
+      namaB2: document.getElementById('namaB2').value.trim(),
+      namaB3: document.getElementById('namaB3').value.trim(),
+      lokasi: document.getElementById('lokasi').value.trim(),
+      penganjur: document.getElementById('penganjur').value.trim(),
+      thresholdTanpaMasa: parseInt(document.getElementById('thresholdTanpaMasa').value) || 20,
+      fungsiMasa: document.getElementById('fungsiMasa').checked,
+      updatedAt: serverTimestamp()
+    }
+    if (tarikhVal) data.tarikh = Timestamp.fromDate(new Date(tarikhVal))
+    if (tarikhTutupVal) {
+      data.tarikhTutupPendaftaran = Timestamp.fromDate(new Date(tarikhTutupVal))
+    } else {
+      data.tarikhTutupPendaftaran = null
+    }
+    if (logoKiriBase64) data.logoKiri = logoKiriBase64
+    if (logoKananBase64) data.logoKanan = logoKananBase64
+    try {
+      await setDoc(doc(db, 'settings', 'main'), data, { merge: true })
+      tunjukToast('Tetapan berjaya disimpan', 'green')
+    } catch (e) { tunjukToast('Gagal simpan: ' + e.message, 'red') }
+  }
+
+  // ── KATEGORI ──────────────────────────────────────────────────
+  async function muatKategori() {
+    const snap = await getDocs(query(collection(db, 'kategori'), orderBy('kod')))
+    allKategori = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    renderKategori()
+    renderDashboard()
+  }
+
+  window.pilihJenis = (val) => {
+    document.getElementById('katJenis').value = val
+    const colors = { SK: 'border-blue-600 bg-blue-600 text-white', SM: 'border-purple-600 bg-purple-600 text-white', PPKI: 'border-orange-500 bg-orange-500 text-white' }
+    ;['SK','SM','PPKI'].forEach(j => {
+      const btn = document.getElementById(`jenisBtn-${j}`)
+      btn.className = `jenis-btn flex-1 py-2.5 rounded-xl text-sm font-semibold border-2 transition ${j === val ? colors[j] : 'border-gray-200 text-gray-400'}`
+    })
+  }
+
+  window.pilihJantina = (val) => {
+    document.getElementById('katJantina').value = val
+    document.getElementById('jantinaBtn-L').className = `jantina-btn flex-1 py-2.5 rounded-xl text-sm font-semibold border-2 transition ${val === 'L' ? 'border-sky-600 bg-sky-600 text-white' : 'border-gray-200 text-gray-400'}`
+    document.getElementById('jantinaBtn-P').className = `jantina-btn flex-1 py-2.5 rounded-xl text-sm font-semibold border-2 transition ${val === 'P' ? 'border-pink-500 bg-pink-500 text-white' : 'border-gray-200 text-gray-400'}`
+  }
+
+  window.pilihKaedah = (val) => {
+    document.getElementById('katKaedahKurang').value = val
+    document.getElementById('kaedahBtn-dnq').className = `kaedah-btn flex-1 py-2 rounded-lg text-xs font-semibold border-2 transition ${val === 'dnq' ? 'border-red-500 bg-red-500 text-white' : 'border-gray-200 text-gray-400'}`
+    document.getElementById('kaedahBtn-ambilSemua').className = `kaedah-btn flex-1 py-2 rounded-lg text-xs font-semibold border-2 transition ${val === 'ambilSemua' ? 'border-green-500 bg-green-500 text-white' : 'border-gray-200 text-gray-400'}`
+  }
+
+  window.cadangKod = () => {
+    const jenis   = document.getElementById('katJenis').value
+    const jantina = document.getElementById('katJantina').value
+    const umurMin = document.getElementById('katUmurMin').value
+    const umurMax = document.getElementById('katUmurMax').value
+
+    const prev = document.getElementById('katUmurPreview')
+    if (umurMin && umurMax && umurMin === umurMax) prev.textContent = `${umurMin} thn`
+    else if (umurMin && umurMax) prev.textContent = `${umurMin}–${umurMax} thn`
+    else prev.textContent = '— thn'
+
+    const had = document.getElementById('katHadDaftar').value
+    const kir = document.getElementById('katKiraanPasukan').value
+    const min = document.getElementById('katMinLayak').value
+    if (had && kir && min) {
+      document.getElementById('sumHad').textContent = had
+      document.getElementById('sumKiraan').textContent = kir
+      document.getElementById('sumMin').textContent = min
+      document.getElementById('katSummary').classList.remove('hidden')
+    }
+
+    if (document.getElementById('katKod').value) return
+    const prefix = jenis === 'SK' ? 'SR' : jenis
+    const j = jantina === 'L' ? 'L' : 'P'
+    const umur = umurMin || ''
+    document.getElementById('katKod').value = `${prefix}${j}${umur}`
+  }
+
+  function renderKategori() {
+    const groups = { SK: [], SM: [], PPKI: [] }
+    allKategori.forEach(k => { if (groups[k.jenis]) groups[k.jenis].push(k) })
+    const jantinaBadge = { L: 'bg-sky-100 text-sky-700', P: 'bg-pink-100 text-pink-700' }
+    const jantinaSym  = { L: '♂', P: '♀' }
+
+    Object.entries(groups).forEach(([jenis, list]) => {
+      const el = document.getElementById(`senaraKategori-${jenis}`)
+      if (!el) return
+      if (list.length === 0) { el.innerHTML = '<p class="text-gray-400 text-xs italic">Tiada kategori.</p>'; return }
+      el.innerHTML = list.map(k => `
+        <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-3 flex items-center justify-between hover:shadow-md transition">
+          <div class="flex items-center gap-3">
+            <div class="font-mono text-xs font-bold text-gray-700 bg-gray-100 px-2 py-1 rounded min-w-[44px] text-center">${k.kod}</div>
+            <div>
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <span class="text-sm font-medium text-gray-800">${k.nama}</span>
+                <span class="text-xs px-1.5 py-0.5 rounded ${jantinaBadge[k.jantina] || ''}">${jantinaSym[k.jantina] || ''} ${k.jantina === 'L' ? 'Lelaki' : 'Perempuan'}</span>
+                ${!k.aktif ? '<span class="text-xs bg-red-100 text-red-500 px-1.5 py-0.5 rounded">Tidak Aktif</span>' : ''}
+              </div>
+              <div class="text-xs text-gray-400 mt-0.5 flex gap-2 flex-wrap">
+                <span>${k.umurMin || '?'}–${k.umurMax || '?'} thn</span>
+                <span>|</span><span>Max <strong class="text-gray-600">${k.hadDaftar || '?'}</strong>/sekolah</span>
+                <span>|</span><span>Kira <strong class="text-gray-600">${k.kiraanPasukan || '?'}</strong> pelari</span>
+                <span>|</span><span>Min <strong class="text-gray-600">${k.minLayak || '?'}</strong></span>
+              </div>
+            </div>
+          </div>
+          <div class="flex gap-1 shrink-0 ml-2">
+            <button onclick="editKategori('${k.id}')" class="text-blue-500 hover:text-blue-700 text-xs px-2 py-1 rounded hover:bg-blue-50">Edit</button>
+            <button onclick="padamKategori('${k.id}')" class="text-red-400 hover:text-red-600 text-xs px-2 py-1 rounded hover:bg-red-50">Padam</button>
+          </div>
+        </div>
+      `).join('')
+    })
+  }
+
+  window.bukaModalKategori = () => {
+    document.getElementById('katId').value = ''
+    document.getElementById('katNama').value = ''
+    document.getElementById('katKod').value = ''
+    document.getElementById('katUmurMin').value = ''
+    document.getElementById('katUmurMax').value = ''
+    document.getElementById('katHadDaftar').value = 6
+    document.getElementById('katKiraanPasukan').value = 4
+    document.getElementById('katMinLayak').value = 4
+    document.getElementById('katSummary').classList.add('hidden')
+    document.getElementById('katUmurPreview').textContent = '— thn'
+    pilihJenis('SK'); pilihJantina('L'); pilihKaedah('dnq')
+    document.getElementById('katAktif').checked = true
+    document.getElementById('modalKategoriTitle').textContent = 'TAMBAH KATEGORI'
+    document.getElementById('modalKategoriSubtitle').textContent = 'Tetapkan acara larian baharu'
+    document.getElementById('katMsg').classList.add('hidden')
+    document.getElementById('modalKategori').classList.remove('hidden')
+  }
+
+  window.editKategori = (id) => {
+    const k = allKategori.find(x => x.id === id); if (!k) return
+    document.getElementById('katId').value = id
+    document.getElementById('katNama').value = k.nama || ''
+    document.getElementById('katKod').value = k.kod || ''
+    document.getElementById('katUmurMin').value = k.umurMin || ''
+    document.getElementById('katUmurMax').value = k.umurMax || ''
+    document.getElementById('katHadDaftar').value = k.hadDaftar || 6
+    document.getElementById('katKiraanPasukan').value = k.kiraanPasukan || 4
+    document.getElementById('katMinLayak').value = k.minLayak || 4
+    pilihJenis(k.jenis || 'SK'); pilihJantina(k.jantina || 'L'); pilihKaedah(k.kaedahKurang || 'dnq')
+    document.getElementById('katAktif').checked = k.aktif !== false
+    document.getElementById('sumHad').textContent = k.hadDaftar || 6
+    document.getElementById('sumKiraan').textContent = k.kiraanPasukan || 4
+    document.getElementById('sumMin').textContent = k.minLayak || 4
+    document.getElementById('katSummary').classList.remove('hidden')
+    const min = k.umurMin, max = k.umurMax
+    document.getElementById('katUmurPreview').textContent = min && max ? (min === max ? `${min} thn` : `${min}–${max} thn`) : '— thn'
+    document.getElementById('modalKategoriTitle').textContent = 'EDIT KATEGORI'
+    document.getElementById('modalKategoriSubtitle').textContent = k.nama
+    document.getElementById('katMsg').classList.add('hidden')
+    document.getElementById('modalKategori').classList.remove('hidden')
+  }
+
+  window.simpanKategori = async () => {
+    const id   = document.getElementById('katId').value
+    const nama = document.getElementById('katNama').value.trim()
+    const kod  = document.getElementById('katKod').value.trim().toUpperCase()
+    if (!nama || !kod) { showMsg('katMsg', 'Nama dan kod wajib diisi.', 'red'); return }
+    const data = {
+      nama, kod,
+      jenis:         document.getElementById('katJenis').value,
+      jantina:       document.getElementById('katJantina').value,
+      umurMin:       parseInt(document.getElementById('katUmurMin').value) || 0,
+      umurMax:       parseInt(document.getElementById('katUmurMax').value) || 0,
+      hadDaftar:     parseInt(document.getElementById('katHadDaftar').value) || 6,
+      kiraanPasukan: parseInt(document.getElementById('katKiraanPasukan').value) || 4,
+      minLayak:      parseInt(document.getElementById('katMinLayak').value) || 4,
+      kaedahKurang:  document.getElementById('katKaedahKurang').value,
+      aktif:         document.getElementById('katAktif').checked,
+    }
+    try {
+      if (id) {
+        await updateDoc(doc(db, 'kategori', id), { ...data, updatedAt: serverTimestamp() })
+      } else {
+        await addDoc(collection(db, 'kategori'), { ...data, createdAt: serverTimestamp() })
+      }
+      tutupModal('modalKategori')
+      await muatKategori()
+      tunjukToast('Kategori berjaya disimpan', 'green')
+    } catch (e) { showMsg('katMsg', e.message, 'red') }
+  }
+
+  window.padamKategori = async (id) => {
+    if (!confirm('Padam kategori ini?')) return
+    await deleteDoc(doc(db, 'kategori', id))
+    await muatKategori()
+    tunjukToast('Kategori dipadam', 'red')
+  }
+
+  // ── KUMPULAN ──────────────────────────────────────────────────
+  async function muatKumpulan() {
+    const snap = await getDocs(collection(db, 'kumpulanLarian'))
+    const all = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const el = document.getElementById('senaraKumpulan')
+    if (all.length === 0) { el.innerHTML = '<p class="text-gray-400 text-sm">Tiada kumpulan larian.</p>'; return }
+    el.innerHTML = all.map(k => {
+      const katNama = (k.kategoriIds || []).map(kid => {
+        const kat = allKategori.find(x => x.id === kid)
+        return kat ? `<span class="bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded font-mono">${kat.kod}</span>` : kid
+      }).join(' ')
+      return `
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+          <div class="flex items-center justify-between mb-2">
+            <span class="font-medium text-gray-800">${k.nama}</span>
+            <div class="flex gap-2">
+              <button onclick="editKumpulan('${k.id}')" class="text-blue-600 text-sm">Edit</button>
+              <button onclick="padamKumpulan('${k.id}')" class="text-red-500 text-sm">Padam</button>
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-1">${katNama}</div>
+          <div class="text-xs text-gray-500 mt-1">
+            ${k.lepasanSama ? '✓ Lepasan sama ' : ''}
+            ${k.individuBersama ? '✓ Individu bersama ' : ''}
+            ${k.pasukanBersama ? '✓ Pasukan bersama' : ''}
+          </div>
+        </div>
+      `
+    }).join('')
+  }
+
+  window.bukaModalKumpulan = async () => {
+    document.getElementById('kumpId').value = ''
+    document.getElementById('kumpNama').value = ''
+    document.getElementById('kumpLepasanSama').checked = false
+    document.getElementById('kumpIndividuBersama').checked = false
+    document.getElementById('kumpPasukanBersama').checked = false
+    renderKumpulanKategoriList([])
+    document.getElementById('modalKumpulan').classList.remove('hidden')
+  }
+
+  function renderKumpulanKategoriList(selected) {
+    document.getElementById('kumpKategoriList').innerHTML = allKategori.map(k => `
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input type="checkbox" value="${k.id}" ${selected.includes(k.id) ? 'checked' : ''} class="rounded kump-kat-check">
+        <span class="text-sm"><span class="font-mono text-xs text-blue-800">${k.kod}</span> ${k.nama}</span>
+      </label>
+    `).join('')
+  }
+
+  window.editKumpulan = async (id) => {
+    const snap = await getDoc(doc(db, 'kumpulanLarian', id))
+    const k = snap.data()
+    document.getElementById('kumpId').value = id
+    document.getElementById('kumpNama').value = k.nama
+    document.getElementById('kumpLepasanSama').checked = k.lepasanSama
+    document.getElementById('kumpIndividuBersama').checked = k.individuBersama
+    document.getElementById('kumpPasukanBersama').checked = k.pasukanBersama
+    renderKumpulanKategoriList(k.kategoriIds || [])
+    document.getElementById('modalKumpulan').classList.remove('hidden')
+  }
+
+  window.simpanKumpulan = async () => {
+    const id = document.getElementById('kumpId').value
+    const checks = document.querySelectorAll('.kump-kat-check:checked')
+    const data = {
+      nama: document.getElementById('kumpNama').value.trim(),
+      kategoriIds: [...checks].map(c => c.value),
+      lepasanSama: document.getElementById('kumpLepasanSama').checked,
+      individuBersama: document.getElementById('kumpIndividuBersama').checked,
+      pasukanBersama: document.getElementById('kumpPasukanBersama').checked
+    }
+    if (!data.nama) { showMsg('kumpMsg', 'Nama wajib', 'red'); return }
+    try {
+      if (id) {
+        await updateDoc(doc(db, 'kumpulanLarian', id), data)
+      } else {
+        await addDoc(collection(db, 'kumpulanLarian'), { ...data, createdAt: serverTimestamp() })
+      }
+      tutupModal('modalKumpulan')
+      await muatKumpulan()
+      tunjukToast('Kumpulan disimpan', 'green')
+    } catch (e) { showMsg('kumpMsg', e.message, 'red') }
+  }
+
+  window.padamKumpulan = async (id) => {
+    if (!confirm('Padam kumpulan ini?')) return
+    await deleteDoc(doc(db, 'kumpulanLarian', id))
+    await muatKumpulan()
+    tunjukToast('Kumpulan dipadam', 'red')
+  }
+
+  // ── PASUKAN ───────────────────────────────────────────────────
+  function generatePin() { return String(Math.floor(1000 + Math.random() * 9000)) }
+  window.janaPinBaru = () => { document.getElementById('pasPin').value = generatePin() }
+
+  async function muatPasukan() {
+    const snap = await getDocs(query(collection(db, 'pasukan'), orderBy('nama')))
+    allPasukan = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    renderPasukan()
+    renderDashboard()
+  }
+
+  function renderPasukan() {
+    const tbody = document.getElementById('tablePasukan')
+    const countEl = document.getElementById('pasCount')
+    if (allPasukan.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-gray-400 text-sm">Tiada sekolah. Tambah manual atau upload Excel.</td></tr>'
+      countEl.classList.add('hidden')
+      return
+    }
+    const jenisBadge = {
+      SK:   'bg-blue-100 text-blue-700',
+      SM:   'bg-purple-100 text-purple-700',
+      PPKI: 'bg-orange-100 text-orange-700'
+    }
+    tbody.innerHTML = allPasukan.map((p, i) => `
+      <tr class="border-b border-gray-50 hover:bg-gray-50 transition ${!p.aktif ? 'opacity-50' : ''}">
+        <td class="px-4 py-3">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-xs font-bold text-gray-800 bg-gray-100 px-2 py-0.5 rounded">${p.id}</span>
+            <span class="text-xs px-1.5 py-0.5 rounded ${jenisBadge[p.jenis] || 'bg-gray-100 text-gray-500'}">${p.jenis || '-'}</span>
+          </div>
+        </td>
+        <td class="px-4 py-3">
+          <span class="font-medium text-gray-800 text-sm">${p.nama}</span>
+          ${!p.aktif ? '<span class="ml-1 text-xs text-red-500">(tidak aktif)</span>' : ''}
+        </td>
+        <td class="px-4 py-3 text-xs text-gray-500 max-w-[160px] truncate">${p.email || '—'}</td>
+        <td class="px-4 py-3">
+          <span class="font-mono text-sm font-bold text-gray-700">${p.bib || '—'}</span>
+        </td>
+        <td class="px-4 py-3">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-sm font-bold tracking-widest text-gray-700" id="pin-${p.id}">••••</span>
+            <button onclick="togglePin('${p.id}','${p.pin}')" class="text-blue-500 text-xs hover:underline">Papar</button>
+          </div>
+        </td>
+        <td class="px-4 py-3">
+          <div class="flex gap-1">
+            <button onclick="editPasukan('${p.id}')" class="text-blue-600 hover:text-blue-800 text-xs px-2 py-1 rounded hover:bg-blue-50">Edit</button>
+            <button onclick="padamPasukan('${p.id}')" class="text-red-500 hover:text-red-700 text-xs px-2 py-1 rounded hover:bg-red-50">Padam</button>
+          </div>
+        </td>
+      </tr>
+    `).join('')
+    countEl.textContent = `${allPasukan.length} sekolah berdaftar`
+    countEl.classList.remove('hidden')
+  }
+
+  // ── EXCEL UPLOAD ──────────────────────────────────────────────
+  let excelRows = []
+
+  window.downloadTemplatePasukan = () => {
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['KOD SEKOLAH', 'NAMA SEKOLAH', 'JENIS', 'EMAIL SEKOLAH', 'BIB', 'LOGIN PIN'],
+      ['SKI001', 'SK Sultan Ismail', 'SK', 'ski001@edu.my', 'SKI', '1234'],
+      ['SKA001', 'SK Abu', 'SK', 'ska001@edu.my', 'SKA', ''],
+      ['SMK001', 'SMK Ahmad', 'SM', 'smk001@edu.my', 'SMA', ''],
+      ['PPK001', 'PPKI Kemaman', 'PPKI', 'ppk001@edu.my', 'PPK', ''],
+    ])
+    ws['!cols'] = [{ wch: 14 }, { wch: 28 }, { wch: 8 }, { wch: 26 }, { wch: 8 }, { wch: 10 }]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Pasukan')
+    XLSX.writeFile(wb, 'template_pasukan.xlsx')
+  }
+
+  window.prosesExcel = async (input) => {
+    const file = input.files[0]; if (!file) return
+    input.value = ''
+    const reader = new FileReader()
+    reader.onload = async (e) => {
+      try {
+        const data = new Uint8Array(e.target.result)
+        const wb = XLSX.read(data, { type: 'array' })
+        const ws = wb.Sheets[wb.SheetNames[0]]
+        const rows = XLSX.utils.sheet_to_json(ws, { defval: '' })
+
+        if (rows.length === 0) { tunjukToast('Fail Excel kosong', 'red'); return }
+
+        // Normalize column names (case-insensitive)
+        const normalize = (row) => {
+          const map = {}
+          Object.keys(row).forEach(k => { map[k.toUpperCase().trim().replace(/\s+/g, ' ')] = String(row[k]).trim() })
+          return {
+            kod:    (map['KOD SEKOLAH'] || '').toUpperCase(),
+            nama:   map['NAMA SEKOLAH'] || '',
+            jenis:  (map['JENIS'] || 'SK').toUpperCase(),
+            email:  (map['EMAIL SEKOLAH'] || '').toLowerCase(),
+            bib:    (map['BIB'] || '').toUpperCase(),
+            pin:    map['LOGIN PIN'] || map['PIN'] || '',
+          }
+        }
+
+        const normalized = rows.map(normalize)
+
+        // Check existing kods in Firestore
+        const existingKods = new Set(allPasukan.map(p => p.id))
+
+        excelRows = normalized.map(r => {
+          let status = 'baru'
+          let ralat = ''
+          if (!r.kod) { status = 'ralat'; ralat = 'Tiada Kod' }
+          else if (!r.nama) { status = 'ralat'; ralat = 'Tiada Nama' }
+          else if (!['SK','SM','PPKI'].includes(r.jenis)) { status = 'ralat'; ralat = `Jenis '${r.jenis}' tidak sah` }
+          else if (existingKods.has(r.kod)) { status = 'kemaskini' }
+          if (!r.pin || !/^\d{4}$/.test(r.pin)) r.pin = generatePin()
+          return { ...r, status, ralat }
+        })
+
+        const baru = excelRows.filter(r => r.status === 'baru').length
+        const kemaskini = excelRows.filter(r => r.status === 'kemaskini').length
+        const ralat = excelRows.filter(r => r.status === 'ralat').length
+        const bolehSimpan = baru + kemaskini
+
+        document.getElementById('excelPreviewInfo').textContent = `${excelRows.length} baris dijumpai`
+        document.getElementById('excelSaveInfo').textContent = `${bolehSimpan} akan disimpan · ${ralat} dibuang`
+        document.getElementById('btnSimpanExcel').disabled = bolehSimpan === 0
+
+        const rowColor = { baru: 'bg-green-50', kemaskini: 'bg-amber-50', ralat: 'bg-red-50' }
+        const statusBadge = {
+          baru:      '<span class="bg-green-100 text-green-700 px-1.5 py-0.5 rounded text-xs font-medium">Baru</span>',
+          kemaskini: '<span class="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded text-xs font-medium">Kemaskini</span>',
+          ralat:     (r) => `<span class="bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-xs font-medium">Ralat: ${r.ralat}</span>`
+        }
+
+        document.getElementById('excelPreviewBody').innerHTML = excelRows.map((r, i) => `
+          <tr class="${rowColor[r.status]} border-b border-gray-100">
+            <td class="py-2 pr-3 text-gray-400">${i + 1}</td>
+            <td class="py-2 pr-3 font-mono font-bold text-gray-800">${r.kod || '—'}</td>
+            <td class="py-2 pr-3 text-gray-700">${r.nama || '—'}</td>
+            <td class="py-2 pr-3">
+              <span class="text-xs px-1.5 py-0.5 rounded font-medium ${r.jenis === 'SK' ? 'bg-blue-100 text-blue-700' : r.jenis === 'SM' ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700'}">${r.jenis}</span>
+            </td>
+            <td class="py-2 pr-3 text-gray-500 max-w-[140px] truncate">${r.email || '—'}</td>
+            <td class="py-2 pr-3 font-mono font-bold text-gray-700">${r.bib || '—'}</td>
+            <td class="py-2 pr-3 font-mono text-gray-700">${r.pin}</td>
+            <td class="py-2">${r.status === 'ralat' ? statusBadge.ralat(r) : statusBadge[r.status]}</td>
+          </tr>
+        `).join('')
+
+        document.getElementById('modalExcel').classList.remove('hidden')
+      } catch (err) {
+        tunjukToast('Gagal baca fail: ' + err.message, 'red')
+      }
+    }
+    reader.readAsArrayBuffer(file)
+  }
+
+  window.simpanExcelBatch = async () => {
+    const btn = document.getElementById('btnSimpanExcel')
+    btn.disabled = true; btn.textContent = 'Menyimpan...'
+    const toSave = excelRows.filter(r => r.status !== 'ralat')
+    let count = 0
+    try {
+      for (const r of toSave) {
+        const data = { nama: r.nama, jenis: r.jenis, bib: r.bib, email: r.email, pin: r.pin, aktif: true }
+        if (r.status === 'kemaskini') {
+          await updateDoc(doc(db, 'pasukan', r.kod), { ...data, updatedAt: serverTimestamp() })
+        } else {
+          await setDoc(doc(db, 'pasukan', r.kod), { ...data, createdAt: serverTimestamp() })
+        }
+        count++
+      }
+      tutupModal('modalExcel')
+      await muatPasukan()
+      tunjukToast(`${count} sekolah berjaya disimpan`, 'green')
+    } catch (e) {
+      tunjukToast('Gagal simpan: ' + e.message, 'red')
+    }
+    btn.disabled = false; btn.textContent = 'Simpan Semua'
+  }
+
+  window.togglePin = (id, pin) => {
+    const el = document.getElementById(`pin-${id}`)
+    el.textContent = el.textContent === '••••' ? pin : '••••'
+  }
+
+  window.bukaModalPasukan = () => {
+    document.getElementById('pasId').value = ''
+    document.getElementById('pasNama').value = ''
+    document.getElementById('pasJenis').value = 'SK'
+    document.getElementById('pasBib').value = ''
+    document.getElementById('pasKod').value = ''
+    document.getElementById('pasKod').disabled = false
+    document.getElementById('pasKodNote').classList.remove('hidden')
+    document.getElementById('pasEmail').value = ''
+    document.getElementById('pasPin').value = generatePin()
+    document.getElementById('pasAktif').checked = true
+    document.getElementById('modalPasukanTitle').textContent = 'TAMBAH SEKOLAH'
+    document.getElementById('pasMsg').classList.add('hidden')
+    document.getElementById('modalPasukan').classList.remove('hidden')
+  }
+
+  window.editPasukan = (id) => {
+    const p = allPasukan.find(x => x.id === id); if (!p) return
+    document.getElementById('pasId').value = id
+    document.getElementById('pasNama').value = p.nama || ''
+    document.getElementById('pasJenis').value = p.jenis || 'SK'
+    document.getElementById('pasBib').value = p.bib || ''
+    document.getElementById('pasKod').value = id
+    document.getElementById('pasKod').disabled = true
+    document.getElementById('pasKodNote').classList.add('hidden')
+    document.getElementById('pasEmail').value = p.email || ''
+    document.getElementById('pasPin').value = p.pin || generatePin()
+    document.getElementById('pasAktif').checked = p.aktif !== false
+    document.getElementById('modalPasukanTitle').textContent = 'EDIT SEKOLAH'
+    document.getElementById('pasMsg').classList.add('hidden')
+    document.getElementById('modalPasukan').classList.remove('hidden')
+  }
+
+  window.simpanPasukan = async () => {
+    const isEdit = !!document.getElementById('pasId').value
+    const kod = isEdit
+      ? document.getElementById('pasId').value
+      : document.getElementById('pasKod').value.trim().toUpperCase()
+    const data = {
+      nama:  document.getElementById('pasNama').value.trim(),
+      jenis: document.getElementById('pasJenis').value,
+      bib:   document.getElementById('pasBib').value.trim().toUpperCase(),
+      email: document.getElementById('pasEmail').value.trim().toLowerCase(),
+      pin:   document.getElementById('pasPin').value.trim(),
+      aktif: document.getElementById('pasAktif').checked,
+    }
+    if (!data.nama || !kod) { showMsg('pasMsg', 'Nama dan Kod Sekolah wajib.', 'red'); return }
+    if (!data.pin || data.pin.length !== 4 || !/^\d{4}$/.test(data.pin)) {
+      showMsg('pasMsg', 'PIN mesti 4 digit nombor.', 'red'); return
+    }
+    try {
+      if (isEdit) {
+        await updateDoc(doc(db, 'pasukan', kod), { ...data, updatedAt: serverTimestamp() })
+      } else {
+        const existing = await getDoc(doc(db, 'pasukan', kod))
+        if (existing.exists()) { showMsg('pasMsg', 'Kod Sekolah sudah wujud.', 'red'); return }
+        await setDoc(doc(db, 'pasukan', kod), { ...data, createdAt: serverTimestamp() })
+      }
+      tutupModal('modalPasukan')
+      await muatPasukan()
+      tunjukToast('Sekolah berjaya disimpan', 'green')
+    } catch (e) { showMsg('pasMsg', e.message, 'red') }
+  }
+
+  window.padamPasukan = async (id) => {
+    if (!confirm(`Padam sekolah "${id}"?`)) return
+    await deleteDoc(doc(db, 'pasukan', id))
+    await muatPasukan()
+    tunjukToast('Sekolah dipadam', 'red')
+  }
+
+  // ── PENGGUNA ──────────────────────────────────────────────────
+  async function muatPengguna() {
+    const snap = await getDocs(collection(db, 'users'))
+    const all = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const el = document.getElementById('senaraPengguna')
+    if (all.length === 0) { el.innerHTML = '<p class="text-gray-400 text-sm">Tiada pengguna.</p>'; return }
+    const roleBadge = { admin: 'bg-purple-100 text-purple-700', pencatat: 'bg-blue-100 text-blue-700' }
+    el.innerHTML = all.map(u => `
+      <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex items-center justify-between">
+        <div>
+          <span class="font-medium text-gray-800">${u.nama}</span>
+          <span class="text-xs text-gray-500 ml-2">${u.email}</span>
+          <span class="ml-2 text-xs px-2 py-0.5 rounded ${roleBadge[u.role] || 'bg-gray-100 text-gray-600'}">${u.role}</span>
+          ${!u.aktif ? '<span class="ml-2 text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded">Tidak Aktif</span>' : ''}
+        </div>
+        <div class="flex gap-2">
+          <button onclick="toggleAktifPengguna('${u.id}', ${u.aktif})" class="text-sm ${u.aktif ? 'text-amber-600' : 'text-green-600'}">${u.aktif ? 'Nyahaktif' : 'Aktifkan'}</button>
+          <button onclick="padamPengguna('${u.id}')" class="text-red-500 text-sm">Padam</button>
+        </div>
+      </div>
+    `).join('')
+  }
+
+  window.bukaModalPengguna = () => {
+    document.getElementById('pengNama').value = ''
+    document.getElementById('pengEmail').value = ''
+    document.getElementById('pengPassword').value = ''
+    document.getElementById('pengRole').value = 'pencatat'
+    document.getElementById('pengAktif').checked = true
+    document.getElementById('pengMsg').classList.add('hidden')
+    document.getElementById('modalPengguna').classList.remove('hidden')
+  }
+
+  window.simpanPengguna = async () => {
+    const nama     = document.getElementById('pengNama').value.trim()
+    const email    = document.getElementById('pengEmail').value.trim().toLowerCase()
+    const password = document.getElementById('pengPassword').value.trim()
+    const role     = document.getElementById('pengRole').value
+    const aktif    = document.getElementById('pengAktif').checked
+    if (!nama || !email || !password) { showMsg('pengMsg', 'Nama, email dan kata laluan wajib.', 'red'); return }
+    try {
+      const docId = email.replace(/[^a-z0-9]/g, '_')
+      await setDoc(doc(db, 'users', docId), { nama, email, password, role, aktif, createdAt: serverTimestamp() })
+      tutupModal('modalPengguna')
+      await muatPengguna()
+      tunjukToast('Pengguna disimpan', 'green')
+    } catch (e) { showMsg('pengMsg', e.message, 'red') }
+  }
+
+  window.toggleAktifPengguna = async (id, aktif) => {
+    await updateDoc(doc(db, 'users', id), { aktif: !aktif })
+    await muatPengguna()
+  }
+
+  window.padamPengguna = async (id) => {
+    if (!confirm('Padam pengguna ini?')) return
+    await deleteDoc(doc(db, 'users', id))
+    await muatPengguna()
+    tunjukToast('Pengguna dipadam', 'red')
+  }
+
+  // ── PUBLISH ───────────────────────────────────────────────────
+  function isiDropdownKategori() {
+    const sel = document.getElementById('publishKategori')
+    sel.innerHTML = '<option value="">-- Pilih --</option>' +
+      allKategori.filter(k => k.aktif).map(k => `<option value="${k.id}">${k.nama}</option>`).join('')
+  }
+
+  window.muatPublishInfo = async () => {
+    const katId = document.getElementById('publishKategori').value
+    const panel = document.getElementById('publishPanel')
+    if (!katId) { panel.classList.add('hidden'); return }
+    panel.classList.remove('hidden')
+    const snap = await getDoc(doc(db, 'publikasi', katId))
+    const statusEl = document.getElementById('publishStatus')
+    if (snap.exists()) {
+      const s = snap.data()
+      const warna = { draft: 'text-gray-600', tidakRasmi: 'text-amber-600', rasmi: 'text-green-700' }
+      statusEl.innerHTML = `Status semasa: <span class="${warna[s.status] || ''} font-bold">${s.status.toUpperCase()}</span> (kedudukan ${s.dariKedudukan}–${s.hinggaKedudukan})`
+    } else {
+      statusEl.textContent = 'Belum ada publikasi untuk kategori ini.'
+    }
+  }
+
+  window.doPublish = async (status) => {
+    const katId = document.getElementById('publishKategori').value; if (!katId) return
+    const data = {
+      status,
+      dariKedudukan: parseInt(document.getElementById('pubDari').value) || 1,
+      hinggaKedudukan: parseInt(document.getElementById('pubHingga').value) || 20,
+      publishedBy: currentUser.uid,
+      publishedAt: serverTimestamp(),
+      note: document.getElementById('pubNote').value.trim()
+    }
+    try {
+      await setDoc(doc(db, 'publikasi', katId), data)
+      await auditLog('PUBLISH', 'publikasi', katId, null, data, currentUser.uid)
+      await muatPublishInfo()
+      tunjukToast(`Diterbitkan sebagai ${status.toUpperCase()}`, 'green')
+    } catch (e) { tunjukToast('Gagal publish: ' + e.message, 'red') }
+  }
+
+  // ── RESET ─────────────────────────────────────────────────────
+  const RESET_COLS = {
+    keputusan: ['keputusan', 'publikasi'],
+    atlet:     ['atlet'],
+    pasukan:   ['pasukan', 'atlet', 'keputusan', 'publikasi'],
+    penuh:     ['kategori', 'kumpulanLarian', 'pasukan', 'atlet', 'keputusan', 'publikasi']
+  }
+
+  window.doReset = async (jenis, btn) => {
+    const input = btn.previousElementSibling
+    const expected = `RESET ${jenis.toUpperCase()}`
+    if (input.value !== expected) { tunjukToast(`Taip "${expected}" untuk sahkan`, 'red'); return }
+    if (!confirm(`AMARAN: Reset ${jenis} tidak boleh diundur. Teruskan?`)) return
+    btn.disabled = true; btn.textContent = 'Memproses...'
+    try {
+      for (const col of RESET_COLS[jenis]) {
+        const snap = await getDocs(collection(db, col))
+        const batch = writeBatch(db)
+        snap.docs.forEach(d => batch.delete(d.ref))
+        await batch.commit()
+      }
+      await auditLog('RESET', jenis, 'ALL', null, null, currentUser.uid)
+      tunjukToast(`Reset ${jenis} berjaya`, 'green')
+      input.value = ''
+    } catch (e) { tunjukToast('Gagal reset: ' + e.message, 'red') }
+    btn.disabled = false; btn.textContent = 'Reset'
+  }
+
+  // ── HELPERS ───────────────────────────────────────────────────
+  function showMsg(id, msg, color) {
+    const el = document.getElementById(id)
+    el.textContent = msg
+    el.className = `text-sm ${color === 'red' ? 'text-red-600' : 'text-green-600'}`
+    el.classList.remove('hidden')
+    setTimeout(() => el.classList.add('hidden'), 4000)
+  }
+
+  function tunjukToast(msg, color) {
+    const toast = document.getElementById('toast')
+    const toastMsg = document.getElementById('toastMsg')
+    toastMsg.textContent = msg
+    toastMsg.className = `px-5 py-3 rounded-xl shadow-lg text-white text-sm font-medium ${color === 'green' ? 'bg-green-700' : 'bg-red-600'}`
+    toast.classList.remove('hidden')
+    setTimeout(() => toast.classList.add('hidden'), 3000)
+  }
+</script>
+</body>
+</html>

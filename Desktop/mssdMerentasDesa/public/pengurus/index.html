@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pengurus — Sistem Merentas Desa</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'DM Sans', sans-serif; }
+    .font-heading { font-family: 'Bebas Neue', cursive; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+<!-- Login -->
+<div id="loginScreen" class="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-900 to-green-700 p-4">
+  <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-sm">
+    <div class="text-center mb-8">
+      <h1 class="font-heading text-4xl text-green-900 tracking-wide">PENGURUS</h1>
+      <p class="text-gray-500 text-sm mt-1">Pendaftaran Atlet</p>
+    </div>
+
+    <!-- Form Log Masuk -->
+    <div id="formLogin" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Kod Sekolah</label>
+        <input id="loginKod" type="text" placeholder="cth: SKI001" class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm font-mono uppercase focus:outline-none focus:ring-2 focus:ring-green-500">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">PIN</label>
+        <div class="relative">
+          <input id="loginPin" type="password" maxlength="4" placeholder="4 digit"
+            class="w-full border border-gray-300 rounded-lg px-4 py-2.5 pr-10 text-sm font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-green-500">
+          <button type="button" onclick="toggleTampak('loginPin',this)"
+            class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm select-none">👁</button>
+        </div>
+      </div>
+      <div id="loginError" class="text-red-600 text-sm hidden"></div>
+      <button id="loginBtn" class="w-full bg-green-800 hover:bg-green-700 text-white font-semibold py-2.5 rounded-lg transition">Log Masuk</button>
+      <button id="lupaBtn" type="button" class="w-full text-green-700 text-sm hover:underline">Lupa PIN?</button>
+      <a href="/" class="block text-center text-xs text-gray-400 hover:text-gray-600">← Laman Utama</a>
+    </div>
+
+    <!-- Form Lupa PIN -->
+    <div id="formLupa" class="space-y-4 hidden">
+      <div class="text-center mb-2">
+        <p class="text-sm font-medium text-gray-700">Semak PIN menggunakan email sekolah</p>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Kod Sekolah</label>
+        <input id="lupaKod" type="text" placeholder="cth: SKI001" class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm font-mono uppercase focus:outline-none focus:ring-2 focus:ring-green-500">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Email Sekolah</label>
+        <input id="lupaEmail" type="email" placeholder="email@sekolah.edu.my" class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+      </div>
+      <div id="lupaError" class="text-red-600 text-sm hidden"></div>
+      <div id="lupaResult" class="hidden bg-green-50 border border-green-200 rounded-lg p-4 text-center">
+        <p class="text-sm text-green-700 mb-1">PIN anda ialah:</p>
+        <p id="lupaPin" class="text-3xl font-mono font-bold text-green-800 tracking-widest"></p>
+      </div>
+      <button id="semakBtn" class="w-full bg-green-800 hover:bg-green-700 text-white font-semibold py-2.5 rounded-lg transition">Semak PIN</button>
+      <button id="balikBtn" type="button" class="w-full text-green-700 text-sm hover:underline">← Kembali Log Masuk</button>
+    </div>
+  </div>
+</div>
+
+<!-- Dashboard -->
+<div id="dash" class="hidden">
+  <nav class="bg-green-900 text-white px-6 py-4 flex items-center justify-between sticky top-0 z-50 shadow">
+    <div>
+      <h1 class="font-heading text-xl tracking-wide" id="pasukanNamaNav">PENGURUS</h1>
+      <p class="text-green-300 text-xs" id="userNamaNav"></p>
+    </div>
+    <button id="logoutBtn" class="bg-red-600 hover:bg-red-700 px-3 py-1.5 rounded text-sm font-medium">Keluar</button>
+  </nav>
+
+  <div class="max-w-3xl mx-auto p-4">
+
+    <!-- Banner Pendaftaran Tutup -->
+    <div id="bannerTutup" class="hidden bg-red-50 border border-red-300 rounded-xl p-4 mb-4 flex items-start gap-3">
+      <span class="text-red-500 text-xl shrink-0">🔒</span>
+      <div>
+        <p class="font-semibold text-red-700 text-sm">Pendaftaran Telah Ditutup</p>
+        <p class="text-red-600 text-xs mt-0.5">Tempoh pendaftaran atlet telah tamat. Hubungi penganjur untuk maklumat lanjut.</p>
+      </div>
+    </div>
+
+    <!-- Info Pasukan -->
+    <div id="infoPasukan" class="bg-white rounded-xl shadow p-4 mb-4">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="font-semibold text-gray-800" id="pasukanNama">-</h2>
+          <p class="text-sm text-gray-500" id="pasukanKod"></p>
+        </div>
+        <div class="text-right">
+          <p class="text-sm text-gray-500">Pengurus: <span id="pengurusNama" class="font-medium text-gray-700">-</span></p>
+          <p class="text-sm text-gray-500">Telefon: <span id="pengurusTelefon" class="font-medium text-gray-700">-</span></p>
+        </div>
+      </div>
+
+      <!-- Tarikh Tutup + Countdown -->
+      <div id="pendaftaranTutupInfo" class="hidden mt-3 pt-3 border-t border-gray-100">
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <p class="text-xs text-gray-500">Pendaftaran ditutup pada</p>
+            <p class="text-sm font-semibold text-gray-800" id="tarikhTutupLabel">—</p>
+          </div>
+          <div id="countdownBox" class="text-right">
+            <p class="text-xs text-gray-500 mb-0.5">Masa tinggal</p>
+            <div class="flex items-center gap-1.5">
+              <div class="bg-green-50 border border-green-200 rounded-lg px-2 py-1 text-center min-w-[42px]">
+                <p class="font-heading text-xl text-green-800 leading-tight" id="cdHari">0</p>
+                <p class="text-xs text-green-600">hari</p>
+              </div>
+              <span class="text-gray-300 font-bold">:</span>
+              <div class="bg-green-50 border border-green-200 rounded-lg px-2 py-1 text-center min-w-[42px]">
+                <p class="font-heading text-xl text-green-800 leading-tight" id="cdJam">00</p>
+                <p class="text-xs text-green-600">jam</p>
+              </div>
+              <span class="text-gray-300 font-bold">:</span>
+              <div class="bg-green-50 border border-green-200 rounded-lg px-2 py-1 text-center min-w-[42px]">
+                <p class="font-heading text-xl text-green-800 leading-tight" id="cdMinit">00</p>
+                <p class="text-xs text-green-600">minit</p>
+              </div>
+              <span class="text-gray-300 font-bold">:</span>
+              <div class="bg-green-50 border border-green-200 rounded-lg px-2 py-1 text-center min-w-[42px]">
+                <p class="font-heading text-xl text-green-800 leading-tight" id="cdSaat">00</p>
+                <p class="text-xs text-green-600">saat</p>
+              </div>
+            </div>
+          </div>
+          <div id="countdownTutup" class="hidden">
+            <span class="bg-red-100 text-red-700 font-bold text-sm px-3 py-1.5 rounded-lg">DITUTUP</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pilih Kategori -->
+    <div class="bg-white rounded-xl shadow p-4 mb-4">
+      <label class="block text-sm font-medium text-gray-700 mb-2">Pilih Kategori Larian</label>
+      <select id="pilihanKategori" onchange="muatAtlet()" class="border border-gray-300 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-green-500">
+        <option value="">-- Pilih Kategori --</option>
+      </select>
+    </div>
+
+    <!-- Quota & Butang Tambah -->
+    <div id="quotaBar" class="hidden bg-white rounded-xl shadow p-4 mb-4">
+      <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div>
+          <span class="text-sm font-medium text-gray-700">Quota: </span>
+          <span id="quotaTeks" class="font-mono text-sm font-bold text-blue-900">0/0</span>
+          <span id="quotaBadge" class="ml-2 text-xs px-2 py-0.5 rounded font-medium"></span>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="downloadTemplateAtlet()"
+            class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-medium transition">
+            ⬇ Template
+          </button>
+          <label class="bg-green-100 hover:bg-green-200 text-green-800 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition">
+            📂 Upload Excel
+            <input type="file" id="excelAtletInput" accept=".xlsx,.xls,.csv" class="hidden" onchange="prosesExcelAtlet(this)">
+          </label>
+          <button id="btnTambahAtlet" onclick="bukaModalTambah()"
+            class="bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition">
+            + Tambah
+          </button>
+        </div>
+      </div>
+      <div class="w-full bg-gray-100 rounded-full h-2">
+        <div id="quotaBar2" class="bg-green-600 h-2 rounded-full transition-all" style="width:0%"></div>
+      </div>
+    </div>
+
+    <!-- Senarai Atlet -->
+    <div id="senaraAtlet" class="space-y-3"></div>
+
+  </div>
+</div>
+
+<!-- Modal Tambah/Edit Atlet -->
+<div id="modalAtlet" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+    <div class="flex items-center justify-between p-5 border-b">
+      <h3 class="font-heading text-xl text-green-900" id="modalAtletTitle">TAMBAH ATLET</h3>
+      <button onclick="tutupModal()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+    </div>
+    <div class="p-5 space-y-4">
+      <input type="hidden" id="atletId">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Nama Atlet</label>
+        <input id="atletNama" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">No Kad Pengenalan</label>
+        <input id="atletNoKP" type="text" placeholder="990101-01-1234" maxlength="14"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500">
+        <p class="text-xs text-gray-400 mt-1">No KP akan di-hash. Tidak disimpan dalam teks asal.</p>
+      </div>
+      <div id="editNoKPNote" class="hidden bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700">
+        Kosongkan jika tidak mahu tukar No KP.
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">No Bib</label>
+        <div class="flex gap-2">
+          <div class="flex flex-1 border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-green-500">
+            <span id="bibPrefixLabel" class="bg-gray-100 border-r border-gray-300 px-3 py-2 text-sm font-mono font-bold text-gray-700 select-none min-w-[3rem] text-center">—</span>
+            <input id="atletNoBibAngka" type="text" placeholder="001" maxlength="5"
+              class="flex-1 px-3 py-2 text-sm font-mono focus:outline-none">
+          </div>
+          <button onclick="cadangBib()" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-lg text-xs">Auto</button>
+        </div>
+        <p id="bibSuggest" class="text-xs text-green-600 mt-1 hidden"></p>
+      </div>
+      <div id="atletMsg" class="text-sm hidden"></div>
+    </div>
+    <div class="flex justify-end gap-3 p-5 border-t">
+      <button onclick="tutupModal()" class="px-4 py-2 text-sm text-gray-600">Batal</button>
+      <button onclick="simpanAtlet()" id="btnSimpanAtlet" class="bg-green-700 hover:bg-green-800 text-white px-5 py-2 rounded-lg text-sm font-medium">Simpan</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Excel Atlet -->
+<div id="modalExcelAtlet" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+    <div class="flex items-center justify-between p-5 border-b shrink-0">
+      <div>
+        <h3 class="font-heading text-xl text-green-900">UPLOAD ATLET</h3>
+        <p class="text-xs text-gray-400 mt-0.5" id="excelAtletInfo">Semak sebelum simpan</p>
+      </div>
+      <button onclick="document.getElementById('modalExcelAtlet').classList.add('hidden')" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+    </div>
+
+    <div class="px-5 pt-3 pb-1 flex gap-4 text-xs shrink-0 flex-wrap">
+      <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-green-100 border border-green-300 inline-block"></span> Baru</span>
+      <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-red-100 border border-red-300 inline-block"></span> Ralat — tidak disimpan</span>
+    </div>
+
+    <div class="overflow-auto flex-1 px-5 pb-2">
+      <table class="w-full text-xs min-w-[500px] border-collapse">
+        <thead class="sticky top-0 bg-white">
+          <tr class="border-b border-gray-200">
+            <th class="text-left py-2 pr-3 text-gray-500 font-semibold">#</th>
+            <th class="text-left py-2 pr-3 text-gray-500 font-semibold">Nama</th>
+            <th class="text-left py-2 pr-3 text-gray-500 font-semibold">No KP</th>
+            <th class="text-left py-2 pr-3 text-gray-500 font-semibold">No Bib</th>
+            <th class="text-left py-2 text-gray-500 font-semibold">Status</th>
+          </tr>
+        </thead>
+        <tbody id="excelAtletBody"></tbody>
+      </table>
+    </div>
+
+    <div class="flex justify-between items-center p-5 border-t shrink-0">
+      <p class="text-xs text-gray-500" id="excelAtletSaveInfo"></p>
+      <div class="flex gap-3">
+        <button onclick="document.getElementById('modalExcelAtlet').classList.add('hidden')" class="px-4 py-2 text-sm text-gray-600">Batal</button>
+        <button id="btnSimpanExcelAtlet" onclick="simpanExcelAtletBatch()"
+          class="bg-green-700 hover:bg-green-800 text-white px-6 py-2 rounded-lg text-sm font-semibold">
+          Simpan Semua
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="fixed bottom-6 right-6 z-50 hidden">
+  <div id="toastMsg" class="px-5 py-3 rounded-xl shadow-lg text-white text-sm font-medium"></div>
+</div>
+
+<script type="module">
+  import { db } from '../js/firebase-config.js'
+  import { logout, attachSessionListeners } from '../js/auth.js'
+  import { hashNoKP, maskNoKP, isDuplicateAtlet } from '../js/hash.js'
+  import {
+    doc, getDoc, addDoc, updateDoc, deleteDoc, getDocs,
+    collection, query, where, orderBy,
+    runTransaction, serverTimestamp
+  } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js'
+
+  const SESSION_KEY_PAS = 'mssd_md_pasukan'
+
+  let currentUser = null
+  let pasukanData = null
+  let kategoriData = null
+  let semuaAtlet = []
+  let editMode = false
+  let pendaftaranTutup = false
+  let countdownInterval = null
+
+  // ── Auth: semak session pengurus ──────────────────────────────
+  const rawSesi = sessionStorage.getItem(SESSION_KEY_PAS)
+  if (rawSesi) {
+    try {
+      const sesi = JSON.parse(rawSesi)
+      initDash(sesi)
+    } catch { sessionStorage.removeItem(SESSION_KEY_PAS); showLogin() }
+  } else {
+    showLogin()
+  }
+
+  async function initDash(sesi) {
+    const snap = await getDoc(doc(db, 'pasukan', sesi.kodSekolah))
+    if (!snap.exists() || snap.data().aktif === false) {
+      sessionStorage.removeItem(SESSION_KEY_PAS)
+      showLogin()
+      return
+    }
+    pasukanData = { id: snap.id, ...snap.data() }
+    currentUser = { kodSekolah: sesi.kodSekolah, nama: pasukanData.nama }
+    document.getElementById('userNamaNav').textContent = pasukanData.nama
+
+    const settingsSnap = await getDoc(doc(db, 'settings', 'main'))
+    if (settingsSnap.exists()) {
+      const s = settingsSnap.data()
+      if (s.tarikhTutupPendaftaran) {
+        const tutup = s.tarikhTutupPendaftaran.toDate()
+        const hariSemak = new Date(); hariSemak.setHours(0,0,0,0)
+        const tutupSemak = new Date(tutup); tutupSemak.setHours(0,0,0,0)
+        if (hariSemak > tutupSemak) pendaftaranTutup = true
+        mulaCountdown(tutup)
+      }
+    }
+
+    await muatPasukan()
+    showDash()
+    attachSessionListeners()
+  }
+
+  function mulaCountdown(tutupDate) {
+    const el = document.getElementById('pendaftaranTutupInfo')
+    el.classList.remove('hidden')
+
+    // Format tarikh dalam BM
+    const bulan = ['Jan','Feb','Mac','Apr','Mei','Jun','Jul','Ogos','Sep','Okt','Nov','Dis']
+    const t = tutupDate
+    document.getElementById('tarikhTutupLabel').textContent =
+      `${t.getDate()} ${bulan[t.getMonth()]} ${t.getFullYear()}`
+
+    if (pendaftaranTutup) {
+      document.getElementById('countdownBox').classList.add('hidden')
+      document.getElementById('countdownTutup').classList.remove('hidden')
+      return
+    }
+
+    // Countdown — tutup pada hujung hari (23:59:59) tarikh tutup
+    const sasaran = new Date(tutupDate)
+    sasaran.setHours(23, 59, 59, 999)
+
+    function kemas() {
+      const baki = sasaran - Date.now()
+      if (baki <= 0) {
+        clearInterval(countdownInterval)
+        document.getElementById('countdownBox').classList.add('hidden')
+        document.getElementById('countdownTutup').classList.remove('hidden')
+        return
+      }
+      const h = Math.floor(baki / 86400000)
+      const j = Math.floor((baki % 86400000) / 3600000)
+      const m = Math.floor((baki % 3600000) / 60000)
+      const s = Math.floor((baki % 60000) / 1000)
+      document.getElementById('cdHari').textContent = h
+      document.getElementById('cdJam').textContent = String(j).padStart(2,'0')
+      document.getElementById('cdMinit').textContent = String(m).padStart(2,'0')
+      document.getElementById('cdSaat').textContent = String(s).padStart(2,'0')
+
+      // Tukar warna jadi kuning bila < 3 hari, merah bila < 1 hari
+      const boxes = document.querySelectorAll('#pendaftaranTutupInfo .bg-green-50')
+      const isKritical = h < 1
+      const isAmaran = h < 3
+      boxes.forEach(b => {
+        b.className = b.className
+          .replace(/bg-\w+-50/g, isKritical ? 'bg-red-50' : isAmaran ? 'bg-amber-50' : 'bg-green-50')
+          .replace(/border-\w+-200/g, isKritical ? 'border-red-200' : isAmaran ? 'border-amber-200' : 'border-green-200')
+        const p = b.querySelectorAll('p')
+        if (p[0]) p[0].className = p[0].className
+          .replace(/text-\w+-800/g, isKritical ? 'text-red-800' : isAmaran ? 'text-amber-800' : 'text-green-800')
+        if (p[1]) p[1].className = p[1].className
+          .replace(/text-\w+-600/g, isKritical ? 'text-red-600' : isAmaran ? 'text-amber-600' : 'text-green-600')
+      })
+    }
+
+    kemas()
+    countdownInterval = setInterval(kemas, 1000)
+  }
+
+  function showLogin() {
+    document.getElementById('loginScreen').classList.remove('hidden')
+    document.getElementById('dash').classList.add('hidden')
+  }
+
+  function showDash() {
+    document.getElementById('loginScreen').classList.add('hidden')
+    document.getElementById('dash').classList.remove('hidden')
+  }
+
+  // ── Login ─────────────────────────────────────────────────────
+  async function doLogin() {
+    const kod    = document.getElementById('loginKod').value.trim().toUpperCase()
+    const pin    = document.getElementById('loginPin').value.trim()
+    const errDiv = document.getElementById('loginError')
+    errDiv.classList.add('hidden')
+    if (!kod || !pin) { errDiv.textContent = 'Sila isi Kod Sekolah dan PIN.'; errDiv.classList.remove('hidden'); return }
+    try {
+      const snap = await getDoc(doc(db, 'pasukan', kod))
+      if (!snap.exists()) throw new Error('Kod Sekolah tidak dijumpai.')
+      const data = snap.data()
+      if (data.aktif === false) throw new Error('Akaun pasukan tidak aktif. Hubungi admin.')
+      if (data.pin !== pin) throw new Error('PIN tidak betul.')
+      sessionStorage.setItem(SESSION_KEY_PAS, JSON.stringify({ kodSekolah: kod }))
+      window.location.reload()
+    } catch (e) {
+      errDiv.textContent = e.message
+      errDiv.classList.remove('hidden')
+    }
+  }
+
+  // ── Lupa PIN ──────────────────────────────────────────────────
+  async function semakPin() {
+    const kod    = document.getElementById('lupaKod').value.trim().toUpperCase()
+    const email  = document.getElementById('lupaEmail').value.trim().toLowerCase()
+    const errDiv = document.getElementById('lupaError')
+    errDiv.classList.add('hidden')
+    document.getElementById('lupaResult').classList.add('hidden')
+    if (!kod || !email) { errDiv.textContent = 'Sila isi Kod Sekolah dan Email.'; errDiv.classList.remove('hidden'); return }
+    try {
+      const snap = await getDoc(doc(db, 'pasukan', kod))
+      if (!snap.exists()) throw new Error('Kod Sekolah tidak dijumpai.')
+      const data = snap.data()
+      if ((data.email || '').toLowerCase() !== email) throw new Error('Email tidak sepadan dengan rekod pasukan.')
+      document.getElementById('lupaPin').textContent = data.pin
+      document.getElementById('lupaResult').classList.remove('hidden')
+    } catch (e) {
+      errDiv.textContent = e.message
+      errDiv.classList.remove('hidden')
+    }
+  }
+
+  window.toggleTampak = (id, btn) => {
+    const el = document.getElementById(id)
+    el.type = el.type === 'password' ? 'text' : 'password'
+    btn.textContent = el.type === 'password' ? '👁' : '🙈'
+  }
+
+  document.getElementById('loginBtn').addEventListener('click', doLogin)
+  document.getElementById('loginPin').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin() })
+  document.getElementById('lupaBtn').addEventListener('click', () => {
+    document.getElementById('formLogin').classList.add('hidden')
+    document.getElementById('formLupa').classList.remove('hidden')
+  })
+  document.getElementById('balikBtn').addEventListener('click', () => {
+    document.getElementById('formLupa').classList.add('hidden')
+    document.getElementById('formLogin').classList.remove('hidden')
+    document.getElementById('lupaResult').classList.add('hidden')
+    document.getElementById('lupaError').classList.add('hidden')
+  })
+  document.getElementById('semakBtn').addEventListener('click', semakPin)
+  document.getElementById('logoutBtn').addEventListener('click', () => {
+    sessionStorage.removeItem(SESSION_KEY_PAS)
+    window.location.reload()
+  })
+
+  async function muatPasukan() {
+    if (!pasukanData) {
+      document.getElementById('senaraAtlet').innerHTML = '<p class="text-red-500 text-sm">Pasukan tidak ditemui. Hubungi admin.</p>'
+      return
+    }
+    document.getElementById('pasukanNamaNav').textContent = pasukanData.nama
+    document.getElementById('pasukanNama').textContent = pasukanData.nama
+    document.getElementById('pasukanKod').textContent = pasukanData.id
+    document.getElementById('pengurusNama').textContent = pasukanData.jenis || '-'
+    document.getElementById('pengurusTelefon').textContent = `Bib: ${pasukanData.bib || '-'}`
+
+    if (pendaftaranTutup) {
+      document.getElementById('bannerTutup').classList.remove('hidden')
+    }
+
+    await muatKategori()
+  }
+
+  async function muatKategori() {
+    const snap = await getDocs(query(
+      collection(db, 'kategori'),
+      where('aktif', '==', true),
+      where('jenis', '==', pasukanData.jenis),
+      orderBy('kod')
+    ))
+    const all = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const sel = document.getElementById('pilihanKategori')
+    sel.innerHTML = '<option value="">-- Pilih Kategori --</option>' +
+      all.map(k => `<option value="${k.id}">${k.nama}</option>`).join('')
+  }
+
+  window.muatAtlet = async () => {
+    const katId = document.getElementById('pilihanKategori').value
+    if (!katId) {
+      document.getElementById('quotaBar').classList.add('hidden')
+      document.getElementById('senaraAtlet').innerHTML = ''
+      return
+    }
+
+    const katSnap = await getDoc(doc(db, 'kategori', katId))
+    kategoriData = { id: katId, ...katSnap.data() }
+
+    const q = query(
+      collection(db, 'atlet'),
+      where('pasukanId', '==', pasukanData.id),
+      where('kategoriId', '==', katId),
+      where('aktif', '==', true)
+    )
+    const snap = await getDocs(q)
+    semuaAtlet = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    semuaAtlet.sort((a, b) => (a.bibAngka || 0) - (b.bibAngka || 0))
+
+    const daftar = semuaAtlet.length
+    const had = kategoriData.hadDaftar || 0
+    const pct = had > 0 ? Math.round((daftar / had) * 100) : 0
+
+    document.getElementById('quotaBar').classList.remove('hidden')
+    document.getElementById('quotaTeks').textContent = `${daftar}/${had}`
+    document.getElementById('quotaBar2').style.width = `${pct}%`
+
+    const badge = document.getElementById('quotaBadge')
+    if (pendaftaranTutup) {
+      badge.textContent = 'DITUTUP'
+      badge.className = 'ml-2 text-xs px-2 py-0.5 rounded font-medium bg-red-100 text-red-700'
+      document.getElementById('btnTambahAtlet').disabled = true
+      document.getElementById('btnTambahAtlet').classList.add('opacity-50')
+    } else if (daftar >= had) {
+      badge.textContent = 'PENUH'
+      badge.className = 'ml-2 text-xs px-2 py-0.5 rounded font-medium bg-red-100 text-red-700'
+      document.getElementById('btnTambahAtlet').disabled = true
+      document.getElementById('btnTambahAtlet').classList.add('opacity-50')
+    } else if (pct >= 80) {
+      badge.textContent = 'HAMPIR PENUH'
+      badge.className = 'ml-2 text-xs px-2 py-0.5 rounded font-medium bg-amber-100 text-amber-700'
+      document.getElementById('btnTambahAtlet').disabled = false
+      document.getElementById('btnTambahAtlet').classList.remove('opacity-50')
+    } else {
+      badge.textContent = 'TERSEDIA'
+      badge.className = 'ml-2 text-xs px-2 py-0.5 rounded font-medium bg-green-100 text-green-700'
+      document.getElementById('btnTambahAtlet').disabled = false
+      document.getElementById('btnTambahAtlet').classList.remove('opacity-50')
+    }
+
+    renderAtlet()
+  }
+
+  function renderAtlet() {
+    const el = document.getElementById('senaraAtlet')
+    if (semuaAtlet.length === 0) {
+      el.innerHTML = '<p class="text-gray-400 text-sm text-center py-6">Tiada atlet berdaftar.</p>'
+      return
+    }
+    el.innerHTML = semuaAtlet.map((a, i) => `
+      <div class="bg-white rounded-xl shadow p-4 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <span class="text-xs text-gray-400 font-mono">${i + 1}</span>
+          <div>
+            <p class="font-medium text-gray-800">${a.nama}</p>
+            <p class="text-xs text-gray-500 font-mono">Bib: <span class="text-blue-900 font-bold">${a.noBib}</span> · KP: ${a.noKPMask}</p>
+          </div>
+        </div>
+        ${pendaftaranTutup ? '' : `
+        <div class="flex gap-2">
+          <button onclick="editAtlet('${a.id}')" class="text-blue-600 hover:text-blue-800 text-sm px-2 py-1">Edit</button>
+          <button onclick="padamAtlet('${a.id}')" class="text-red-500 hover:text-red-700 text-sm px-2 py-1">Padam</button>
+        </div>`}
+      </div>
+    `).join('')
+  }
+
+  window.bukaModalTambah = () => {
+    if (pendaftaranTutup) { tunjukToast('Pendaftaran telah ditutup', 'red'); return }
+    editMode = false
+    document.getElementById('atletId').value = ''
+    document.getElementById('atletNama').value = ''
+    document.getElementById('atletNoKP').value = ''
+    document.getElementById('atletNoBibAngka').value = ''
+    document.getElementById('bibPrefixLabel').textContent = (pasukanData?.bib || '—').toUpperCase()
+    document.getElementById('bibSuggest').classList.add('hidden')
+    document.getElementById('editNoKPNote').classList.add('hidden')
+    document.getElementById('atletMsg').classList.add('hidden')
+    document.getElementById('modalAtletTitle').textContent = 'TAMBAH ATLET'
+    document.getElementById('modalAtlet').classList.remove('hidden')
+  }
+
+  window.editAtlet = (id) => {
+    editMode = true
+    const a = semuaAtlet.find(x => x.id === id)
+    if (!a) return
+    const prefix = (pasukanData?.bib || '').toUpperCase()
+    const suffix = a.noBib ? a.noBib.replace(new RegExp('^' + prefix, 'i'), '') : ''
+    document.getElementById('atletId').value = id
+    document.getElementById('atletNama').value = a.nama
+    document.getElementById('atletNoKP').value = ''
+    document.getElementById('atletNoBibAngka').value = suffix
+    document.getElementById('bibPrefixLabel').textContent = prefix || '—'
+    document.getElementById('editNoKPNote').classList.remove('hidden')
+    document.getElementById('atletMsg').classList.add('hidden')
+    document.getElementById('modalAtletTitle').textContent = 'EDIT ATLET'
+    document.getElementById('modalAtlet').classList.remove('hidden')
+  }
+
+  window.cadangBib = async () => {
+    if (!pasukanData) return
+    const prefix = (pasukanData.bib || '').toUpperCase()
+    if (!prefix) { tunjukToast('Bib prefix pasukan tiada — hubungi admin', 'red'); return }
+
+    // Query SEMUA atlet aktif untuk pasukan ini (semua kategori)
+    const allBibSnap = await getDocs(query(
+      collection(db, 'atlet'),
+      where('pasukanId', '==', pasukanData.id),
+      where('aktif', '==', true)
+    ))
+    const used = new Set(allBibSnap.docs.map(d => {
+      const noBib = d.data().noBib || ''
+      return parseInt(noBib.replace(new RegExp('^' + prefix, 'i'), '')) || 0
+    }))
+
+    for (let i = 1; i <= 999; i++) {
+      if (!used.has(i)) {
+        const suffix = String(i).padStart(3, '0')
+        document.getElementById('atletNoBibAngka').value = suffix
+        const sug = document.getElementById('bibSuggest')
+        sug.textContent = `Bib ${prefix}${suffix} tersedia`
+        sug.classList.remove('hidden')
+        return
+      }
+    }
+    tunjukToast('Semua bib sudah digunakan', 'red')
+  }
+
+  window.simpanAtlet = async () => {
+    if (pendaftaranTutup) { showMsg('atletMsg', 'Pendaftaran telah ditutup', 'red'); return }
+    const id = document.getElementById('atletId').value
+    const nama = document.getElementById('atletNama').value.trim()
+    const noKPRaw = document.getElementById('atletNoKP').value.trim()
+    const prefix = (pasukanData?.bib || '').toUpperCase()
+    const suffix = document.getElementById('atletNoBibAngka').value.trim().toUpperCase()
+    const noBibRaw = prefix && suffix ? `${prefix}${suffix}` : ''
+    const btn = document.getElementById('btnSimpanAtlet')
+
+    if (!nama || !suffix) { showMsg('atletMsg', 'Nama dan No Bib wajib', 'red'); return }
+    if (!prefix) { showMsg('atletMsg', 'Bib prefix pasukan tiada — hubungi admin', 'red'); return }
+    if (!editMode && !noKPRaw) { showMsg('atletMsg', 'No KP wajib untuk atlet baru', 'red'); return }
+
+    const bibAngka = parseInt(noBibRaw.replace(/\D/g, '')) || 0
+
+    btn.disabled = true
+    btn.textContent = 'Semak...'
+
+    // ── Semak bib duplikat (luar transaction — lebih selamat) ──
+    const bibSemakQ = query(
+      collection(db, 'atlet'),
+      where('noBib', '==', noBibRaw),
+      where('aktif', '==', true)
+    )
+    const bibSemakSnap = await getDocs(bibSemakQ)
+    const bibConflict = bibSemakSnap.docs.filter(d => d.id !== id)
+    if (bibConflict.length > 0) {
+      showMsg('atletMsg', `No Bib ${noBibRaw} sudah digunakan oleh atlet lain`, 'red')
+      btn.disabled = false; btn.textContent = 'Simpan'; return
+    }
+
+    btn.textContent = 'Simpan...'
+
+    try {
+      if (editMode) {
+        const updateData = {
+          nama,
+          noBib: noBibRaw,
+          bibAngka,
+          updatedAt: serverTimestamp()
+        }
+        if (noKPRaw) {
+          const duplikat = await isDuplicateAtlet(noKPRaw, kategoriData.id, id)
+          if (duplikat) { showMsg('atletMsg', 'No KP sudah berdaftar dalam kategori ini', 'red'); btn.disabled = false; btn.textContent = 'Simpan'; return }
+          updateData.noKPHash = await hashNoKP(noKPRaw)
+          updateData.noKPMask = maskNoKP(noKPRaw)
+        }
+        await updateDoc(doc(db, 'atlet', id), updateData)
+      } else {
+        const duplikat = await isDuplicateAtlet(noKPRaw, kategoriData.id)
+        if (duplikat) { showMsg('atletMsg', 'No KP sudah berdaftar dalam kategori ini', 'red'); btn.disabled = false; btn.textContent = 'Simpan'; return }
+
+        const noKPHash = await hashNoKP(noKPRaw)
+        const noKPMask = maskNoKP(noKPRaw)
+        const katRef = doc(db, 'kategori', kategoriData.id)
+
+        await runTransaction(db, async (transaction) => {
+          const katSnap = await transaction.get(katRef)
+          if (!katSnap.exists()) throw new Error('Kategori tidak wujud')
+          const { hadDaftar } = katSnap.data()
+
+          const qAtlet = query(collection(db, 'atlet'), where('kategoriId', '==', kategoriData.id), where('aktif', '==', true))
+          const atletSnap = await getDocs(qAtlet)
+          if (hadDaftar > 0 && atletSnap.size >= hadDaftar) throw new Error('HAD_PENUH')
+
+          const atletRef = doc(collection(db, 'atlet'))
+          transaction.set(atletRef, {
+            nama, noKPHash, noKPMask, noBib: noBibRaw, bibAngka,
+            pasukanId: pasukanData.id,
+            kategoriId: kategoriData.id,
+            jenis: pasukanData.jenis,
+            aktif: true,
+            createdAt: serverTimestamp()
+          })
+        })
+      }
+
+      tutupModal()
+      await muatAtlet()
+      tunjukToast(editMode ? 'Atlet dikemaskini' : 'Atlet berjaya didaftarkan', 'green')
+    } catch (e) {
+      const msg = e.message === 'HAD_PENUH' ? 'Had peserta telah penuh'
+        : e.message === 'BIB_DUPLICATE' ? 'Bib sudah digunakan'
+        : e.message
+      showMsg('atletMsg', msg, 'red')
+    }
+
+    btn.disabled = false
+    btn.textContent = 'Simpan'
+  }
+
+  window.padamAtlet = async (id) => {
+    if (!confirm('Padam atlet ini?')) return
+    await updateDoc(doc(db, 'atlet', id), { aktif: false, updatedAt: serverTimestamp() })
+    await muatAtlet()
+    tunjukToast('Atlet dipadam', 'red')
+  }
+
+  window.tutupModal = () => {
+    document.getElementById('modalAtlet').classList.add('hidden')
+  }
+
+  function showMsg(id, msg, color) {
+    const el = document.getElementById(id)
+    el.textContent = msg
+    el.className = `text-sm ${color === 'red' ? 'text-red-600' : 'text-green-600'}`
+    el.classList.remove('hidden')
+  }
+
+  function tunjukToast(msg, color) {
+    const t = document.getElementById('toast')
+    const m = document.getElementById('toastMsg')
+    m.textContent = msg
+    m.className = `px-5 py-3 rounded-xl shadow-lg text-white text-sm font-medium ${color === 'green' ? 'bg-green-700' : 'bg-red-600'}`
+    t.classList.remove('hidden')
+    setTimeout(() => t.classList.add('hidden'), 3000)
+  }
+
+  // ── EXCEL UPLOAD ATLET ────────────────────────────────────────
+  let excelAtletRows = []
+
+  window.downloadTemplateAtlet = () => {
+    if (!kategoriData) { tunjukToast('Pilih kategori dahulu', 'red'); return }
+    const prefix = (pasukanData.bib || 'XX').toUpperCase()
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['NAMA', 'NO KP', 'NO BIB'],
+      ['Ahmad bin Ali', '120101-11-1234', `${prefix}001`],
+      ['Siti binti Abu', '110202-02-5678', ''],
+      ['Hassan bin Omar', '111203-03-9012', ''],
+    ])
+    ws['!cols'] = [{ wch: 30 }, { wch: 18 }, { wch: 10 }]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Atlet')
+    XLSX.writeFile(wb, `template_atlet_${kategoriData.kod || 'kategori'}.xlsx`)
+  }
+
+  window.prosesExcelAtlet = async (input) => {
+    if (pendaftaranTutup) { tunjukToast('Pendaftaran telah ditutup', 'red'); input.value = ''; return }
+    if (!kategoriData) { tunjukToast('Pilih kategori dahulu', 'red'); input.value = ''; return }
+    const file = input.files[0]; if (!file) return
+    input.value = ''
+
+    const reader = new FileReader()
+    reader.onload = async (e) => {
+      try {
+        const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' })
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' })
+        if (rows.length === 0) { tunjukToast('Fail Excel kosong', 'red'); return }
+
+        // Normalize
+        const normalize = (row) => {
+          const m = {}
+          Object.keys(row).forEach(k => { m[k.toUpperCase().trim()] = String(row[k]).trim() })
+          return {
+            nama:  m['NAMA'] || '',
+            noKP:  (m['NO KP'] || m['NOKP'] || m['NO_KP'] || '').replace(/\s/g, ''),
+            noBib: (m['NO BIB'] || m['NOBIB'] || m['BIB'] || '').toUpperCase(),
+          }
+        }
+
+        // Auto-assign bib: cari next available dari existing + rows sebelumnya
+        const prefix = (pasukanData.bib || '').toUpperCase()
+        const usedBib = new Set(semuaAtlet.map(a => a.noBib))
+        let bibCounter = 1
+
+        const getNextBib = () => {
+          while (usedBib.has(`${prefix}${String(bibCounter).padStart(3, '0')}`)) bibCounter++
+          const bib = `${prefix}${String(bibCounter).padStart(3, '0')}`
+          usedBib.add(bib)
+          bibCounter++
+          return bib
+        }
+
+        // Semak quota
+        const had = kategoriData.hadDaftar || 0
+        const semasa = semuaAtlet.length
+
+        // Hash semua noKP yang sedia ada untuk semak duplikat
+        const existingHashes = new Set(semuaAtlet.map(a => a.noKPHash))
+
+        const processed = []
+        for (const row of rows.map(normalize)) {
+          let status = 'baru', ralat = ''
+
+          if (!row.nama) { status = 'ralat'; ralat = 'Tiada nama' }
+          else if (!row.noKP) { status = 'ralat'; ralat = 'Tiada No KP' }
+          else if (!/^\d{6}-?\d{2}-?\d{4}$/.test(row.noKP.replace(/-/g, '')) && row.noKP.replace(/-/g, '').length !== 12) {
+            status = 'ralat'; ralat = 'Format No KP salah'
+          } else {
+            // Hash check
+            const h = await hashNoKP(row.noKP)
+            if (existingHashes.has(h)) { status = 'ralat'; ralat = 'No KP sudah berdaftar' }
+            else {
+              existingHashes.add(h)
+              row.noKPHash = h
+              row.noKPMask = maskNoKP(row.noKP)
+            }
+          }
+
+          if (status !== 'ralat') {
+            if (!row.noBib) row.noBib = prefix ? getNextBib() : ''
+            if (!row.noBib) { status = 'ralat'; ralat = 'Tiada bib prefix — hubungi admin' }
+          }
+
+          processed.push({ ...row, status, ralat })
+        }
+
+        const bolehSimpan = processed.filter(r => r.status === 'baru').length
+        const ralat = processed.filter(r => r.status === 'ralat').length
+        const lepasDari = semasa + bolehSimpan
+
+        let quotaWarning = ''
+        if (had > 0 && lepasDari > had) {
+          const boleh = Math.max(0, had - semasa)
+          quotaWarning = ` ⚠️ Quota hanya ${boleh} lagi — lebihan tidak akan disimpan`
+        }
+
+        excelAtletRows = processed
+
+        document.getElementById('excelAtletInfo').textContent =
+          `${processed.length} baris — Kategori: ${kategoriData.nama}`
+        document.getElementById('excelAtletSaveInfo').textContent =
+          `${bolehSimpan} akan disimpan · ${ralat} dibuang${quotaWarning}`
+        document.getElementById('btnSimpanExcelAtlet').disabled = bolehSimpan === 0
+
+        document.getElementById('excelAtletBody').innerHTML = processed.map((r, i) => `
+          <tr class="border-b border-gray-50 ${r.status === 'ralat' ? 'bg-red-50' : 'bg-green-50'}">
+            <td class="py-2 pr-3 text-gray-400">${i + 1}</td>
+            <td class="py-2 pr-3 font-medium text-gray-800">${r.nama || '—'}</td>
+            <td class="py-2 pr-3 font-mono text-gray-600">${r.noKPMask || r.noKP || '—'}</td>
+            <td class="py-2 pr-3 font-mono font-bold text-gray-700">${r.noBib || '—'}</td>
+            <td class="py-2">
+              ${r.status === 'ralat'
+                ? `<span class="bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-xs">${r.ralat}</span>`
+                : `<span class="bg-green-100 text-green-700 px-1.5 py-0.5 rounded text-xs font-medium">Baru</span>`
+              }
+            </td>
+          </tr>
+        `).join('')
+
+        document.getElementById('modalExcelAtlet').classList.remove('hidden')
+      } catch (err) {
+        tunjukToast('Gagal baca fail: ' + err.message, 'red')
+      }
+    }
+    reader.readAsArrayBuffer(file)
+  }
+
+  window.simpanExcelAtletBatch = async () => {
+    const btn = document.getElementById('btnSimpanExcelAtlet')
+    btn.disabled = true; btn.textContent = 'Menyimpan...'
+
+    const toSave = excelAtletRows.filter(r => r.status === 'baru')
+    const had = kategoriData.hadDaftar || 0
+    const semasa = semuaAtlet.length
+    const boleh = had > 0 ? Math.min(toSave.length, had - semasa) : toSave.length
+    const batch = toSave.slice(0, boleh)
+
+    let count = 0
+    try {
+      for (const r of batch) {
+        const bibAngka = parseInt((r.noBib || '').replace(/\D/g, '')) || 0
+        await addDoc(collection(db, 'atlet'), {
+          nama: r.nama,
+          noKPHash: r.noKPHash,
+          noKPMask: r.noKPMask,
+          noBib: r.noBib,
+          bibAngka,
+          pasukanId: pasukanData.id,
+          kategoriId: kategoriData.id,
+          jenis: pasukanData.jenis,
+          aktif: true,
+          createdAt: serverTimestamp()
+        })
+        count++
+      }
+      document.getElementById('modalExcelAtlet').classList.add('hidden')
+      await muatAtlet()
+      tunjukToast(`${count} atlet berjaya didaftarkan`, 'green')
+    } catch (e) {
+      tunjukToast('Gagal simpan: ' + e.message, 'red')
+    }
+    btn.disabled = false; btn.textContent = 'Simpan Semua'
+  }
+
+</script>
+</body>
+</html>

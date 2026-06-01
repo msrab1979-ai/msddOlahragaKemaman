@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sistem Merentas Desa</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; background: #f1f5f9; }
+    .font-heading { font-family: 'Bebas Neue', cursive; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+
+    .hero-bg {
+      background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #0f172a 100%);
+      position: relative;
+      overflow: hidden;
+    }
+    .hero-bg::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image:
+        radial-gradient(circle at 20% 50%, rgba(59,130,246,0.15) 0%, transparent 50%),
+        radial-gradient(circle at 80% 20%, rgba(99,102,241,0.1) 0%, transparent 40%);
+    }
+    .hero-bg::after {
+      content: 'MERENTAS DESA';
+      position: absolute;
+      bottom: -20px; right: -10px;
+      font-family: 'Bebas Neue', cursive;
+      font-size: 8rem;
+      color: rgba(255,255,255,0.03);
+      pointer-events: none;
+      white-space: nowrap;
+      letter-spacing: 0.1em;
+    }
+
+    .stat-card {
+      background: rgba(255,255,255,0.08);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.12);
+    }
+
+    .tab-btn {
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+    .tab-btn.active {
+      background: #1e3a5f;
+      color: white;
+      box-shadow: 0 2px 8px rgba(30,58,95,0.4);
+    }
+    .tab-btn:not(.active) {
+      background: white;
+      color: #64748b;
+      border: 1px solid #e2e8f0;
+    }
+    .tab-btn:not(.active):hover {
+      background: #f8fafc;
+      color: #1e3a5f;
+      border-color: #1e3a5f;
+    }
+
+    .rank-1 { background: linear-gradient(90deg, #fffbeb, #fefce8); }
+    .rank-2 { background: linear-gradient(90deg, #f8fafc, #f1f5f9); }
+    .rank-3 { background: linear-gradient(90deg, #fff7ed, #fef3c7); }
+
+    .medal-1 { color: #d97706; }
+    .medal-2 { color: #6b7280; }
+    .medal-3 { color: #b45309; }
+
+    tr.result-row:hover { background: #eff6ff !important; }
+
+    .scrollbar-hide::-webkit-scrollbar { display: none; }
+    .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .live-dot { animation: pulse-dot 1.5s ease-in-out infinite; }
+
+    .watermark-text {
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%,-50%) rotate(-25deg);
+      font-family: 'Bebas Neue', cursive;
+      font-size: 5rem; color: rgba(200,0,0,0.06);
+      pointer-events: none; white-space: nowrap; z-index: 1;
+      letter-spacing: 0.15em;
+    }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <!-- Hero Header -->
+  <header class="hero-bg text-white">
+    <div class="relative z-10 max-w-6xl mx-auto px-4 pt-6 pb-5">
+
+      <!-- Top row: logos + title + date -->
+      <div class="flex items-center justify-between gap-2 md:gap-4">
+        <!-- Logo kiri — hidden on mobile unless logo loaded -->
+        <div class="flex-shrink-0">
+          <img id="logoKiri" class="h-12 w-12 md:h-16 md:w-16 hidden rounded-xl object-contain bg-white/10 p-1" alt="">
+          <div id="logoKiriPlaceholder" class="hidden md:flex h-16 w-16 rounded-xl bg-white/10 items-center justify-center">
+            <svg class="w-8 h-8 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 21l1.65-3.8a9 9 0 1112.7 0L21 21"/></svg>
+          </div>
+        </div>
+
+        <!-- Title -->
+        <div class="flex-1 text-center">
+          <p id="namaB2" class="text-blue-300 text-xs tracking-[0.15em] uppercase font-medium mb-1"></p>
+          <h1 id="namaB1" class="font-heading text-3xl sm:text-4xl md:text-5xl tracking-widest leading-none">MERENTAS DESA</h1>
+          <p id="namaB3" class="text-blue-200/70 text-xs mt-1 tracking-wide"></p>
+          <p id="tarikhKejohanan" class="text-blue-200/80 text-xs mt-1 font-medium md:hidden"></p>
+        </div>
+
+        <!-- Logo kanan + date (desktop) -->
+        <div class="flex-shrink-0 text-right flex flex-col items-end gap-1">
+          <img id="logoKanan" class="h-12 w-12 md:h-16 md:w-16 hidden rounded-xl object-contain bg-white/10 p-1 mb-1" alt="">
+          <p id="tarikhKejohananDesk" class="hidden md:block text-blue-200 text-xs font-medium"></p>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Nav bar -->
+    <div class="relative z-10 border-t border-white/10">
+      <div class="max-w-6xl mx-auto px-4">
+        <div class="flex items-center gap-1 overflow-x-auto scrollbar-hide py-2">
+          <div class="flex-1"></div>
+          <a href="/admin/" class="px-3 py-2 rounded-lg text-xs text-blue-300/70 hover:text-white hover:bg-white/10 transition whitespace-nowrap">Admin</a>
+          <a href="/pencatat/" class="px-3 py-2 rounded-lg text-xs text-blue-300/70 hover:text-white hover:bg-white/10 transition whitespace-nowrap">Pencatat</a>
+          <a href="/pengurus/" class="px-3 py-2 rounded-lg text-xs text-blue-300/70 hover:text-white hover:bg-white/10 transition whitespace-nowrap">Pengurus</a>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main content -->
+  <main class="max-w-6xl mx-auto px-4 py-6">
+
+    <!-- Section header -->
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center gap-2">
+        <h2 class="font-heading text-xl sm:text-2xl text-slate-800 tracking-wide">KEPUTUSAN</h2>
+        <div class="flex items-center gap-1.5 bg-red-50 border border-red-100 rounded-full px-2 py-0.5 sm:px-3 sm:py-1">
+          <span class="live-dot w-1.5 h-1.5 rounded-full bg-red-500 inline-block"></span>
+          <span class="text-xs font-semibold text-red-600 uppercase tracking-wide">Langsung</span>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <p id="lastUpdate" class="text-xs text-slate-400 hidden md:block"></p>
+        <button onclick="refreshData()" class="flex items-center gap-1.5 bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 px-2 py-1.5 sm:px-3 rounded-lg text-xs font-medium text-slate-600 shadow-sm transition">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          <span class="hidden sm:inline">Kemaskini</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Category tabs -->
+    <div id="tabBar" class="flex gap-2 overflow-x-auto scrollbar-hide mb-5 pb-1"></div>
+
+    <!-- Results -->
+    <div id="kandungan"></div>
+
+  </main>
+
+  <!-- Loading overlay -->
+  <div id="loading" class="fixed inset-0 bg-slate-900/90 backdrop-blur-sm flex items-center justify-center z-50">
+    <div class="text-white text-center">
+      <div class="relative w-16 h-16 mx-auto mb-5">
+        <div class="absolute inset-0 border-4 border-blue-500/30 rounded-full"></div>
+        <div class="absolute inset-0 border-4 border-t-blue-400 border-r-transparent border-b-transparent border-l-transparent rounded-full animate-spin"></div>
+      </div>
+      <p class="font-heading text-2xl tracking-widest text-blue-200">MEMUATKAN</p>
+      <p class="text-slate-400 text-xs mt-1">Sila tunggu sebentar...</p>
+    </div>
+  </div>
+
+<script type="module">
+  import { db } from './js/firebase-config.js'
+  import {
+    doc, getDoc, getDocs, collection, query, where, orderBy, onSnapshot
+  } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js'
+
+  let settings = {}
+  let allKategori = []
+  let allPasukan = {}
+  let allAtlet = {}
+  let allKeputusan = {}
+  let allPublikasi = {}
+  let activeTab = ''
+  let unsubList = []
+  let autoRefreshTimer
+
+  async function init() {
+    document.getElementById('loading').classList.remove('hidden')
+
+    const sSnap = await getDoc(doc(db, 'settings', 'main'))
+    if (sSnap.exists()) {
+      settings = sSnap.data()
+      document.getElementById('namaB1').textContent = settings.namaB1 || 'MERENTAS DESA'
+      document.getElementById('namaB2').textContent = settings.namaB2 || ''
+      document.getElementById('namaB3').textContent = settings.namaB3 || ''
+      if (settings.logoKiri) {
+        document.getElementById('logoKiriPlaceholder').classList.add('hidden')
+        const img = document.getElementById('logoKiri')
+        img.src = settings.logoKiri
+        img.classList.remove('hidden')
+      }
+      if (settings.logoKanan) {
+        const img = document.getElementById('logoKanan')
+        img.src = settings.logoKanan
+        img.classList.remove('hidden')
+      }
+      if (settings.tarikh) {
+        const tarikh = '📅 ' + settings.tarikh.toDate().toLocaleDateString('ms-MY', { day: 'numeric', month: 'long', year: 'numeric' })
+        document.getElementById('tarikhKejohanan').textContent = tarikh
+        document.getElementById('tarikhKejohananDesk').textContent = tarikh
+      }
+    }
+
+    const [katSnap, pasSnap, atletSnap] = await Promise.all([
+      getDocs(query(collection(db, 'kategori'), where('aktif', '==', true), orderBy('kod'))),
+      getDocs(collection(db, 'pasukan')),
+      getDocs(query(collection(db, 'atlet'), where('aktif', '==', true)))
+    ])
+
+    allKategori = katSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    pasSnap.docs.forEach(d => allPasukan[d.id] = d.data())
+    atletSnap.docs.forEach(d => allAtlet[d.id] = d.data())
+
+
+    if (allKategori.length > 0) activeTab = allKategori[0].id
+    renderTabs()
+
+    unsubList.forEach(u => u())
+    unsubList = []
+
+    for (const kat of allKategori) {
+      const q = query(collection(db, 'keputusan'), where('kategoriId', '==', kat.id), orderBy('kedudukan'))
+      const u1 = onSnapshot(q, snap => {
+        allKeputusan[kat.id] = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        renderKandungan()
+      })
+      const u2 = onSnapshot(doc(db, 'publikasi', kat.id), snap => {
+        allPublikasi[kat.id] = snap.exists() ? snap.data() : null
+        renderKandungan()
+      })
+      unsubList.push(u1, u2)
+    }
+
+    document.getElementById('loading').classList.add('hidden')
+    updateLastUpdate()
+    clearInterval(autoRefreshTimer)
+    autoRefreshTimer = setInterval(() => updateLastUpdate(), 30000)
+  }
+
+  function renderTabs() {
+    const tabBar = document.getElementById('tabBar')
+    tabBar.innerHTML = allKategori.map(kat => `
+      <button onclick="tukarTab('${kat.id}')" id="tab-${kat.id}"
+        class="tab-btn px-5 py-2 rounded-xl text-sm font-semibold ${activeTab === kat.id ? 'active' : ''}">
+        ${kat.nama}
+      </button>
+    `).join('')
+  }
+
+  window.tukarTab = (katId) => {
+    activeTab = katId
+    renderTabs()
+    renderKandungan()
+  }
+
+  function renderKandungan() {
+    const el = document.getElementById('kandungan')
+    const kat = allKategori.find(k => k.id === activeTab)
+    if (!kat) { el.innerHTML = ''; return }
+
+    const pub = allPublikasi[kat.id]
+    const keputusan = allKeputusan[kat.id] || []
+
+    if (!pub || pub.status === 'draft') {
+      el.innerHTML = `
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-16 text-center">
+          <div class="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-5">
+            <svg class="w-10 h-10 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+          </div>
+          <p class="font-semibold text-slate-500 text-lg">Keputusan belum diumumkan</p>
+          <p class="text-slate-400 text-sm mt-2">Sila tunggu pengumuman rasmi daripada pengurus kejohanan.</p>
+        </div>`
+      return
+    }
+
+    const watermark = pub.status === 'tidakRasmi'
+    const filtered = pub.status === 'rasmi' ? keputusan
+      : keputusan.filter(k => k.kedudukan >= pub.dariKedudukan && k.kedudukan <= pub.hinggaKedudukan)
+
+    const rows = filtered.map((k, idx) => {
+      const atlet = allAtlet[k.atletId] || {}
+      const pasukan = allPasukan[k.pasukanId] || {}
+
+      const rankClass = k.kedudukan === 1 ? 'rank-1' : k.kedudukan === 2 ? 'rank-2' : k.kedudukan === 3 ? 'rank-3' : ''
+
+      let rankDisplay
+      if (k.kedudukan === 1) rankDisplay = `<span class="font-heading text-2xl medal-1">🥇</span>`
+      else if (k.kedudukan === 2) rankDisplay = `<span class="font-heading text-2xl medal-2">🥈</span>`
+      else if (k.kedudukan === 3) rankDisplay = `<span class="font-heading text-2xl medal-3">🥉</span>`
+      else rankDisplay = `<span class="font-heading text-xl text-slate-600">${k.kedudukan}</span>`
+
+      const statusBadge = {
+        selesai: '<span class="bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs px-2 py-0.5 rounded-full font-medium">Selesai</span>',
+        dns: '<span class="bg-slate-100 text-slate-500 border border-slate-200 text-xs px-2 py-0.5 rounded-full font-medium">DNS</span>',
+        dnf: '<span class="bg-red-50 text-red-600 border border-red-200 text-xs px-2 py-0.5 rounded-full font-medium">DNF</span>'
+      }
+
+      return `
+        <tr class="result-row border-b border-slate-50 transition ${rankClass}">
+          <td class="py-3 px-3 text-center w-10 md:w-14">${rankDisplay}</td>
+          <td class="py-3 px-2 w-14 hidden sm:table-cell">
+            <span class="font-mono text-xs font-bold text-slate-700 bg-slate-100 px-2 py-1 rounded-lg">${atlet.noBib || '?'}</span>
+          </td>
+          <td class="py-3 px-3">
+            <p class="font-semibold text-slate-800 text-sm leading-tight">${atlet.nama || '?'}</p>
+            <p class="text-xs text-slate-400 mt-0.5">
+              <span class="sm:hidden font-mono">${atlet.noBib || ''} · </span>${pasukan.nama || '?'}
+            </p>
+          </td>
+          <td class="py-3 px-3 w-20 md:w-24">
+            <span class="font-mono text-sm font-bold text-blue-700">${k.masa || '—'}</span>
+          </td>
+          <td class="py-3 px-3 w-24 hidden sm:table-cell">${statusBadge[k.statusAtlet] || ''}</td>
+        </tr>`
+    }).join('')
+
+    el.innerHTML = `
+      <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden relative">
+        ${watermark ? `<div class="watermark-text">TIDAK RASMI</div>` : ''}
+
+        <!-- Card header -->
+        <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-slate-50 to-white">
+          <div>
+            <h3 class="font-heading text-2xl text-slate-800 tracking-wide">${kat.nama}</h3>
+            <p class="text-xs text-slate-400 mt-0.5">${filtered.length} pelari didaftarkan</p>
+          </div>
+          <div class="flex items-center gap-3">
+            ${watermark
+              ? '<span class="bg-amber-50 text-amber-700 border border-amber-200 text-xs px-3 py-1.5 rounded-full font-semibold uppercase tracking-wide">Tidak Rasmi</span>'
+              : '<span class="bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs px-3 py-1.5 rounded-full font-semibold uppercase tracking-wide">Rasmi</span>'}
+            <a href="/papan/individu.html" class="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium transition">
+              Lihat semua
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            </a>
+          </div>
+        </div>
+
+        <!-- Table -->
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead>
+              <tr class="bg-slate-800 text-white">
+                <th class="py-3 px-3 text-center text-xs font-semibold uppercase tracking-wider w-10 md:w-14">Tempat</th>
+                <th class="py-3 px-2 text-left text-xs font-semibold uppercase tracking-wider w-14 hidden sm:table-cell">Bib</th>
+                <th class="py-3 px-3 text-left text-xs font-semibold uppercase tracking-wider">Atlet / Pasukan</th>
+                <th class="py-3 px-3 text-left text-xs font-semibold uppercase tracking-wider w-20 md:w-24">Masa</th>
+                <th class="py-3 px-3 text-left text-xs font-semibold uppercase tracking-wider w-24 hidden sm:table-cell">Status</th>
+              </tr>
+            </thead>
+            <tbody>${rows || '<tr><td colspan="5" class="text-center py-12 text-slate-400 text-sm">Belum ada rekod keputusan.</td></tr>'}</tbody>
+          </table>
+        </div>
+
+        <!-- Footer -->
+        ${filtered.length > 0 ? `
+        <div class="px-6 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+          <p class="text-xs text-slate-400">${filtered.length} rekod dipaparkan</p>
+          <a href="/papan/individu.html" class="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1">
+            Papan keputusan penuh →
+          </a>
+        </div>` : ''}
+      </div>`
+  }
+
+  function updateLastUpdate() {
+    const now = new Date()
+    const el = document.getElementById('lastUpdate')
+    el.textContent = `Dikemaskini ${now.toLocaleTimeString('ms-MY', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
+    el.classList.remove('hidden')
+  }
+
+  window.refreshData = async () => {
+    await init()
+  }
+
+  init()
+</script>
+</body>
+</html>

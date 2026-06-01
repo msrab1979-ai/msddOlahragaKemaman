@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Papan Individu — Merentas Desa</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+  <style>
+    body { font-family: 'DM Sans', sans-serif; }
+    .font-heading { font-family: 'Bebas Neue', cursive; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+  <!-- Header -->
+  <header class="bg-blue-900 text-white px-4 py-3 shadow">
+    <div class="max-w-5xl mx-auto flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <img id="logoKiri" class="h-12 hidden" alt="">
+        <div>
+          <h1 id="namaB1" class="font-heading text-xl tracking-wide">MERENTAS DESA</h1>
+          <p id="namaB2" class="text-xs text-blue-200"></p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <span id="lastUpdate" class="text-xs text-blue-300 hidden"></span>
+        <a href="/papan/pasukan.html" class="bg-blue-700 hover:bg-blue-600 px-3 py-1.5 rounded text-xs font-medium">Papan Pasukan</a>
+        <a href="/" class="bg-blue-700 hover:bg-blue-600 px-3 py-1.5 rounded text-xs font-medium">Home</a>
+      </div>
+    </div>
+  </header>
+
+  <div class="max-w-5xl mx-auto p-4">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-heading text-2xl text-blue-900">KEPUTUSAN INDIVIDU</h2>
+      <div class="flex gap-2">
+        <select id="filterKategori" onchange="paparKategori(this.value)" class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <option value="">Semua Kategori</option>
+        </select>
+        <button onclick="cetakPDF()" class="bg-blue-900 hover:bg-blue-800 text-white px-4 py-2 rounded-lg text-sm font-medium">Cetak PDF</button>
+      </div>
+    </div>
+
+    <div id="kandungan" class="space-y-6"></div>
+  </div>
+
+<script type="module">
+  import { db } from '../js/firebase-config.js'
+  import {
+    doc, getDoc, getDocs, collection, query, where, orderBy, onSnapshot
+  } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js'
+
+  let settings = {}
+  let allKategori = []
+  let allPasukan = {}
+  let allAtlet = {}
+  let allKeputusan = {}
+  let allPublikasi = {}
+  let unsubListeners = []
+
+  async function init() {
+    const settingSnap = await getDoc(doc(db, 'settings', 'main'))
+    if (settingSnap.exists()) {
+      settings = settingSnap.data()
+      document.getElementById('namaB1').textContent = settings.namaB1 || 'MERENTAS DESA'
+      document.getElementById('namaB2').textContent = settings.namaB2 || ''
+      if (settings.logoKiri) {
+        const img = document.getElementById('logoKiri')
+        img.src = settings.logoKiri
+        img.classList.remove('hidden')
+      }
+    }
+
+    const katSnap = await getDocs(query(collection(db, 'kategori'), where('aktif', '==', true), orderBy('kod')))
+    allKategori = katSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+    const pasSnap = await getDocs(collection(db, 'pasukan'))
+    pasSnap.docs.forEach(d => allPasukan[d.id] = d.data())
+
+    const atletSnap = await getDocs(collection(db, 'atlet'))
+    atletSnap.docs.forEach(d => allAtlet[d.id] = d.data())
+
+    const sel = document.getElementById('filterKategori')
+    sel.innerHTML = '<option value="">Semua Kategori</option>' +
+      allKategori.map(k => `<option value="${k.id}">${k.nama}</option>`).join('')
+
+    unsubListeners.forEach(u => u())
+    unsubListeners = []
+
+    for (const kat of allKategori) {
+      const q1 = query(collection(db, 'keputusan'), where('kategoriId', '==', kat.id), orderBy('kedudukan'))
+      const u1 = onSnapshot(q1, snap => {
+        allKeputusan[kat.id] = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        renderAll()
+      })
+
+      const u2 = onSnapshot(doc(db, 'publikasi', kat.id), snap => {
+        allPublikasi[kat.id] = snap.exists() ? snap.data() : null
+        renderAll()
+      })
+
+      unsubListeners.push(u1, u2)
+    }
+
+    updateLastUpdate()
+  }
+
+  function updateLastUpdate() {
+    const el = document.getElementById('lastUpdate')
+    el.textContent = `Dikemaskini ${new Date().toLocaleTimeString('ms-MY')}`
+    el.classList.remove('hidden')
+    setTimeout(updateLastUpdate, 30000)
+  }
+
+  window.paparKategori = (katId) => renderAll(katId)
+
+  function renderAll(filterKatId = '') {
+    const el = document.getElementById('kandungan')
+    const kategoriTapar = filterKatId
+      ? allKategori.filter(k => k.id === filterKatId)
+      : allKategori
+
+    if (kategoriTapar.length === 0) {
+      el.innerHTML = '<p class="text-gray-400 text-center py-10">Tiada kategori aktif.</p>'
+      return
+    }
+
+    el.innerHTML = kategoriTapar.map(kat => {
+      const pub = allPublikasi[kat.id]
+      const keputusan = allKeputusan[kat.id] || []
+
+      if (!pub || pub.status === 'draft') {
+        return `
+          <div class="bg-white rounded-xl shadow p-6">
+            <h3 class="font-heading text-xl text-blue-900 mb-2">${kat.nama}</h3>
+            <p class="text-gray-400 text-sm">Keputusan belum diumumkan.</p>
+          </div>`
+      }
+
+      const watermark = pub.status === 'tidakRasmi'
+      const filtered = pub.status === 'rasmi' ? keputusan
+        : keputusan.filter(k => k.kedudukan >= pub.dariKedudukan && k.kedudukan <= pub.hinggaKedudukan)
+
+      const rows = filtered.map(k => {
+        const atlet = allAtlet[k.atletId] || {}
+        const pasukan = allPasukan[k.pasukanId] || {}
+        const medalClass = k.kedudukan === 1 ? 'text-yellow-600 font-bold'
+          : k.kedudukan === 2 ? 'text-gray-500 font-bold'
+          : k.kedudukan === 3 ? 'text-orange-700 font-bold' : 'text-gray-700'
+        return `
+          <tr class="border-b border-gray-50 hover:bg-gray-50">
+            <td class="py-2 px-3 font-mono text-sm ${medalClass}">${k.kedudukan}</td>
+            <td class="py-2 px-3 font-mono text-xs text-blue-800">${atlet.noBib || '?'}</td>
+            <td class="py-2 px-3 text-sm font-medium text-gray-800">${atlet.nama || '?'}</td>
+            <td class="py-2 px-3 text-xs text-gray-500">${pasukan.nama || '?'}</td>
+            <td class="py-2 px-3 font-mono text-xs text-blue-700">${k.masa || '-'}</td>
+            <td class="py-2 px-3"><span class="text-xs px-2 py-0.5 rounded ${k.statusAtlet === 'selesai' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}">${k.statusAtlet.toUpperCase()}</span></td>
+          </tr>`
+      }).join('')
+
+      return `
+        <div class="bg-white rounded-xl shadow overflow-hidden relative">
+          ${watermark ? '<div class="absolute inset-0 flex items-center justify-center pointer-events-none" style="z-index:1"><span class="text-red-200 font-heading text-6xl rotate-[-30deg] opacity-30">TIDAK RASMI</span></div>' : ''}
+          <div class="p-4 border-b border-gray-100 flex items-center justify-between">
+            <div>
+              <h3 class="font-heading text-xl text-blue-900">${kat.nama}</h3>
+              ${watermark ? '<span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded">TIDAK RASMI</span>' : '<span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">RASMI</span>'}
+            </div>
+            <span class="text-xs text-gray-400">${filtered.length} pelari</span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full">
+              <thead class="bg-blue-900 text-white text-xs">
+                <tr>
+                  <th class="py-2 px-3 text-left">Tempat</th>
+                  <th class="py-2 px-3 text-left">Bib</th>
+                  <th class="py-2 px-3 text-left">Nama</th>
+                  <th class="py-2 px-3 text-left">Pasukan</th>
+                  <th class="py-2 px-3 text-left">Masa</th>
+                  <th class="py-2 px-3 text-left">Status</th>
+                </tr>
+              </thead>
+              <tbody>${rows || '<tr><td colspan="6" class="text-center py-4 text-gray-400 text-sm">Tiada rekod.</td></tr>'}</tbody>
+            </table>
+          </div>
+        </div>`
+    }).join('')
+  }
+
+  window.cetakPDF = () => {
+    const { jsPDF } = window.jspdf
+    const pdfdoc = new jsPDF()
+    const filterKatId = document.getElementById('filterKategori').value
+    const kategoriCetak = filterKatId ? allKategori.filter(k => k.id === filterKatId) : allKategori
+
+    let y = 10
+    if (settings.namaB1) {
+      pdfdoc.setFont('helvetica', 'bold')
+      pdfdoc.setFontSize(14)
+      pdfdoc.text(settings.namaB1, 105, y, { align: 'center' }); y += 7
+    }
+    if (settings.namaB2) {
+      pdfdoc.setFontSize(11)
+      pdfdoc.text(settings.namaB2, 105, y, { align: 'center' }); y += 7
+    }
+    pdfdoc.setFontSize(12)
+    pdfdoc.text('KEPUTUSAN INDIVIDU', 105, y, { align: 'center' }); y += 8
+
+    for (const kat of kategoriCetak) {
+      const pub = allPublikasi[kat.id]
+      if (!pub || pub.status === 'draft') continue
+      const keputusan = allKeputusan[kat.id] || []
+      const filtered = pub.status === 'rasmi' ? keputusan
+        : keputusan.filter(k => k.kedudukan >= pub.dariKedudukan && k.kedudukan <= pub.hinggaKedudukan)
+      if (filtered.length === 0) continue
+
+      if (y > 240) { pdfdoc.addPage(); y = 15 }
+
+      pdfdoc.setFont('helvetica', 'bold')
+      pdfdoc.setFontSize(11)
+      pdfdoc.text(kat.nama, 14, y); y += 3
+
+      if (pub.status === 'tidakRasmi') {
+        pdfdoc.setTextColor(200, 0, 0)
+        pdfdoc.setFontSize(8)
+        pdfdoc.text('TIDAK RASMI', 14, y + 3)
+        pdfdoc.setTextColor(0, 0, 0)
+      }
+
+      pdfdoc.autoTable({
+        startY: y + 5,
+        head: [['Tempat', 'Bib', 'Nama Atlet', 'Pasukan', 'Masa', 'Status']],
+        body: filtered.map(k => [
+          k.kedudukan,
+          allAtlet[k.atletId]?.noBib || '?',
+          allAtlet[k.atletId]?.nama || '?',
+          allPasukan[k.pasukanId]?.nama || '?',
+          k.masa || '-',
+          k.statusAtlet.toUpperCase()
+        ]),
+        styles: { font: 'helvetica', fontSize: 8 },
+        headStyles: { fillColor: [0, 51, 153] },
+        margin: { left: 14, right: 14 }
+      })
+      y = pdfdoc.lastAutoTable.finalY + 8
+    }
+
+    pdfdoc.save(`KeputusanIndividu_${new Date().toLocaleDateString('ms-MY').replace(/\//g, '-')}.pdf`)
+  }
+
+  init()
+</script>
+</body>
+</html>
