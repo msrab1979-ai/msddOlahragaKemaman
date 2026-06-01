@@ -198,8 +198,10 @@
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">No Kad Pengenalan</label>
         <input id="atletNoKP" type="text" placeholder="990101-01-1234" maxlength="14"
+          oninput="semakNoKP(this.value)"
           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500">
-        <p class="text-xs text-gray-400 mt-1">No KP akan di-hash. Tidak disimpan dalam teks asal.</p>
+        <p id="noKPInfo" class="text-xs mt-1 min-h-[1rem]"></p>
+        <p class="text-xs text-gray-400 mt-0.5">No KP akan di-hash. Tidak disimpan dalam teks asal.</p>
       </div>
       <div id="editNoKPNote" class="hidden bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700">
         Kosongkan jika tidak mahu tukar No KP.
@@ -293,6 +295,7 @@
   let editMode = false
   let pendaftaranTutup = false
   let countdownInterval = null
+  let tahunKejohanan = new Date().getFullYear()
 
   // ── Auth: semak session pengurus ──────────────────────────────
   const rawSesi = sessionStorage.getItem(SESSION_KEY_PAS)
@@ -319,6 +322,10 @@
     const settingsSnap = await getDoc(doc(db, 'settings', 'main'))
     if (settingsSnap.exists()) {
       const s = settingsSnap.data()
+      if (s.tarikhKejohanan) {
+        const tk = s.tarikhKejohanan.toDate ? s.tarikhKejohanan.toDate() : new Date(s.tarikhKejohanan)
+        tahunKejohanan = tk.getFullYear()
+      }
       if (s.tarikhTutupPendaftaran) {
         const tutup = s.tarikhTutupPendaftaran.toDate()
         const hariSemak = new Date(); hariSemak.setHours(0,0,0,0)
@@ -656,7 +663,7 @@
     btn.disabled = true
     btn.textContent = 'Semak...'
 
-    // ── Semak bib duplikat (luar transaction — lebih selamat) ──
+    // ── Semak bib duplikat (global) ────────────────────────────
     const bibSemakQ = query(
       collection(db, 'atlet'),
       where('noBib', '==', noBibRaw),
@@ -667,6 +674,19 @@
     if (bibConflict.length > 0) {
       showMsg('atletMsg', `No Bib ${noBibRaw} sudah digunakan oleh atlet lain`, 'red')
       btn.disabled = false; btn.textContent = 'Simpan'; return
+    }
+
+    // ── Semak umur dari No KP (jika ada KP diisi) ──────────────
+    if (noKPRaw) {
+      const umur = kiraumur(noKPRaw)
+      const min = kategoriData.umurMin
+      const max = kategoriData.umurMax
+      if (umur !== null && min != null && max != null) {
+        if (umur < min || umur > max) {
+          showMsg('atletMsg', `No KP menunjukkan umur ${umur} tahun — diluar had kategori (${min}–${max} tahun)`, 'red')
+          btn.disabled = false; btn.textContent = 'Simpan'; return
+        }
+      }
     }
 
     btn.textContent = 'Simpan...'
@@ -680,17 +700,29 @@
           updatedAt: serverTimestamp()
         }
         if (noKPRaw) {
-          const duplikat = await isDuplicateAtlet(noKPRaw, kategoriData.id, id)
-          if (duplikat) { showMsg('atletMsg', 'No KP sudah berdaftar dalam kategori ini', 'red'); btn.disabled = false; btn.textContent = 'Simpan'; return }
-          updateData.noKPHash = await hashNoKP(noKPRaw)
+          // Semak KP global (semua kategori)
+          const noKPHash = await hashNoKP(noKPRaw)
+          const kpQ = query(collection(db, 'atlet'), where('noKPHash', '==', noKPHash), where('aktif', '==', true))
+          const kpSnap = await getDocs(kpQ)
+          const kpConflict = kpSnap.docs.filter(d => d.id !== id)
+          if (kpConflict.length > 0) {
+            showMsg('atletMsg', 'No KP sudah berdaftar (atlet ini sudah ada dalam sistem)', 'red')
+            btn.disabled = false; btn.textContent = 'Simpan'; return
+          }
+          updateData.noKPHash = noKPHash
           updateData.noKPMask = maskNoKP(noKPRaw)
         }
         await updateDoc(doc(db, 'atlet', id), updateData)
       } else {
-        const duplikat = await isDuplicateAtlet(noKPRaw, kategoriData.id)
-        if (duplikat) { showMsg('atletMsg', 'No KP sudah berdaftar dalam kategori ini', 'red'); btn.disabled = false; btn.textContent = 'Simpan'; return }
-
+        // Semak KP global (semua kategori)
         const noKPHash = await hashNoKP(noKPRaw)
+        const kpQ = query(collection(db, 'atlet'), where('noKPHash', '==', noKPHash), where('aktif', '==', true))
+        const kpSnap = await getDocs(kpQ)
+        if (kpSnap.docs.length > 0) {
+          showMsg('atletMsg', 'No KP sudah berdaftar (atlet ini sudah ada dalam sistem)', 'red')
+          btn.disabled = false; btn.textContent = 'Simpan'; return
+        }
+
         const noKPMask = maskNoKP(noKPRaw)
         const katRef = doc(db, 'kategori', kategoriData.id)
 
@@ -756,6 +788,42 @@
     setTimeout(() => t.classList.add('hidden'), 3000)
   }
 
+  // ── Semakan Umur dari No KP ───────────────────────────────────
+  function kiraumur(noKP) {
+    const clean = noKP.replace(/-/g, '').trim()
+    if (clean.length < 6) return null
+    const yy = parseInt(clean.substring(0, 2))
+    const tahunLahir = yy > (tahunKejohanan % 100) ? 1900 + yy : 2000 + yy
+    return tahunKejohanan - tahunLahir
+  }
+
+  window.semakNoKP = (val) => {
+    const info = document.getElementById('noKPInfo')
+    if (!info) return
+    if (!val || val.replace(/-/g, '').length < 6) { info.textContent = ''; return }
+    const umur = kiraumur(val)
+    if (umur === null) { info.textContent = ''; return }
+    if (!kategoriData) {
+      info.textContent = `Umur dikira: ${umur} tahun (${tahunKejohanan})`
+      info.className = 'text-xs text-gray-500 mt-1'
+      return
+    }
+    const min = kategoriData.umurMin
+    const max = kategoriData.umurMax
+    if (min != null && max != null) {
+      if (umur < min || umur > max) {
+        info.textContent = `✗ Umur ${umur} tahun — diluar had kategori (${min}–${max} tahun)`
+        info.className = 'text-xs font-bold text-red-600 mt-1'
+      } else {
+        info.textContent = `✓ Umur ${umur} tahun — layak (${min}–${max} tahun)`
+        info.className = 'text-xs font-medium text-green-600 mt-1'
+      }
+    } else {
+      info.textContent = `Umur dikira: ${umur} tahun`
+      info.className = 'text-xs text-gray-500 mt-1'
+    }
+  }
+
   // ── EXCEL UPLOAD ATLET ────────────────────────────────────────
   let excelAtletRows = []
 
@@ -815,8 +883,12 @@
         const had = kategoriData.hadDaftar || 0
         const semasa = semuaAtlet.length
 
-        // Hash semua noKP yang sedia ada untuk semak duplikat
-        const existingHashes = new Set(semuaAtlet.map(a => a.noKPHash))
+        // Muat semua hash KP aktif secara global (semua kategori)
+        const globalAtletSnap = await getDocs(query(collection(db, 'atlet'), where('aktif', '==', true)))
+        const existingHashes = new Set(globalAtletSnap.docs.map(d => d.data().noKPHash).filter(Boolean))
+
+        const umurMin = kategoriData.umurMin
+        const umurMax = kategoriData.umurMax
 
         const processed = []
         for (const row of rows.map(normalize)) {
@@ -827,13 +899,22 @@
           else if (!/^\d{6}-?\d{2}-?\d{4}$/.test(row.noKP.replace(/-/g, '')) && row.noKP.replace(/-/g, '').length !== 12) {
             status = 'ralat'; ralat = 'Format No KP salah'
           } else {
-            // Hash check
-            const h = await hashNoKP(row.noKP)
-            if (existingHashes.has(h)) { status = 'ralat'; ralat = 'No KP sudah berdaftar' }
-            else {
-              existingHashes.add(h)
-              row.noKPHash = h
-              row.noKPMask = maskNoKP(row.noKP)
+            // Semak umur
+            const umur = kiraumur(row.noKP)
+            if (umur !== null && umurMin != null && umurMax != null) {
+              if (umur < umurMin || umur > umurMax) {
+                status = 'ralat'; ralat = `Umur ${umur} thn diluar had (${umurMin}–${umurMax})`
+              }
+            }
+            if (status !== 'ralat') {
+              // Semak KP global
+              const h = await hashNoKP(row.noKP)
+              if (existingHashes.has(h)) { status = 'ralat'; ralat = 'No KP sudah berdaftar' }
+              else {
+                existingHashes.add(h)
+                row.noKPHash = h
+                row.noKPMask = maskNoKP(row.noKP)
+              }
             }
           }
 

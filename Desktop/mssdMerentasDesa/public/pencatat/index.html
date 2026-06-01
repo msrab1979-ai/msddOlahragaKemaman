@@ -12,7 +12,10 @@
     .font-mono { font-family: 'JetBrains Mono', monospace; }
     tr.baris-sunting td { background: #eff6ff; }
     tr.baris-catatan { opacity: 0.65; }
+    tr.baris-tiada-masa td { background: #fffbeb; }
     input:disabled { background: #f9fafb; cursor: not-allowed; }
+    .sel-masa-kosong { cursor: pointer; }
+    .sel-masa-kosong:hover { background: #fef3c7 !important; }
   </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
@@ -49,8 +52,16 @@
       <h1 class="font-heading text-xl tracking-wide">PENCATAT</h1>
       <p class="text-blue-300 text-xs" id="namaKategoriNav"></p>
     </div>
-    <div class="flex items-center gap-3">
-      <span id="userNama" class="text-xs text-blue-200 hidden md:block"></span>
+    <div class="flex items-center gap-2">
+      <button onclick="cetakIndividu()"
+        class="bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded text-xs font-medium transition border border-white/20">
+        📄 Individu
+      </button>
+      <button onclick="cetakPasukan()"
+        class="bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded text-xs font-medium transition border border-white/20">
+        🏫 Pasukan
+      </button>
+      <span id="userNama" class="text-xs text-blue-200 hidden md:block ml-1"></span>
       <button id="logoutBtn" class="bg-red-600 hover:bg-red-700 px-3 py-1.5 rounded text-xs font-medium">Keluar</button>
     </div>
   </nav>
@@ -95,29 +106,29 @@
       <p class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Rekod Keputusan</p>
 
       <!-- Baris input -->
-      <div class="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_70px_110px_120px] sm:items-end">
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_80px_120px_130px] sm:items-end">
         <!-- No Bib -->
         <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">No Bib</label>
+          <label class="block text-xs font-medium text-gray-600 mb-1">No Bib <span class="text-red-400">*</span></label>
           <input id="inputBib" type="text" placeholder="SRL001" maxlength="10" autocomplete="off"
             oninput="semakBib(this.value.toUpperCase()); this.value = this.value.toUpperCase()"
-            onkeydown="if(event.key==='Enter') document.getElementById('inputKedudukan').focus()"
+            onkeydown="if(event.key==='Enter') document.getElementById('inputMasa').focus()"
             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
           <p id="bibInfo" class="text-xs mt-1 min-h-[1rem]"></p>
         </div>
-        <!-- Kedudukan -->
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Ked.</label>
-          <input id="inputKedudukan" type="number" min="1" placeholder="1"
-            onkeydown="if(event.key==='Enter') document.getElementById('inputMasa').focus()"
-            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono text-center focus:outline-none focus:ring-2 focus:ring-blue-500">
-        </div>
         <!-- Masa -->
         <div id="wrapmasa">
-          <label class="block text-xs font-medium text-gray-600 mb-1">Masa <span id="labelAmbang" class="text-gray-400 font-normal"></span></label>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Masa <span class="text-gray-400 font-normal">(pilihan)</span></label>
           <input id="inputMasa" type="text" placeholder="45:23" maxlength="8"
             onkeydown="if(event.key==='Enter') simpanKeputusan()"
             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+        <!-- Kedudukan -->
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Ked. <span class="text-gray-400 font-normal">(auto)</span></label>
+          <input id="inputKedudukan" type="number" min="1" placeholder="auto"
+            onkeydown="if(event.key==='Enter') simpanKeputusan()"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono text-center focus:outline-none focus:ring-2 focus:ring-blue-500">
         </div>
         <!-- Catatan -->
         <div>
@@ -148,9 +159,16 @@
 
     <!-- Bar Statistik -->
     <div id="statsBar" class="hidden bg-white rounded-xl shadow px-4 py-3 flex items-center justify-between flex-wrap gap-2">
-      <div class="text-sm">
-        <span class="text-gray-500">Jumlah rekod:</span>
-        <span id="jumlahRekod" class="font-mono font-bold text-blue-900 ml-1">0</span>
+      <div class="flex items-center gap-4 text-sm">
+        <div>
+          <span class="text-gray-500">Jumlah rekod:</span>
+          <span id="jumlahRekod" class="font-mono font-bold text-blue-900 ml-1">0</span>
+        </div>
+        <div id="wrapTiadaMasa" class="hidden">
+          <span class="text-amber-600 text-xs font-medium px-2 py-0.5 bg-amber-50 rounded-full border border-amber-200">
+            <span id="jumlahTiadaMasa">0</span> tiada masa
+          </span>
+        </div>
       </div>
       <div class="flex gap-2">
         <button onclick="susunSemulaByMasa()"
@@ -170,7 +188,7 @@
               <th class="px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">No Bib</th>
               <th class="px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Nama</th>
               <th class="px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Pasukan</th>
-              <th class="px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Masa</th>
+              <th class="px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Masa</th>
               <th class="px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-20">Catatan</th>
               <th class="px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Tindakan</th>
             </tr>
@@ -194,19 +212,20 @@
   import {
     doc, getDoc, addDoc, updateDoc, deleteDoc, getDocs,
     collection, query, where, orderBy,
-    writeBatch, serverTimestamp
+    writeBatch, serverTimestamp, onSnapshot
   } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js'
 
   // ── Keadaan ───────────────────────────────────────────────────
-  let currentUser  = null
-  let kategoriData = null
-  let threshold    = 20
-  let fungsiMasa   = true
-  let atletKategori  = []   // semua atlet untuk kategori dipilih
-  let pasukanCache   = {}   // pasukanId → data pasukan
-  let semuaKeputusan = []   // semua rekod keputusan
-  let editingId      = null // id baris yang sedang disunting
-  let belumTerbuka   = false
+  let currentUser     = null
+  let kategoriData    = null
+  let settingsData    = {}
+  let atletKategori   = []
+  let pasukanCache    = {}
+  let semuaKeputusan  = []
+  let editingId       = null
+  let masaEditId      = null
+  let belumTerbuka    = false
+  let unsubKeputusan  = null
 
   // ── Pengesahan ────────────────────────────────────────────────
   onAuth(async (user) => {
@@ -219,7 +238,8 @@
       document.getElementById('userNama').textContent = data.nama
       tunjukDash()
       attachSessionListeners()
-      await muatTetapan()
+      const setSnap = await getDoc(doc(db, 'settings', 'main'))
+      if (setSnap.exists()) settingsData = setSnap.data()
       await muatKategoriDropdown()
     } else {
       tunjukLogin()
@@ -261,16 +281,6 @@
     btn.textContent = el.type === 'password' ? '👁' : '🙈'
   }
 
-  // ── Tetapan ───────────────────────────────────────────────────
-  async function muatTetapan() {
-    const snap = await getDoc(doc(db, 'settings', 'main'))
-    if (snap.exists()) {
-      threshold  = snap.data().thresholdTanpaMasa || 20
-      fungsiMasa = snap.data().fungsiMasa !== false
-    }
-    document.getElementById('labelAmbang').textContent = fungsiMasa ? `(wajib ≤ ${threshold})` : '(pilihan)'
-  }
-
   // ── Kategori ──────────────────────────────────────────────────
   async function muatKategoriDropdown() {
     const snap = await getDocs(query(collection(db, 'kategori'), where('aktif', '==', true), orderBy('kod')))
@@ -285,25 +295,24 @@
     const tunjukkan  = id => document.getElementById(id).classList.remove('hidden')
 
     if (!katId) {
+      if (unsubKeputusan) { unsubKeputusan(); unsubKeputusan = null }
       ['tallyBar','borangInput','statsBar','jadualWrap'].forEach(sembunyikan)
       document.getElementById('namaKategoriNav').textContent = ''
-      atletKategori = []; semuaKeputusan = []; editingId = null
+      atletKategori = []; semuaKeputusan = []; editingId = null; masaEditId = null
       return
     }
 
     const snap = await getDoc(doc(db, 'kategori', katId))
     kategoriData = { id: katId, ...snap.data() }
-    editingId = null; belumTerbuka = false
+    editingId = null; masaEditId = null; belumTerbuka = false
     document.getElementById('namaKategoriNav').textContent = kategoriData.nama
     document.getElementById('panelBelum').classList.add('hidden')
 
     await muatAtletKategori()
-    await muatKeputusan()
+    muladengarKeputusan()
 
     ;['tallyBar','borangInput','statsBar','jadualWrap'].forEach(tunjukkan)
     kosongkanBorang()
-    renderTally()
-    renderJadual()
   }
 
   // ── Atlet ─────────────────────────────────────────────────────
@@ -325,18 +334,30 @@
     }))
   }
 
-  // ── Keputusan ─────────────────────────────────────────────────
-  async function muatKeputusan() {
-    const snap = await getDocs(query(
-      collection(db, 'keputusan'),
-      where('kategoriId', '==', kategoriData.id)
-    ))
-    const raw = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-    // selesai dahulu (ikut kedudukan), kemudian catatan (dns/dnf/dq)
-    const selesai  = raw.filter(k => k.statusAtlet === 'selesai').sort((a, b) => (a.kedudukan || 9999) - (b.kedudukan || 9999))
-    const catatan  = raw.filter(k => ['dns','dnf','dq'].includes(k.statusAtlet))
-    semuaKeputusan = [...selesai, ...catatan]
+  // ── Keputusan — pendengar masa nyata ─────────────────────────
+  function muladengarKeputusan() {
+    if (unsubKeputusan) { unsubKeputusan(); unsubKeputusan = null }
+    const q = query(collection(db, 'keputusan'), where('kategoriId', '==', kategoriData.id))
+    unsubKeputusan = onSnapshot(q, (snap) => {
+      const raw = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      const selesai = raw.filter(k => k.statusAtlet === 'selesai').sort((a, b) => (a.kedudukan || 9999) - (b.kedudukan || 9999))
+      const catatan = raw.filter(k => ['dns','dnf','dq'].includes(k.statusAtlet))
+      semuaKeputusan = [...selesai, ...catatan]
+      kemaskiniStats()
+      renderJadual()
+      renderTally()
+      // semak semula bib yang sedang ditaip jika ada
+      const bib = document.getElementById('inputBib')?.value
+      if (bib) semakBib(bib)
+    })
+  }
+
+  function kemaskiniStats() {
     document.getElementById('jumlahRekod').textContent = semuaKeputusan.length
+    const tiada = semuaKeputusan.filter(k => k.statusAtlet === 'selesai' && !k.masa).length
+    document.getElementById('jumlahTiadaMasa').textContent = tiada
+    const wrap = document.getElementById('wrapTiadaMasa')
+    tiada > 0 ? wrap.classList.remove('hidden') : wrap.classList.add('hidden')
   }
 
   // ── Penyemak Tally ────────────────────────────────────────────
@@ -418,23 +439,34 @@
 
   // ── Borang Input ──────────────────────────────────────────────
   window.semakBib = (bib) => {
-    const info = document.getElementById('bibInfo')
-    if (!bib) { info.textContent = ''; return }
+    const info   = document.getElementById('bibInfo')
+    const btnSimpan = document.getElementById('btnSimpan')
+    if (!bib) {
+      info.textContent = ''
+      btnSimpan.disabled = false
+      btnSimpan.className = btnSimpan.className.replace('bg-gray-400 cursor-not-allowed', 'bg-blue-900 hover:bg-blue-800')
+      return
+    }
     const atlet = cariAtletLokal(bib)
     if (!atlet) {
       info.textContent = 'Bib tidak dijumpai dalam kategori ini'
-      info.className = 'text-xs mt-1 font-medium text-red-500'
+      info.className   = 'text-xs mt-1 font-medium text-red-500'
+      btnSimpan.disabled = false
       return
     }
-    const pas = pasukanCache[atlet.pasukanId] || {}
+    const pas  = pasukanCache[atlet.pasukanId] || {}
     const sudah = semuaKeputusan.find(k => k.atletId === atlet.id)
     if (sudah) {
-      const labelCatatan = { selesai: `Tempat ${sudah.kedudukan}`, dns: 'DNS', dnf: 'DNF', dq: 'DQ' }
-      info.textContent = `⚠ ${atlet.nama} — sudah direkod (${labelCatatan[sudah.statusAtlet] || sudah.statusAtlet})`
-      info.className = 'text-xs mt-1 font-medium text-amber-600'
+      const label = { selesai: `Tempat ${sudah.kedudukan || '?'}`, dns: 'DNS', dnf: 'DNF', dq: 'DQ' }
+      info.textContent = `✗ ${atlet.nama} — sudah direkod (${label[sudah.statusAtlet] || sudah.statusAtlet})`
+      info.className   = 'text-xs mt-1 font-bold text-red-600'
+      btnSimpan.disabled = true
+      btnSimpan.className = 'flex-1 bg-gray-400 cursor-not-allowed text-white py-2.5 rounded-lg font-semibold text-sm'
     } else {
       info.textContent = `✓ ${atlet.nama} · ${pas.nama || '—'}`
-      info.className = 'text-xs mt-1 font-medium text-green-600'
+      info.className   = 'text-xs mt-1 font-medium text-green-600'
+      btnSimpan.disabled = false
+      btnSimpan.className = 'flex-1 bg-blue-900 hover:bg-blue-800 text-white py-2.5 rounded-lg font-semibold text-sm transition'
     }
   }
 
@@ -457,20 +489,22 @@
     masaEl.disabled = adaCatatan
     if (adaCatatan) {
       kedEl.value = ''; masaEl.value = ''
-    } else {
-      kedEl.value = cadangKedudukan()
     }
   }
 
   window.kosongkanBorang = () => {
-    document.getElementById('inputBib').value      = ''
-    document.getElementById('inputKedudukan').value = cadangKedudukan()
-    document.getElementById('inputMasa').value     = ''
-    document.getElementById('inputCatatan').value  = ''
-    document.getElementById('bibInfo').textContent = ''
+    document.getElementById('inputBib').value       = ''
+    document.getElementById('inputKedudukan').value = ''
+    document.getElementById('inputMasa').value      = ''
+    document.getElementById('inputCatatan').value   = ''
+    document.getElementById('bibInfo').textContent  = ''
     document.getElementById('inputAmaran').classList.add('hidden')
     document.getElementById('inputKedudukan').disabled = false
     document.getElementById('inputMasa').disabled      = false
+    const btn = document.getElementById('btnSimpan')
+    btn.disabled  = false
+    btn.textContent = '+ Simpan'
+    btn.className = 'flex-1 bg-blue-900 hover:bg-blue-800 text-white py-2.5 rounded-lg font-semibold text-sm transition'
     document.getElementById('inputBib').focus()
   }
 
@@ -486,21 +520,15 @@
     if (!atlet) { tunjukToast('Bib tidak dijumpai dalam kategori ini', 'red'); return }
 
     const sudahAda = semuaKeputusan.find(k => k.atletId === atlet.id)
-    if (sudahAda) {
-      tunjukToast(`${atlet.nama} sudah direkod`, 'red'); return
-    }
+    if (sudahAda) { tunjukToast(`${atlet.nama} sudah direkod`, 'red'); return }
 
     let kedudukan = null
     let masa      = null
 
     if (!adaCatatan) {
-      kedudukan = parseInt(document.getElementById('inputKedudukan').value) || null
+      kedudukan = parseInt(document.getElementById('inputKedudukan').value) || cadangKedudukan()
       masa      = document.getElementById('inputMasa').value.trim() || null
-      if (!kedudukan) { tunjukToast('Kedudukan wajib diisi', 'red'); return }
-      if (fungsiMasa && kedudukan <= threshold && !masa) {
-        tunjukToast(`Masa wajib untuk kedudukan ≤ ${threshold}`, 'red'); return
-      }
-      // Amaran kedudukan sama (bukan sekatan)
+
       const samaNombor = semuaKeputusan.find(k => k.statusAtlet === 'selesai' && k.kedudukan === kedudukan)
       if (samaNombor) {
         const atletSama = atletKategori.find(a => a.id === samaNombor.atletId)
@@ -512,11 +540,30 @@
       }
     }
 
-    const btn = document.getElementById('btnSimpan')
-    btn.disabled = true; btn.textContent = 'Menyimpan...'
+    // Optimistik — papar segera tanpa tunggu Firestore
+    const tempId = `_temp_${Date.now()}`
+    const lokal = { id: tempId, atletId: atlet.id, pasukanId: atlet.pasukanId,
+      kategoriId: kategoriData.id, kedudukan, masa, adaMasa: !!masa, statusAtlet, _temp: true }
 
+    if (statusAtlet === 'selesai') {
+      const idx = semuaKeputusan.findIndex(k => k.statusAtlet !== 'selesai' || (k.kedudukan || 9999) > (kedudukan || 9999))
+      if (idx === -1) semuaKeputusan.push(lokal)
+      else semuaKeputusan.splice(idx, 0, lokal)
+    } else {
+      semuaKeputusan.push(lokal)
+    }
+
+    kemaskiniStats()
+    renderJadual()
+    renderTally()
+    kosongkanBorang()
+
+    const label = adaCatatan ? catatanVal.toUpperCase() : `Tempat ${kedudukan}`
+    tunjukToast(`✓ ${atlet.nama} — ${label}`, 'green')
+
+    // Simpan ke Firestore di latar belakang
     try {
-      await addDoc(collection(db, 'keputusan'), {
+      const ref = await addDoc(collection(db, 'keputusan'), {
         atletId:    atlet.id,
         pasukanId:  atlet.pasukanId,
         kategoriId: kategoriData.id,
@@ -528,17 +575,15 @@
         createdAt:  serverTimestamp(),
         updatedAt:  serverTimestamp()
       })
-      await muatKeputusan()
+      const idx2 = semuaKeputusan.findIndex(k => k.id === tempId)
+      if (idx2 !== -1) { semuaKeputusan[idx2].id = ref.id; semuaKeputusan[idx2]._temp = false }
+    } catch (e) {
+      semuaKeputusan = semuaKeputusan.filter(k => k.id !== tempId)
+      kemaskiniStats()
       renderJadual()
       renderTally()
-      kosongkanBorang()
-      const label = adaCatatan ? catatanVal.toUpperCase() : `Tempat ${kedudukan}`
-      tunjukToast(`✓ ${atlet.nama} — ${label}`, 'green')
-    } catch (e) {
       tunjukToast('Gagal simpan: ' + e.message, 'red')
     }
-
-    btn.disabled = false; btn.textContent = '+ Simpan'
   }
 
   // ── Simpan Catatan dari Panel Belum ───────────────────────────
@@ -560,12 +605,35 @@
         createdAt:  serverTimestamp(),
         updatedAt:  serverTimestamp()
       })
-      await muatKeputusan()
-      renderJadual()
-      renderTally()
       tunjukToast(`${atlet.nama} — ${catatan.toUpperCase()} direkod`, 'green')
     } catch (e) {
       tunjukToast('Gagal: ' + e.message, 'red')
+    }
+  }
+
+  // ── Edit Masa Cepat (klik sel masa kosong) ───────────────────
+  window.editMasaCepat = (id) => {
+    masaEditId = id
+    editingId  = null
+    renderJadual()
+    setTimeout(() => document.getElementById('inputMasaCepat')?.focus(), 50)
+  }
+
+  window.batalMasaCepat = () => {
+    masaEditId = null
+    renderJadual()
+  }
+
+  window.simpanMasaCepat = async (id) => {
+    const input = document.getElementById('inputMasaCepat')
+    if (!input) return
+    const masa = input.value.trim() || null
+    masaEditId = null
+    try {
+      await updateDoc(doc(db, 'keputusan', id), { masa, adaMasa: !!masa, updatedAt: serverTimestamp() })
+      tunjukToast(masa ? `Masa ${masa} disimpan` : 'Masa dikosongkan', 'green')
+    } catch (e) {
+      tunjukToast('Gagal simpan masa: ' + e.message, 'red')
     }
   }
 
@@ -583,21 +651,55 @@
       return
     }
     el.innerHTML = semuaKeputusan.map(k => {
-      const atlet  = atletKategori.find(a => a.id === k.atletId) || {}
+      const atlet   = atletKategori.find(a => a.id === k.atletId) || {}
       const pasukan = pasukanCache[k.pasukanId] || {}
-      return k.id === editingId
-        ? renderBarisSunting(k, atlet, pasukan)
-        : renderBarisLihat(k, atlet, pasukan)
+      if (k.id === editingId) return renderBarisSunting(k, atlet, pasukan)
+      return renderBarisLihat(k, atlet, pasukan)
     }).join('')
   }
 
   function renderBarisLihat(k, atlet, pasukan) {
-    const adaCatatan = ['dns','dnf','dq'].includes(k.statusAtlet)
+    const adaCatatan  = ['dns','dnf','dq'].includes(k.statusAtlet)
+    const tiadaMasa   = !k.masa && k.statusAtlet === 'selesai'
+    const sedangEditMasa = masaEditId === k.id
+
     const badgeCatatan = adaCatatan
       ? `<span class="text-xs font-bold px-2 py-0.5 rounded ${WARNA_CATATAN[k.statusAtlet]}">${k.statusAtlet.toUpperCase()}</span>`
       : '<span class="text-gray-300 text-xs">—</span>'
+
+    let masaCell
+    if (sedangEditMasa) {
+      masaCell = `
+        <td class="px-2 py-1.5">
+          <div class="flex items-center gap-1">
+            <input id="inputMasaCepat" type="text" placeholder="45:23" maxlength="8" value="${k.masa || ''}"
+              onkeydown="if(event.key==='Enter') simpanMasaCepat('${k.id}'); if(event.key==='Escape') batalMasaCepat()"
+              class="w-24 border border-amber-400 rounded px-2 py-1 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-400">
+            <button onclick="simpanMasaCepat('${k.id}')" class="text-green-700 hover:text-green-900 font-bold text-sm px-1">✓</button>
+            <button onclick="batalMasaCepat()" class="text-gray-400 hover:text-gray-600 text-sm px-1">✕</button>
+          </div>
+        </td>`
+    } else if (tiadaMasa) {
+      masaCell = `
+        <td class="px-3 py-2.5 sel-masa-kosong" onclick="editMasaCepat('${k.id}')" title="Klik untuk isi masa">
+          <span class="text-amber-500 text-xs italic">tiada masa ✎</span>
+        </td>`
+    } else {
+      masaCell = `
+        <td class="px-3 py-2.5">
+          <span class="font-mono text-sm text-blue-800">${k.masa || '—'}</span>
+        </td>`
+    }
+
+    const rowClass = [
+      'border-b border-gray-50 hover:bg-gray-50 transition',
+      adaCatatan  ? 'baris-catatan'   : '',
+      tiadaMasa   ? 'baris-tiada-masa' : '',
+      k._temp     ? 'opacity-60'       : ''
+    ].join(' ')
+
     return `
-      <tr class="border-b border-gray-50 hover:bg-gray-50 transition ${adaCatatan ? 'baris-catatan' : ''}">
+      <tr class="${rowClass}">
         <td class="px-3 py-2.5 text-center">
           <span class="font-heading text-xl text-blue-900">${k.kedudukan || '—'}</span>
         </td>
@@ -610,17 +712,16 @@
         <td class="px-3 py-2.5">
           <p class="text-xs text-gray-500">${pasukan.nama || '?'}</p>
         </td>
-        <td class="px-3 py-2.5">
-          <span class="font-mono text-sm text-blue-800">${k.masa || '—'}</span>
-        </td>
+        ${masaCell}
         <td class="px-3 py-2.5">${badgeCatatan}</td>
         <td class="px-3 py-2.5">
+          ${k._temp ? '<span class="text-xs text-gray-300 italic">menyimpan…</span>' : `
           <div class="flex gap-1">
             <button onclick="mulaEdit('${k.id}')"
               class="text-blue-600 hover:text-blue-800 text-xs px-2 py-1 rounded hover:bg-blue-50 transition">Sunting</button>
             <button onclick="padamKeputusan('${k.id}')"
               class="text-red-500 hover:text-red-700 text-xs px-2 py-1 rounded hover:bg-red-50 transition">Padam</button>
-          </div>
+          </div>`}
         </td>
       </tr>
     `
@@ -669,7 +770,7 @@
     `
   }
 
-  window.mulaEdit = (id) => { editingId = id; renderJadual() }
+  window.mulaEdit = (id) => { editingId = id; masaEditId = null; renderJadual() }
   window.batalEdit = () => { editingId = null; renderJadual() }
 
   window.togolSuntingCatatan = () => {
@@ -691,18 +792,12 @@
     const kedudukan  = adaCatatan ? null : (parseInt(document.getElementById('suntingKed')?.value) || null)
     const masa       = adaCatatan ? null : (document.getElementById('suntingMasa')?.value.trim() || null)
 
-    if (!adaCatatan && !kedudukan) {
-      tunjukToast('Kedudukan wajib untuk rekod selesai', 'red'); return
-    }
     try {
       await updateDoc(doc(db, 'keputusan', id), {
         kedudukan, masa, adaMasa: !!masa, statusAtlet: catatan,
         updatedAt: serverTimestamp()
       })
       editingId = null
-      await muatKeputusan()
-      renderJadual()
-      renderTally()
       tunjukToast('Rekod dikemaskini', 'green')
     } catch (e) {
       tunjukToast('Gagal kemaskini: ' + e.message, 'red')
@@ -712,9 +807,6 @@
   window.padamKeputusan = async (id) => {
     if (!confirm('Padam rekod ini?')) return
     await deleteDoc(doc(db, 'keputusan', id))
-    await muatKeputusan()
-    renderJadual()
-    renderTally()
     tunjukToast('Rekod dipadam', 'red')
   }
 
@@ -732,15 +824,237 @@
     tersusun.forEach((r, i) => {
       batch.update(doc(db, 'keputusan', r.id), { kedudukan: i + 1, updatedAt: serverTimestamp() })
     })
-    // DNS / DNF / DQ → kedudukan null
     semuaKeputusan.filter(k => ['dns','dnf','dq'].includes(k.statusAtlet)).forEach(r => {
       batch.update(doc(db, 'keputusan', r.id), { kedudukan: null, updatedAt: serverTimestamp() })
     })
 
     await batch.commit()
-    await muatKeputusan()
-    renderJadual()
     tunjukToast('Kedudukan disusun semula', 'green')
+  }
+
+  // ── Cetakan ───────────────────────────────────────────────────
+  function headerCetak() {
+    const s = settingsData
+    const namaB1 = (s.namaB1 || 'MERENTAS DESA').toUpperCase()
+    const namaB2 = (s.namaB2 || '').toUpperCase()
+    const namaB3 = s.namaB3 || ''
+    let tarikh = ''
+    if (s.tarikhKejohanan) {
+      const d = s.tarikhKejohanan.toDate ? s.tarikhKejohanan.toDate() : new Date(s.tarikhKejohanan)
+      const bln = ['Januari','Februari','Mac','April','Mei','Jun','Julai','Ogos','September','Oktober','November','Disember']
+      tarikh = `${d.getDate()} ${bln[d.getMonth()]} ${d.getFullYear()}`
+    }
+    const logoKiri  = s.logoKiri  || ''
+    const logoKanan = s.logoKanan || ''
+
+    const html = `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;">
+        <div style="width:64px;flex-shrink:0;">
+          ${logoKiri ? `<img src="${logoKiri}" style="height:60px;width:60px;object-fit:contain;" alt="">` : ''}
+        </div>
+        <div style="flex:1;text-align:center;">
+          ${namaB2 ? `<p style="font-size:9pt;letter-spacing:2px;color:#555;margin-bottom:2px;">${namaB2}</p>` : ''}
+          <p style="font-size:18pt;font-weight:bold;letter-spacing:3px;line-height:1.1;">${namaB1}</p>
+          ${namaB3 ? `<p style="font-size:9pt;color:#555;margin-top:2px;">${namaB3}</p>` : ''}
+          ${tarikh ? `<p style="font-size:9pt;color:#555;margin-top:2px;">${tarikh}</p>` : ''}
+        </div>
+        <div style="width:64px;flex-shrink:0;text-align:right;">
+          ${logoKanan ? `<img src="${logoKanan}" style="height:60px;width:60px;object-fit:contain;" alt="">` : ''}
+        </div>
+      </div>
+      <div style="border-top:2.5px solid #000;border-bottom:2.5px solid #000;padding:5px 0;text-align:center;margin-bottom:10px;">
+        <span id="_tajukCetak" style="font-size:12pt;font-weight:bold;letter-spacing:1px;"></span>
+      </div>`
+    return html
+  }
+
+  function cssAsas() {
+    return `
+      * { margin:0; padding:0; box-sizing:border-box; }
+      body { font-family: Arial, sans-serif; font-size: 11pt; padding: 18mm 20mm; }
+      .header { text-align:center; margin-bottom:14px; }
+      .header .kej { font-size:13pt; font-weight:bold; letter-spacing:1px; }
+      .header .tarikh { font-size:10pt; margin-top:2px; color:#444; }
+      .header .tajuk { font-size:12pt; font-weight:bold; margin-top:8px;
+        border-top:2.5px solid #000; border-bottom:2.5px solid #000; padding:5px 0; }
+      table { width:100%; border-collapse:collapse; }
+      th { border-bottom:1.5px solid #000; padding:5px 8px; text-align:left; font-size:10pt; font-weight:bold; }
+      td { padding:4px 8px; font-size:10pt; border-bottom:1px solid #e5e5e5; }
+      .footer { margin-top:16px; font-size:8pt; color:#aaa; text-align:right; }
+      @media print { body { padding:12mm 15mm; } .footer { display:block; } }
+    `
+  }
+
+  function bukaWin(html) {
+    const w = window.open('', '_blank')
+    w.document.write(html)
+    w.document.close()
+  }
+
+  window.cetakIndividu = () => {
+    if (!kategoriData) { tunjukToast('Pilih kategori dahulu', 'red'); return }
+    const tajuk = `KEPUTUSAN INDIVIDU &mdash; ${kategoriData.nama.toUpperCase()}`
+
+    const selesai = semuaKeputusan.filter(k => k.statusAtlet === 'selesai')
+    const catatan = semuaKeputusan.filter(k => ['dns','dnf','dq'].includes(k.statusAtlet))
+
+    const barisSelesai = selesai.map(k => {
+      const a = atletKategori.find(x => x.id === k.atletId) || {}
+      const p = pasukanCache[k.pasukanId] || {}
+      return `<tr>
+        <td style="text-align:center;font-weight:bold;">${k.kedudukan || '—'}</td>
+        <td style="font-family:monospace;">${a.noBib || '—'}</td>
+        <td>${a.nama || '—'}</td>
+        <td>${p.nama || '—'}</td>
+        <td style="font-family:monospace;">${k.masa || '—'}</td>
+      </tr>`
+    }).join('')
+
+    const barisCatatan = catatan.map(k => {
+      const a = atletKategori.find(x => x.id === k.atletId) || {}
+      const p = pasukanCache[k.pasukanId] || {}
+      return `<tr style="color:#666;font-style:italic;">
+        <td style="text-align:center;font-weight:bold;font-style:normal;font-size:9pt;">${k.statusAtlet.toUpperCase()}</td>
+        <td style="font-family:monospace;font-style:normal;">${a.noBib || '—'}</td>
+        <td>${a.nama || '—'}</td>
+        <td>${p.nama || '—'}</td>
+        <td>—</td>
+      </tr>`
+    }).join('')
+
+    const pemisah = catatan.length > 0
+      ? `<tr><td colspan="5" style="padding-top:6px;border-top:1px solid #bbb;border-bottom:none;"></td></tr>`
+      : ''
+
+    bukaWin(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+      <title>Individu — ${kategoriData.nama}</title>
+      <style>${cssAsas()}</style></head><body>
+      ${headerCetak()}
+      <script>document.getElementById('_tajukCetak').innerHTML='${tajuk}'<\/script>
+      <table>
+        <thead><tr>
+          <th style="width:50px;text-align:center;">KED</th>
+          <th style="width:80px;">BIB</th>
+          <th>NAMA</th>
+          <th>PASUKAN</th>
+          <th style="width:80px;">MASA</th>
+        </tr></thead>
+        <tbody>${barisSelesai}${pemisah}${barisCatatan}</tbody>
+      </table>
+      <div class="footer">Dicetak: ${new Date().toLocaleString('ms-MY')}</div>
+      <script>window.onload=()=>window.print()<\/script>
+    </body></html>`)
+  }
+
+  window.cetakPasukan = () => {
+    if (!kategoriData) { tunjukToast('Pilih kategori dahulu', 'red'); return }
+    const tajuk = `KEPUTUSAN BERPASUKAN &mdash; ${kategoriData.nama.toUpperCase()}`
+
+    const kiraanPasukan = kategoriData.kiraanPasukan || 3
+    const minLayak      = kategoriData.minLayak != null ? kategoriData.minLayak : kiraanPasukan
+
+    // Hanya selesai + ada kedudukan, buang DQ
+    const selesaiSah = semuaKeputusan.filter(k => k.statusAtlet === 'selesai' && k.kedudukan)
+
+    // Semua pasukan yang ada atlet dalam kategori ini
+    const semuaPid = [...new Set(atletKategori.map(a => a.pasukanId))]
+
+    const hasilPasukan = semuaPid.map(pid => {
+      const pas = pasukanCache[pid] || {}
+      const atletSelesai = selesaiSah
+        .filter(k => k.pasukanId === pid)
+        .sort((a, b) => a.kedudukan - b.kedudukan)
+      const atletDikira  = atletSelesai.slice(0, kiraanPasukan)
+      const mata         = atletDikira.reduce((s, k) => s + k.kedudukan, 0)
+      const dnq          = atletSelesai.length < minLayak
+      return { pid, pas, atletDikira, atletSelesai, mata, dnq }
+    })
+
+    const layak = hasilPasukan
+      .filter(p => !p.dnq && p.atletDikira.length > 0)
+      .sort((a, b) => a.mata - b.mata)
+
+    const dnqList = hasilPasukan
+      .filter(p => p.dnq || p.atletDikira.length === 0)
+
+    const barisLayak = layak.map((p, i) => {
+      const kiraStr = p.atletDikira.map(k => k.kedudukan).join(' + ')
+      const atletRows = p.atletDikira.map(k => {
+        const a = atletKategori.find(x => x.id === k.atletId) || {}
+        return `<tr>
+          <td></td><td></td><td></td>
+          <td style="padding-left:32px;font-size:9.5pt;color:#333;font-family:monospace;">${a.noBib || '—'}</td>
+          <td style="font-size:9.5pt;color:#333;">${a.nama || '—'}</td>
+          <td style="font-size:9.5pt;text-align:center;color:#555;">${k.kedudukan}</td>
+        </tr>`
+      }).join('')
+      const jumlahRow = `<tr>
+        <td></td><td></td><td></td>
+        <td colspan="2" style="padding-left:32px;font-size:8.5pt;color:#888;font-style:italic;">
+          (${kiraStr} = ${p.mata})
+        </td><td></td>
+      </tr>`
+      return `<tr style="background:#f9f9f9;">
+          <td style="text-align:center;font-weight:bold;">${i + 1}</td>
+          <td colspan="3" style="font-weight:bold;">${(p.pas.nama || '—').toUpperCase()}</td>
+          <td></td>
+          <td style="text-align:center;font-weight:bold;">${p.mata}</td>
+        </tr>
+        <tr><td colspan="6" style="padding:0 0 2px 0;border:none;">
+          <table style="width:100%;border-collapse:collapse;">
+            <tr>
+              <td style="width:50px;"></td><td style="width:50px;"></td><td style="width:50px;"></td>
+              <td style="width:90px;padding-left:32px;font-size:9pt;font-weight:bold;color:#555;">BIB</td>
+              <td style="font-size:9pt;font-weight:bold;color:#555;">NAMA</td>
+              <td style="width:70px;font-size:9pt;font-weight:bold;color:#555;text-align:center;">KED.IND</td>
+            </tr>
+            ${atletRows}${jumlahRow}
+          </table>
+        </td></tr>
+        <tr><td colspan="6" style="padding:4px 0;border:none;border-bottom:1px solid #ddd;"></td></tr>`
+    }).join('')
+
+    const barisDnq = dnqList.map(p => {
+      const sebab = p.atletSelesai.length === 0
+        ? 'Tiada atlet selesai'
+        : `Hanya ${p.atletSelesai.length} selesai (minimum: ${minLayak})`
+      return `<tr style="color:#999;">
+        <td style="text-align:center;font-weight:bold;font-size:9pt;">DNQ</td>
+        <td colspan="4" style="font-style:italic;">${(p.pas.nama || '—').toUpperCase()}</td>
+        <td style="font-size:9pt;font-style:italic;">${sebab}</td>
+      </tr>`
+    }).join('')
+
+    const pemisahDnq = dnqList.length > 0
+      ? `<tr><td colspan="6" style="padding-top:6px;border-top:1.5px solid #bbb;border-bottom:none;"></td></tr>`
+      : ''
+
+    bukaWin(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+      <title>Pasukan — ${kategoriData.nama}</title>
+      <style>${cssAsas()}
+        .sub th { font-size:9pt; color:#555; font-weight:bold; border-bottom:none; padding:2px 8px 2px 32px; }
+      </style></head><body>
+      ${headerCetak()}
+      <script>document.getElementById('_tajukCetak').innerHTML='${tajuk}'<\/script>
+      <table>
+        <thead><tr>
+          <th style="width:50px;text-align:center;">KED</th>
+          <th colspan="3">PASUKAN</th>
+          <th></th>
+          <th style="width:60px;text-align:center;">MATA</th>
+        </tr></thead>
+        <tbody>
+          ${barisLayak}
+          ${pemisahDnq}
+          ${barisDnq}
+        </tbody>
+      </table>
+      <div class="footer">
+        Pengiraan: ${kiraanPasukan} atlet terbaik · Minimum layak: ${minLayak} atlet selesai ·
+        Dicetak: ${new Date().toLocaleString('ms-MY')}
+      </div>
+      <script>window.onload=()=>window.print()<\/script>
+    </body></html>`)
   }
 
   // ── Pembantu ──────────────────────────────────────────────────

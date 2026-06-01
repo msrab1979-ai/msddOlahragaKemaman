@@ -23,8 +23,8 @@ Sistem pengurusan kejohanan merentas desa peringkat daerah Kemaman.
 
 ## Aliran Persediaan (ikut urutan)
 
-1. **Tetapan Kejohanan** — nama, tarikh, lokasi, logo, tarikh tutup pendaftaran
-2. **Kategori Larian** — SK L12, SK P12, SM L15, SM L18, dsb.
+1. **Tetapan Kejohanan** — nama (namaB1/B2/B3), tarikh, lokasi, logo, tarikh tutup pendaftaran
+2. **Kategori Larian** — SK L12, SK P12, SM L15, SM L18, dsb. (termasuk umurMin, umurMax, kiraanPasukan, minLayak)
 3. **Daftar Sekolah** — nama, jenis (SK/SM/PPKI), bib prefix, kod, PIN
 4. **Pengguna Sistem** — akaun pencatat & admin tambahan
 5. **Kongsi** kod sekolah + PIN kepada setiap pengurus pasukan
@@ -48,11 +48,11 @@ Sistem **tidak menggunakan Firebase Auth**. Semua login berasaskan `sessionStora
 
 | Koleksi | Penerangan |
 |---|---|
-| `/settings/main` | Tetapan kejohanan, termasuk `tarikhTutupPendaftaran` |
-| `/kategori/{id}` | Kategori larian — jenis, jantina, had daftar, kiraan pasukan |
+| `/settings/main` | Tetapan kejohanan: nama (namaB1/B2/B3), logo, tarikh, tarikhTutupPendaftaran |
+| `/kategori/{id}` | Kategori larian — jenis, jantina, umurMin/Max, hadDaftar, kiraanPasukan, minLayak |
 | `/kumpulanLarian/{id}` | Kumpulan start serentak (pilihan) |
 | `/pasukan/{kodSekolah}` | Sekolah peserta — doc ID = kodSekolah (huruf besar) |
-| `/atlet/{id}` | Atlet berdaftar — noKPHash, noBib, pasukanId, kategoriId |
+| `/atlet/{id}` | Atlet berdaftar — noKPHash, noBib, pasukanId, kategoriId, aktif |
 | `/keputusan/{id}` | Keputusan larian — kedudukan, masa, statusAtlet |
 | `/publikasi/{kategoriId}` | Status terbit keputusan (draf/tidakRasmi/rasmi) |
 | `/users/{docId}` | Akaun admin & pencatat |
@@ -65,15 +65,24 @@ Sistem **tidak menggunakan Firebase Auth**. Semua login berasaskan `sessionStora
 Pencatat merekod keputusan semasa larian berlangsung.
 
 **Ciri utama:**
-- Rekod 1 peserta setiap kali: No Bib → Kedudukan → Masa → Simpan
-- Catatan khas: **DNS** (Tidak Mula) / **DNF** (Tidak Tamat) / **DQ** (Didiskualifikasi)
-- **Penyemak Tally** — bandingkan jumlah berdaftar vs direkod, papar senarai belum direkod
-- **Susun Semula by Masa** — atur semula kedudukan 1, 2, 3… tanpa lubang
+- Input fleksibel: Bib (wajib) + Masa (pilihan) + Kedudukan (auto jika kosong)
+- **Optimistik UI** — rekod papar serta-merta, Firestore simpan di latar belakang
+- **onSnapshot masa nyata** — 2 peranti boleh guna serentak (1 masuk Bib, 1 isi masa)
+- Sel masa kosong ditonjolkan kuning — klik terus untuk isi masa
+- Catatan khas: **DNS** / **DNF** / **DQ**
+- **Penyemak Tally** — bandingkan jumlah berdaftar vs direkod
+- **Susun Semula by Masa** — atur semula kedudukan tanpa lubang
+- Bib disekat jika sudah direkod (butang Simpan digreyed)
 - Sunting dalam baris (inline) tanpa modal
 
+**Cetakan (butang dalam navbar):**
+- 📄 **Cetak Individu** — KED | BIB | NAMA | PASUKAN | MASA, DNS/DNF/DQ di bawah
+- 🏫 **Cetak Pasukan** — KED | PASUKAN | MATA + senarai atlet dikira (BIB | NAMA | KED.IND) + baris jumlah
+- Header dinamik: ambil namaB1/B2/B3, logo, tarikh dari `/settings/main`
+
 **Logik catatan:**
-- DNS / DNF / DQ → kedudukan `null`, masa `null`
-- Selepas Susun Semula → hanya rekod `selesai` diberi nombor, catatan kekal di bawah
+- DNS / DNF / DQ → kedudukan `null`, masa `null`, tidak dikira dalam pasukan
+- DQ → dibuang sepenuhnya dari pengiraan mata pasukan
 
 ---
 
@@ -83,11 +92,27 @@ Pengurus sekolah mendaftar atlet melalui halaman `/pengurus/`.
 
 **Ciri utama:**
 - Semak kuota per kategori secara masa nyata
-- Pengesahan No KP (di-hash SHA-256, tidak disimpan teks asal)
-- Pengesahan No Bib — semak duplikat global (semua atlet aktif)
-- Upload Excel beramai-ramai
-- Countdown tarikh tutup pendaftaran (tunjuk hari/jam/minit/saat)
+- **Semak umur dari No KP** — ekstrak tahun lahir, kira umur = tahunKejohanan - tahunLahir
+  - Live feedback semasa taip (hijau = layak, merah = diluar had)
+  - Sekat simpan jika umur diluar `umurMin`–`umurMax` kategori
+- **Semak KP duplikat global** — semua kategori, bukan hanya kategori semasa
+- **Semak Bib duplikat global** — semua kategori, luar transaction
+- Upload Excel beramai-ramai (semak umur + KP dalam batch)
+- Countdown tarikh tutup pendaftaran (warna berubah hijau→kuning→merah)
 - Selepas tarikh tutup — semua butang daftar dilumpuhkan
+
+---
+
+## Pungutan Mata Pasukan
+
+| Perkara | Nilai |
+|---|---|
+| Atlet dikira | `kiraanPasukan` terbaik (terendah kedudukan) |
+| Mata pasukan | jumlah kedudukan individu atlet dikira |
+| Syarat layak | ≥ `minLayak` atlet selesai |
+| DQ | tidak dikira |
+| DNS / DNF | tidak dikira |
+| Pasukan DNQ | dipapar di bawah dengan sebab |
 
 ---
 
@@ -108,7 +133,7 @@ users: padam = salah
 `KED | BIB | NAMA | PASUKAN | MASA`
 
 ### Berpasukan
-`KED | PASUKAN | MATA` + senarai atlet dikira (indent)
+`KED | PASUKAN | MATA` + senarai atlet dikira (BIB | NAMA | KED.IND) + baris jumlah
 
 ### Pungutan Mata
 - SK: L12 + P12 (berasingan)
