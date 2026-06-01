@@ -100,14 +100,73 @@ async function clearAttempts(attemptKey) {
   } catch { /* bukan kritikal — biarkan */ }
 }
 
-// ─── 1. Superadmin — Firebase Auth ───────────────────────────────────────────
+// ─── 1. Superadmin — Firebase Auth (legacy, tidak digunakan lagi) ────────────
 
-/**
- * Login superadmin via Firebase Auth (email + password).
- * onAuthStateChanged dalam AuthContext akan handle state update.
- */
 export async function loginSuperadmin(email, password) {
   return signInWithEmailAndPassword(auth, email, password)
+}
+
+// ─── 1b. Admin — Firestore users (email + PIN, tanpa Firebase Auth) ──────────
+
+export async function loginAdminByEmail(email, pin) {
+  const emailClean = email.trim().toLowerCase()
+
+  const snap = await getDocs(query(
+    collection(db, 'users'),
+    where('email', '==', emailClean),
+    where('role', 'in', ['superadmin', 'admin', 'pengurus_teknik']),
+  ))
+
+  if (snap.empty) {
+    throw Object.assign(
+      new Error('E-mel atau PIN tidak sah.'),
+      { code: 'auth/user-not-found' }
+    )
+  }
+
+  const userDoc = snap.docs[0]
+  const data    = userDoc.data()
+
+  if (data.isAktif === false) {
+    throw Object.assign(
+      new Error('Akaun tidak aktif. Hubungi pentadbir.'),
+      { code: 'auth/user-disabled' }
+    )
+  }
+
+  let pinOk = false
+  if (data.pinHash) {
+    const inputHash = await hashPin(pin.trim())
+    pinOk = inputHash === data.pinHash
+  } else if (data.pin) {
+    pinOk = String(data.pin) === pin.trim()
+    if (pinOk) {
+      try {
+        const newHash = await hashPin(pin.trim())
+        await updateDoc(doc(db, 'users', userDoc.id), {
+          pinHash: newHash, pin: deleteField(), updatedAt: serverTimestamp(),
+        })
+      } catch { /* bukan kritikal */ }
+    }
+  }
+
+  if (!pinOk) {
+    throw Object.assign(
+      new Error('E-mel atau PIN tidak sah.'),
+      { code: 'auth/wrong-password' }
+    )
+  }
+
+  const sessionData = {
+    uid:       userDoc.id,
+    nama:      data.nama      || '',
+    email:     data.email     || emailClean,
+    role:      data.role,
+    kodAkses:  data.kodAkses  || '',
+    isProxy:   false,
+  }
+  sessionStorage.setItem(SESSION_USER_KEY, JSON.stringify(sessionData))
+  return sessionData
 }
 
 // ─── 2. Pencatat / Urusetia / Admin / Pengurus Teknik — Firestore users ───────

@@ -47,7 +47,7 @@ function ErrorBox({ msg }) {
 // ─── Tab 1 — E-mel + Kata Laluan ─────────────────────────────────────────────
 
 function TabSatu({ onSuccess }) {
-  const { login } = useAuth()
+  const { loginSuperadmin } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -58,7 +58,7 @@ function TabSatu({ onSuccess }) {
     setError('')
     setLoading(true)
     try {
-      await login(email, password)
+      await loginSuperadmin(email, password)
       onSuccess()
     } catch (err) {
       setError(authErrMsg(err.code))

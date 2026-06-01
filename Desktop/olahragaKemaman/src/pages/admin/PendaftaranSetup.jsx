@@ -3267,9 +3267,12 @@ function PPAtletModal({ mode, initial, sekolahData, existingBibs, myPendaftaran,
                   <p className="text-[10px] text-amber-600 mt-1">⚠ Perubahan ini akan padam pendaftaran atlet.</p>
                 )}
               </FormField>
-              <FormField label="Tarikh Lahir" required>
-                <input type="date" value={form.tarikhLahir} onChange={e => set('tarikhLahir', e.target.value)}
-                  className={inputCls} />
+              <FormField label="Tarikh Lahir" required
+                hint={!isEdit && form.tarikhLahir && form.noKP.replace(/-/g,'').length >= 6 ? 'Auto dari No. KP' : undefined}>
+                <input type="date" value={form.tarikhLahir}
+                  readOnly={!isEdit}
+                  onChange={isEdit ? e => set('tarikhLahir', e.target.value) : undefined}
+                  className={inputCls + (!isEdit ? ' bg-gray-50 text-gray-500 cursor-default' : '')} />
                 {isEdit && form.tarikhLahir !== initial?.tarikhLahir && (
                   <p className="text-[10px] text-amber-600 mt-1">⚠ Perubahan ini akan padam pendaftaran atlet.</p>
                 )}
@@ -3543,25 +3546,31 @@ function PPPendaftaranView({ sekolahList }) {
     try {
       const kejohananId = kejohanan.id
 
-      // ── Validasi penuh (LIVE) — semua 8 gate ──────────────────────────────
-      for (const noKP of daftarChecked) {
-        const atlet = atletSekolah.find(a => a.noKP === noKP)
-        if (!atlet) continue
-        const hasil = await validasiPendaftaran({
-          noKP,
-          tarikhLahir:    atlet.tarikhLahir,
-          kodSekolah:     atlet.kodSekolah,
-          kejohananId,
-          aceraId:        acara.aceraId || acara.id,
-          kategoriId:     acara.kategoriKod,
-          jenisAcara:     acara.jenisAcara,
-          tahunKejohanan: tahunKej,
+      // ── Validasi penuh (LIVE) — semua 8 gate, semua atlet serentak ──────────
+      const validasiAll = await Promise.all(
+        daftarChecked.map(async (noKP) => {
+          const atlet = atletSekolah.find(a => a.noKP === noKP)
+          if (!atlet) return null
+          const hasil = await validasiPendaftaran({
+            noKP,
+            tarikhLahir:    atlet.tarikhLahir,
+            kodSekolah:     atlet.kodSekolah,
+            kejohananId,
+            aceraId:        acara.aceraId || acara.id,
+            kategoriId:     acara.kategoriKod,
+            jenisAcara:     acara.jenisAcara,
+            tahunKejohanan: tahunKej,
+          })
+          return { atlet, hasil }
         })
-        if (!hasil.valid) {
-          setDaftarErr(`${atlet.nama} — ${hasil.mesej}`)
+      )
+      for (const r of validasiAll) {
+        if (!r) continue
+        if (!r.hasil.valid) {
+          setDaftarErr(`${r.atlet.nama} — ${r.hasil.mesej}`)
           return
         }
-        if (hasil.warning && !jadualWarning) jadualWarning = `${atlet.nama} — ${hasil.warning}`
+        if (r.hasil.warning && !jadualWarning) jadualWarning = `${r.atlet.nama} — ${r.hasil.warning}`
       }
       if (jadualWarning) setDaftarWarn(jadualWarning)
       // ─────────────────────────────────────────────────────────────────────

@@ -1,14 +1,14 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import { onAuthStateChanged, signInAnonymously } from 'firebase/auth'
 import {
   doc, getDoc, setDoc, serverTimestamp,
   collection, query, where, getCountFromServer,
 } from 'firebase/firestore'
-import { auth, db } from '../firebase/config'
+import { db } from '../firebase/config'
 import {
-  loginSuperadmin as _loginSuperadmin,
-  loginPencatat   as _loginPencatat,
-  loginPengurus   as _loginPengurus,
+  loginSuperadmin   as _loginSuperadmin,
+  loginAdminByEmail as _loginAdminByEmail,
+  loginPencatat     as _loginPencatat,
+  loginPengurus     as _loginPengurus,
   logoutAll,
   sendPinReset,
   SESSION_USER_KEY,
@@ -25,7 +25,7 @@ export function AuthProvider({ children }) {
   const [needsSetup, setNeedsSetup] = useState(false)
 
   useEffect(() => {
-    // ── Semak sessionStorage dahulu (pencatat / pengurus) — synchronous ───────
+    // Semak sessionStorage (synchronous) — semua login guna sessionStorage
     const rawUser = sessionStorage.getItem(SESSION_USER_KEY)
     if (rawUser) {
       try {
@@ -34,60 +34,21 @@ export function AuthProvider({ children }) {
         setUserData(u)
         setUserRole(u.role)
         setNeedsSetup(false)
-        setLoading(false)
-        return // Tidak perlu Firebase listener
       } catch { sessionStorage.removeItem(SESSION_USER_KEY) }
-    }
-
-    const rawSekolah = sessionStorage.getItem(SESSION_SEKOLAH_KEY)
-    if (rawSekolah) {
-      try {
-        const s = JSON.parse(rawSekolah)
-        const uid = `sekolah_${s.kodSekolah}`
-        setUser({ uid, email: s.email || '' })
-        setUserData({
-          ...s,
-          uid,
-          nama:  `Pengurus Pasukan — ${s.namaSekolah}`,
-          role:  'pengurus_pasukan',
-        })
-        setUserRole('pengurus_pasukan')
-        setNeedsSetup(false)
-        setLoading(false)
-        return // Tidak perlu Firebase listener
-      } catch { sessionStorage.removeItem(SESSION_SEKOLAH_KEY) }
-    }
-
-    // ── Firebase Auth — superadmin + anonymous (untuk Firestore rules) ───────
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser && !firebaseUser.isAnonymous) {
-        // Superadmin — real Firebase Auth user
-        const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid))
-        if (userDoc.exists()) {
-          const data = userDoc.data()
-          setUserData(data)
-          setUserRole(data.role || null)
-          setNeedsSetup(!data.role)
-        } else {
-          setNeedsSetup(true)
-        }
-        setUser(firebaseUser)
-        setLoading(false)
-      } else if (!firebaseUser) {
-        // Tiada auth langsung — sign in anonymously supaya Firestore rules boleh enforce
-        // onAuthStateChanged akan fire semula dengan anonymous user
-        try { await signInAnonymously(auth) } catch { setLoading(false) }
-      } else {
-        // Anonymous user — public view, tiada login
-        setUser(null)
-        setUserRole(null)
-        setUserData(null)
-        setNeedsSetup(false)
-        setLoading(false)
+    } else {
+      const rawSekolah = sessionStorage.getItem(SESSION_SEKOLAH_KEY)
+      if (rawSekolah) {
+        try {
+          const s = JSON.parse(rawSekolah)
+          const uid = `sekolah_${s.kodSekolah}`
+          setUser({ uid, email: s.email || '' })
+          setUserData({ ...s, uid, nama: `Pengurus Pasukan — ${s.namaSekolah}`, role: 'pengurus_pasukan' })
+          setUserRole('pengurus_pasukan')
+          setNeedsSetup(false)
+        } catch { sessionStorage.removeItem(SESSION_SEKOLAH_KEY) }
       }
-    })
-
-    return unsubscribe
+    }
+    setLoading(false)
   }, [])
 
   // ─── Login: Superadmin — Firebase Auth ───────────────────────────────────────
@@ -109,6 +70,17 @@ export function AuthProvider({ children }) {
       }
     } catch { /* onAuthStateChanged akan cuba semula */ }
     return cred
+  }
+
+  // ─── Login: Admin — Firestore users (email + PIN, tanpa Firebase Auth) ───────
+
+  async function loginAdmin(email, pin) {
+    const data = await _loginAdminByEmail(email, pin)
+    setUser({ uid: data.uid, email: data.email || '' })
+    setUserData(data)
+    setUserRole(data.role)
+    setNeedsSetup(false)
+    return data
   }
 
   // ─── Login: Pencatat / Urusetia / Admin / Pengurus Teknik — Firestore users ──
@@ -167,14 +139,14 @@ export function AuthProvider({ children }) {
     return roles.includes(userRole)
   }
 
-  // Backward-compat aliases (komponen lain mungkin guna nama lama)
-  const login             = loginSuperadmin
+  // Backward-compat aliases
+  const login             = loginAdmin   // AdminModal kini guna loginAdmin
   const loginWithKodAkses = loginPengurus
 
   return (
     <AuthContext.Provider value={{
       user, userRole, userData, loading, needsSetup,
-      login, loginSuperadmin, loginPencatat, loginPengurus,
+      login, loginAdmin, loginSuperadmin, loginPencatat, loginPengurus,
       loginWithKodAkses,
       logout, hasRole, claimSuperadmin, sendPinReset,
     }}>

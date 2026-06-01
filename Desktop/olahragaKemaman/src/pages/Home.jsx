@@ -292,10 +292,10 @@ function LoginForm({ role, onCancel, cfg }) {
 // ─── AdminModal ───────────────────────────────────────────────────────────────
 
 function AdminModal({ onClose }) {
-  const { login } = useAuth()
+  const { loginAdmin } = useAuth()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
+  const [pin,   setPin]   = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -308,9 +308,10 @@ function AdminModal({ onClose }) {
   async function handleSubmit(e) {
     e.preventDefault()
     setError('')
+    if (!/^\d{6}$/.test(pin)) return setError('PIN mesti 6 digit.')
     setLoading(true)
     try {
-      await login(email, password)
+      await loginAdmin(email, pin)
       navigate('/dashboard')
     } catch (err) {
       setError(errMsg(err.code))
@@ -337,15 +338,16 @@ function AdminModal({ onClose }) {
         <form onSubmit={handleSubmit} className="p-5 space-y-3">
           {error && <p className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{error}</p>}
           <div>
-            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">E-mel</label>
+            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">E-mel Admin</label>
             <input type="email" value={email} onChange={e => { setEmail(e.target.value); setError('') }}
-              required autoFocus autoComplete="email" placeholder="pentadbir@moe.gov.my"
+              required autoFocus autoComplete="email" placeholder="admin@mssd.edu.my"
               className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#003399]/25 focus:border-[#003399] bg-gray-50" />
           </div>
           <div>
-            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Kata Laluan</label>
-            <PasswordInput value={password} onChange={e => { setPassword(e.target.value); setError('') }}
-              required autoComplete="current-password" placeholder="••••••••" />
+            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">PIN — 6 Digit</label>
+            <PasswordInput isPin inputMode="numeric" value={pin}
+              onChange={e => { setPin(e.target.value.replace(/\D/g,'').slice(0,6)); setError('') }}
+              placeholder="• • • • • •" maxLength={6} />
           </div>
           <button type="submit" disabled={loading}
             className="w-full bg-[#003399] hover:bg-[#002277] disabled:bg-gray-300 text-white font-bold py-2.5 rounded-lg text-xs tracking-widest transition-colors">
@@ -1621,7 +1623,7 @@ export default function Home() {
       </header>
 
       {/* Jalur */}
-      <div className="h-[3px] bg-gradient-to-r from-[#cc0001] via-[#ffda00] to-[#cc0001]" />
+      <div className="h-[4px] bg-gradient-to-r from-[#cc0001] via-[#ffda00] to-[#cc0001]" />
 
       {/* ── Hero ── */}
       <section className="py-8 px-5 text-center" style={{ backgroundColor: cfg.warnaHero }}>
@@ -1635,7 +1637,7 @@ export default function Home() {
             <img src={cfg.logoKejohananBase64} alt="kejohanan" className="h-20 sm:h-28 object-contain drop-shadow-lg" />
           </div>
         )}
-        <p className="text-[10px] text-white/30 uppercase tracking-[0.25em] mb-2">{cfg.namaOrganisasi}</p>
+        <p className="text-[10px] text-white/65 uppercase tracking-[0.25em] mb-2">{cfg.namaOrganisasi}</p>
 
         <div className="space-y-2">
           <h1 className="text-xl sm:text-2xl font-black text-white tracking-wide leading-tight px-2">
@@ -1676,30 +1678,38 @@ export default function Home() {
       )}
 
       {/* ── Role Selector ── */}
-      <section className="py-8 px-5 bg-white border-b border-gray-100">
+      <section className="py-10 px-5 bg-white border-b border-gray-200">
         <div className="max-w-xl mx-auto">
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] mb-5 text-center">Log Masuk</p>
-          <div className="grid grid-cols-3 gap-3">
+          {/* Official section header */}
+          <div className="flex items-center gap-4 mb-7">
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent to-gray-200" />
+            <div className="text-center shrink-0">
+              <p className="text-[8px] font-bold text-gray-400 uppercase tracking-[0.3em]">Akses Portal</p>
+              <p className="text-sm font-black text-gray-800 tracking-widest uppercase mt-0.5">Log Masuk</p>
+            </div>
+            <div className="h-px flex-1 bg-gradient-to-l from-transparent to-gray-200" />
+          </div>
+          <div className="grid grid-cols-3 gap-3 sm:gap-4">
             {ROLES.map(role => {
               const isActive = selected === role.id
               return (
                 <button key={role.id}
                   onClick={() => setSelected(prev => prev === role.id ? null : role.id)}
-                  className={`flex flex-col items-center gap-2.5 py-5 px-3 rounded-2xl border-2 transition-all duration-200 ${
+                  className={`flex flex-col items-center gap-3 py-6 px-3 rounded-xl border-2 transition-all duration-200 group ${
                     isActive
-                      ? 'border-transparent bg-[#003399] text-white shadow-lg shadow-[#003399]/20 scale-[1.02]'
-                      : 'border-gray-100 bg-white text-gray-500 hover:border-gray-200 hover:shadow-sm'
+                      ? 'border-[#003399] bg-[#003399] text-white shadow-xl shadow-[#003399]/25'
+                      : 'border-gray-200 bg-gray-50/60 text-gray-500 hover:border-[#003399]/40 hover:bg-white hover:shadow-lg hover:-translate-y-0.5'
                   }`}>
-                  <span className={`w-12 h-12 rounded-xl flex items-center justify-center text-white ${
-                    isActive ? 'bg-white/20' : role.iconBg + ' shadow-sm'
+                  <span className={`w-14 h-14 rounded-xl flex items-center justify-center text-white transition-transform duration-200 group-hover:scale-105 ${
+                    isActive ? 'bg-white/20' : role.iconBg + ' shadow-md'
                   }`}>
                     {role.icon}
                   </span>
                   <div className="text-center">
-                    <p className={`text-[10px] font-bold tracking-wide uppercase ${isActive ? 'text-white' : 'text-gray-700'}`}>
+                    <p className={`text-[10px] font-black tracking-wide uppercase leading-tight ${isActive ? 'text-white' : 'text-gray-800'}`}>
                       {role.label}
                     </p>
-                    <p className={`text-[9px] mt-0.5 ${isActive ? 'text-white/70' : 'text-gray-400'}`}>{role.desc}</p>
+                    <p className={`text-[9px] mt-1 leading-snug ${isActive ? 'text-white/70' : 'text-gray-400'}`}>{role.desc}</p>
                   </div>
                 </button>
               )
@@ -1718,9 +1728,9 @@ export default function Home() {
 
             {/* Section header + Tab toggle */}
             <div className="flex items-center justify-between mb-4">
-              <div>
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Program Kejohanan</p>
-                <h2 className="text-base font-black text-gray-800 leading-tight">Jadual &amp; Keputusan</h2>
+              <div className="border-l-4 border-[#003399] pl-3">
+                <p className="text-[9px] font-bold text-[#003399]/70 uppercase tracking-[0.2em]">Program Kejohanan</p>
+                <h2 className="text-base font-black text-gray-800 leading-tight mt-0.5">Jadual &amp; Keputusan</h2>
               </div>
               <div className="flex items-center gap-2">
                 {/* Cetak PDF — Jadual */}
@@ -2249,9 +2259,9 @@ export default function Home() {
 
               {/* Header — sama gaya Jadual & Keputusan */}
               <div className="flex items-center justify-between mb-4">
-                <div>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Penjuaian</p>
-                  <h2 className="text-base font-black text-gray-800 leading-tight">Kedudukan Pingat</h2>
+                <div className="border-l-4 border-[#003399] pl-3">
+                  <p className="text-[9px] font-bold text-[#003399]/70 uppercase tracking-[0.2em]">Penjuaian</p>
+                  <h2 className="text-base font-black text-gray-800 leading-tight mt-0.5">Kedudukan Pingat</h2>
                 </div>
                 <button onClick={() => loadMedalTally(kejohananId)} disabled={medalLoading}
                   className="p-2 text-gray-400 hover:text-[#003399] hover:bg-white rounded-xl transition-all disabled:opacity-50"
@@ -2584,10 +2594,16 @@ export default function Home() {
 
 
       {/* ── Footer ── */}
-      <footer className="border-t border-gray-100 py-4 px-5 bg-white">
-        <p className="text-center text-[10px] text-gray-300">
-          © {new Date().getFullYear()} Majlis Sukan Sekolah Daerah Kemaman · Hak Cipta Terpelihara
-        </p>
+      <footer className="border-t-2 border-gray-100 py-5 px-5 bg-white">
+        <div className="max-w-4xl mx-auto flex flex-col items-center gap-1.5">
+          <div className="flex items-center gap-2">
+            <div className="h-px w-8 bg-gray-200" />
+            <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.2em]">Sistem Pengurusan Kejohanan</p>
+            <div className="h-px w-8 bg-gray-200" />
+          </div>
+          <p className="text-[10px] text-gray-400 font-medium">{cfg.namaAgensi || 'Majlis Sukan Sekolah Daerah Kemaman'}</p>
+          <p className="text-[9px] text-gray-300">© {new Date().getFullYear()} · Hak Cipta Terpelihara</p>
+        </div>
       </footer>
 
       {adminModal && <AdminModal onClose={() => setAdminModal(false)} />}
