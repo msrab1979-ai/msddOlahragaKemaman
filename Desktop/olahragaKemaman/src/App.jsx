@@ -28,6 +28,8 @@ import ResetSistem from './pages/admin/ResetSistem'
 import Backup from './pages/admin/Backup'
 import ManualPendaftaran from './pages/admin/ManualPendaftaran'
 import AnalisisPendaftaran from './pages/admin/AnalisisPendaftaran'
+import ESijil from './pages/admin/ESijil'
+import SijilPengurus from './pages/admin/SijilPengurus'
 
 function ProtectedRoute({ children }) {
   const { user } = useAuth()
@@ -189,6 +191,16 @@ function AppRoutes() {
       <Route path="/dashboard/analisis" element={
         <ProtectedRoute>
           <DashboardLayout><AnalisisPendaftaran /></DashboardLayout>
+        </ProtectedRoute>
+      } />
+      <Route path="/dashboard/esijil" element={
+        <ProtectedRoute>
+          <DashboardLayout><ESijil /></DashboardLayout>
+        </ProtectedRoute>
+      } />
+      <Route path="/dashboard/sijilsaya" element={
+        <ProtectedRoute>
+          <DashboardLayout><SijilPengurus /></DashboardLayout>
         </ProtectedRoute>
       } />
       <Route path="/dashboard/laporan" element={

@@ -4067,12 +4067,12 @@ function PPPendaftaranView({ sekolahList }) {
           setDaftarErr(`${atlet.nama || noKP} — No. BIB "${atlet.noBib}" tidak sepadan dengan prefix sekolah "${bibPfxSemak}". Hubungi admin untuk betulkan BIB.`)
           return
         }
-        // Semak noBib unik — bandingkan dengan semua pendaftaran yang ada
-        const bibDuplikat = pendaftaranList.find(
-          p => p.noKP !== noKP && (p.noBib || '').toUpperCase() === noBibAtlet
+        // Semak noBib unik — bandingkan dengan atlet semasa (sumber kebenaran terkini)
+        const bibDuplikat = atletSekolah.find(
+          a => a.noKP !== noKP && (a.noBib || '').toUpperCase() === noBibAtlet
         )
         if (bibDuplikat) {
-          setDaftarErr(`${atlet.nama || noKP} — No. BIB "${atlet.noBib}" sudah digunakan oleh atlet lain (${bibDuplikat.namaAtlet || bibDuplikat.noKP}). Hubungi admin.`)
+          setDaftarErr(`${atlet.nama || noKP} — No. BIB "${atlet.noBib}" sudah digunakan oleh atlet lain (${bibDuplikat.nama || bibDuplikat.noKP}). Sila betulkan dalam tab "Atlet Saya".`)
           return
         }
       }
@@ -4146,8 +4146,12 @@ function PPPendaftaranView({ sekolahList }) {
           const counterSnap = await transaction.get(counterRef)
           let lastNum = counterSnap.exists() ? (counterSnap.data().lastBibNum || 0) : 0
           // Semak bib sedia ada — ambil nombor tertinggi sebagai floor
-          pendLiveSnap.docs.forEach(d => {
-            const nb = d.data().noBib || ''
+          // Gabung pendaftaran.noBib + atlet.noBib supaya counter tidak clash dengan noBib manual
+          const semuaNoBib = [
+            ...pendLiveSnap.docs.map(d => d.data().noBib || ''),
+            ...atletSekolah.map(a => a.noBib || ''),
+          ]
+          semuaNoBib.forEach(nb => {
             if (nb.startsWith(bibPfx)) {
               const n = parseInt(nb.slice(bibPfx.length), 10)
               if (!isNaN(n) && n > lastNum) lastNum = n
@@ -4164,6 +4168,7 @@ function PPPendaftaranView({ sekolahList }) {
               jantina:     atlet.jantina,
               tarikhLahir: atlet.tarikhLahir,
               kodSekolah:  atlet.kodSekolah,
+              namaSekolah: sekolahData?.namaSekolah || kodSekolah,
               kategoriKod: kiraKategori(atlet.tarikhLahir, atlet.jantina, tahunKej, kategoriList),
               acaraIds:    [acara.aceraId || acara.id],
               isAktif:     true,
@@ -4227,13 +4232,19 @@ function PPPendaftaranView({ sekolahList }) {
         await updateDoc(pendRefBaru, { acaraIds: idsBaru, updatedAt: serverTimestamp() })
       } else {
         await setDoc(pendRefBaru, {
-          noKP:       noKPBaru,
-          noBib:      atletBaru.noBib || '',
-          namaAtlet:  atletBaru.nama,
-          kodSekolah: atletBaru.kodSekolah,
-          acaraIds:   [aceraId],
-          createdAt:  serverTimestamp(),
-          updatedAt:  serverTimestamp(),
+          noKP:        noKPBaru,
+          noBib:       atletBaru.noBib || '',
+          namaAtlet:   atletBaru.nama,
+          jantina:     atletBaru.jantina     || '',
+          tarikhLahir: atletBaru.tarikhLahir || '',
+          kodSekolah:  atletBaru.kodSekolah,
+          namaSekolah: sekolahData?.namaSekolah || atletBaru.kodSekolah,
+          kategoriKod: kiraKategori(atletBaru.tarikhLahir, atletBaru.jantina, tahunKej, kategoriList) || atletBaru.kategoriKod || '',
+          acaraIds:    [aceraId],
+          isAktif:     true,
+          isRelay:     false,
+          createdAt:   serverTimestamp(),
+          updatedAt:   serverTimestamp(),
         })
       }
 
@@ -5268,21 +5279,31 @@ function PPPendaftaranView({ sekolahList }) {
 
       const rows = []
       let bil = 1
-      atletSekolah.forEach(a => {
-        const pRec     = myPendaftaran.find(p => p.noKP === a.noKP)
-        const acaraIds = pRec?.acaraIds || []
-        const kat      = kiraKategori(a.tarikhLahir, a.jantina, tahunKej, kategoriList) || '—'
-        const acaraNama = acaraIds.map(id => acaraMap[id]?.namaAcara || id).join(', ') || '—'
-        rows.push([
-          bil++,
-          a.noBib || '—',
-          a.nama,
-          a.noKP,
-          a.jantina,
-          kat,
-          acaraNama,
-        ])
-      })
+      atletSekolah
+        .filter(a => {
+          // Bug 2 fix: tunjuk HANYA atlet yang ada pendaftaran acara
+          const p = myPendaftaran.find(x => x.noKP === a.noKP)
+          return p && (p.acaraIds || []).length > 0
+        })
+        .forEach(a => {
+          const pRec      = myPendaftaran.find(p => p.noKP === a.noKP)
+          const acaraIds  = pRec?.acaraIds || []
+          // Bug 1 fix: guna noBib dari pendaftaran (auto-jana), fallback ke atlet
+          const noBib     = pRec?.noBib || a.noBib || '—'
+          // Bug 3 fix: guna kategoriKod dari rekod pendaftaran, fallback ke kira semula
+          const kat       = pRec?.kategoriKod ||
+                            kiraKategori(a.tarikhLahir, a.jantina, tahunKej, kategoriList) || '—'
+          const acaraNama = acaraIds.map(id => acaraMap[id]?.namaAcara || id).join(', ') || '—'
+          rows.push([
+            bil++,
+            noBib,
+            a.nama,
+            a.noKP,
+            a.jantina,
+            kat,
+            acaraNama,
+          ])
+        })
 
       autoTable(pdf, {
         startY,
@@ -5338,11 +5359,19 @@ function PPPendaftaranView({ sekolahList }) {
           const peserta = pesertaSekolahByAcara[aceraId] || []
           if (peserta.length === 0) return
           const pesertaNama = peserta.map((p, i) => `${i+1}. ${p.namaAtlet} (${p.noBib || '—'})`).join('\n')
+          // Resolve kategoriKod: format baru (L12/P12) terus, format lama (A-H) → cari label
+          const katKod = a.kategoriKod || ''
+          const isOld  = /^[A-H]$/.test(katKod)
+          let katLabel = katKod
+          if (isOld && kategoriList?.length > 0) {
+            const found = kategoriList.find(k => (k.kod || k.id) === katKod)
+            katLabel = found?.label || found?.nama || katKod
+          }
           rows.push([
             bil++,
             aceraId,
             a.namaAcara,
-            `Kat ${a.kategoriKod}`,
+            katLabel,
             a.jantina === 'L' ? 'Lelaki' : 'Perempuan',
             pesertaNama,
           ])

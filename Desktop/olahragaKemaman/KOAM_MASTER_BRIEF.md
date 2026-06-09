@@ -1657,3 +1657,79 @@ Selesai sesi ini:
 
 ---
 *Versi: 8.0 — Relay tally fix, Log Audit buang, PDF formal, badge Saringan/Final. Deploy 2026-05-16.*
+
+---
+
+## 42. STATUS SEMASA (DIKEMASKINI — VERSI 10.0) — 2026-06-03
+
+### Selesai sesi ini:
+
+```
+✅ PP Import Daftar Excel — bulk register atlet ke acara
+   - Butang "Import Excel" dalam Tab Daftar PP (tersembunyi jika pendaftaranTutup)
+   - Template 3 kolum: noBib | noKP | noAcara (header mesti tepat — STOP jika salah)
+   - downloadTemplateDaftar(): Sheet DAFTAR + SENARAI ACARA + PANDUAN
+   - Validation per baris: header check → 8 gate sedia ada (validasiPendaftaran.js)
+   - noBib prefix TIDAK divalidasi dalam import (hanya dalam daftar manual)
+   - Jadual hasil: SAH (hijau) | ERROR (merah) dengan sebab
+   - Import SAH sahaja — skip relay — auto-assign noBib via runTransaction
+   - Laporan error boleh dimuat turun
+
+✅ Gate G0 — noBib prefix dalam handleDaftarSave (daftar manual PP)
+   - Semak 3 perkara: noBib tiada | prefix salah vs sekolah | noBib duplikat
+   - Sumber prefix: sekolahData.bibPrefix dari Firestore sekolah/{kodSekolah}
+   - Fail-open jika bibPrefix kosong (gate dilangkau)
+   - Letaknya sebelum setDaftarSaving(true) dalam handleDaftarSave
+
+✅ Bypass Pengesahan fix — canEdit dalam renderTabDaftar
+   - Bug lama: heat lock (acaraLock=true) override bypass walaupun isDikunci=false
+   - Fix: tambah bypassSahkanAktif = sekolahData?.bypassPengesahan === true
+   - canEdit = bypassSahkanAktif || bypassed || (!acaraLock && !isDikunci)
+   - Kini PP boleh tukar atlet bila admin aktifkan bypass
+
+✅ Auto-replace heat — bila PP tukar atlet (bypass pengesahan)
+   - Langkah baru (Step 3) dalam handleTukarSimpan
+   - Cari heat dengan noKP atlet lama → replace in-place (lorong kekal)
+   - Reset fields: keputusan=null, status='belum', cubaan=[], rankDalamHeat=null
+   - Tiada jana heat semula — start list PDF terus papar atlet baru
+   - Skip: relay (struktur ahliPasukan berbeza) + heat status='selesai'
+```
+
+### Git Commit: 11539b7
+
+```
+Feat: PP import daftar Excel, gate G0 noBib, bypass pengesahan & auto-replace heat
+```
+
+### Pending / Isu Diketahui:
+
+```
+⏳ Relay auto-replace heat — ahliPasukan array dalam pasukan doc (struktur berbeza)
+   → Admin perlu jana heat semula jika atlet relay ditukar
+   
+⏳ CetakKeputusan canJanaFinal → belum update ke 'diterima' (dari sesi lepas)
+```
+
+### Prompt Sambung Sesi Seterusnya:
+
+```
+Baca KOAM_MASTER_BRIEF.md section 42.
+
+STATUS:
+- Semua fix sesi 10.0 sudah deploy ke mssdkemaman-olahraga.web.app
+- GitHub: msrab1979-ai/msddOlahragaKemaman (commit 11539b7)
+
+SELESAI SESI INI:
+- PP boleh import daftar acara via Excel (bulk)
+- Gate G0: noBib prefix diperiksa dalam daftar manual
+- canEdit fix: bypass pengesahan kini berfungsi walaupun heat sudah jana
+- Auto-replace heat: atlet baru terus dalam start list tanpa jana semula
+
+SETERUSNYA (ikut keutamaan):
+1. Relay auto-replace heat — bina logik untuk ahliPasukan array
+2. CetakKeputusan → canJanaFinal update ke 'diterima'
+3. Apa-apa feature / bug lain yang user laporkan
+```
+
+---
+*Versi: 10.0 — PP Import Excel, Gate G0 noBib, bypass pengesahan fix, auto-replace heat. Commit 11539b7. Deploy 2026-06-03.*
