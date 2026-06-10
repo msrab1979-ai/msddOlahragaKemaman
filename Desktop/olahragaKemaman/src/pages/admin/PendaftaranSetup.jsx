@@ -3947,12 +3947,38 @@ function PPPendaftaranView({ sekolahList }) {
           getDoc(doc(db, 'sekolah', kodSekolah)),
         ])
         setAcaraList(acaraSnap.docs.map(x => ({ id: x.id, ...x.data() })))
-        setPendaftaran(pendSnap.docs.map(x => ({ id: x.id, ...x.data() })))
-        const atlets = atletSnap.docs.map(x => ({ id: x.id, ...x.data() }))
+        const pendList    = pendSnap.docs.map(x => ({ id: x.id, ...x.data() }))
+        const atlets      = atletSnap.docs.map(x => ({ id: x.id, ...x.data() }))
+        const sekolahLive = sekolahSnap.exists() ? { id: sekolahSnap.id, ...sekolahSnap.data() } : null
+        const bibPfx      = sekolahLive?.bibPrefix || kodSekolah || ''
+
+        // Auto-sync noBib on initial load — sama logic seperti refreshData()
+        const perluSync = pendList.filter(p => {
+          if (p.kodSekolah !== kodSekolah) return false
+          const a = atlets.find(x => x.noKP === p.noKP || x.id === p.noKP)
+          if (!a?.noBib) return false
+          if (a.noBib === p.noBib) return false
+          if (bibPfx && !a.noBib.startsWith(bibPfx)) return false
+          const dup = atlets.filter(x => x.noBib === a.noBib && x.noKP !== a.noKP)
+          if (dup.length > 0) return false
+          return true
+        })
+        if (perluSync.length > 0) {
+          const batch = writeBatch(db)
+          perluSync.forEach(p => {
+            const a = atlets.find(x => x.noKP === p.noKP || x.id === p.noKP)
+            batch.update(doc(db, 'kejohanan', kej.id, 'pendaftaran', p.id || p.noKP),
+              { noBib: a.noBib, updatedAt: serverTimestamp() })
+            p.noBib = a.noBib
+          })
+          await batch.commit().catch(() => {})
+        }
+
+        setPendaftaran(pendList)
         atlets.sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'ms'))
         setAtletSekolah(atlets)
         setJadualList(jadualSnap.docs.map(x => ({ id: x.id, ...x.data() })))
-        if (sekolahSnap.exists()) setSekolahDataLive({ id: sekolahSnap.id, ...sekolahSnap.data() })
+        if (sekolahLive) setSekolahDataLive(sekolahLive)
 
         // Fetch had acara dari kategori collection (untuk UI checklist + kiraKategori)
         getDocs(collection(db, 'kategori'))
