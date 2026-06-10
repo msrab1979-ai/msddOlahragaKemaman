@@ -30,6 +30,7 @@ import ManualPendaftaran from './pages/admin/ManualPendaftaran'
 import AnalisisPendaftaran from './pages/admin/AnalisisPendaftaran'
 import ESijil from './pages/admin/ESijil'
 import SijilPengurus from './pages/admin/SijilPengurus'
+import HealthCheck from './pages/admin/HealthCheck'
 
 function ProtectedRoute({ children }) {
   const { user } = useAuth()
@@ -201,6 +202,11 @@ function AppRoutes() {
       <Route path="/dashboard/sijilsaya" element={
         <ProtectedRoute>
           <DashboardLayout><SijilPengurus /></DashboardLayout>
+        </ProtectedRoute>
+      } />
+      <Route path="/dashboard/healthcheck" element={
+        <ProtectedRoute>
+          <DashboardLayout><HealthCheck /></DashboardLayout>
         </ProtectedRoute>
       } />
       <Route path="/dashboard/laporan" element={

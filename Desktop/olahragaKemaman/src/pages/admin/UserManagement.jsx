@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  collection, getDocs, doc, addDoc, updateDoc, deleteDoc, deleteField,
+  collection, getDocs, doc, addDoc, updateDoc, deleteDoc, deleteField, setDoc,
   serverTimestamp, query, orderBy,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
@@ -94,14 +94,19 @@ function UserModal({ mode, initial, onClose, onSaved }) {
           updatedAt: serverTimestamp(),
           updatedBy: userData?.uid || '',
         }
-        if (form.pin) updateData.pin = form.pin
+        if (form.pin) {
+          const ph = await hashPin(form.pin)
+          updateData.pinHash = ph
+          updateData.pin     = deleteField()
+        }
         await updateDoc(doc(db, 'users', initial.uid), updateData)
       } else {
+        const ph = await hashPin(form.pin)
         await addDoc(collection(db, 'users'), {
           nama:      form.nama.trim(),
           email:     form.email.trim().toLowerCase(),
           kodAkses:  form.kodAkses.trim().toUpperCase(),
-          pin:       form.pin,
+          pinHash:   ph,
           role:      form.role,
           isAktif:   true,
           createdAt: serverTimestamp(),
@@ -244,10 +249,11 @@ export default function UserManagement() {
   const [modal,      setModal]      = useState(null)
   const [filterRole, setFilterRole] = useState('semua')
   const [search,     setSearch]     = useState('')
-  const [toggling,   setToggling]   = useState(null)
-  const [deleting,   setDeleting]   = useState(null)
-  const [confirmDel, setConfirmDel] = useState(null)
-  const [resetPin,   setResetPin]   = useState(null) // { uid, nama, newPin }
+  const [toggling,      setToggling]      = useState(null)
+  const [deleting,      setDeleting]      = useState(null)
+  const [confirmDel,    setConfirmDel]    = useState(null)
+  const [resetPin,      setResetPin]      = useState(null) // { uid, nama, newPin }
+  const [resettingAttempt, setResettingAttempt] = useState(null)
 
   const { userData: currentUser } = useAuth()
 
@@ -289,6 +295,17 @@ export default function UserManagement() {
 
   function openResetPin(u) {
     setResetPin({ uid: u.uid, nama: u.nama, newPin: genPin() })
+  }
+
+  async function resetCubaan(u) {
+    setResettingAttempt(u.uid)
+    try {
+      await setDoc(doc(db, 'login_attempts', `user_${u.kodAkses}`), {
+        attempts: 0, lockedUntil: null, lastAttempt: serverTimestamp(),
+      })
+    } finally {
+      setResettingAttempt(null)
+    }
   }
 
   async function confirmResetPin() {
@@ -439,7 +456,7 @@ export default function UserManagement() {
                   <td className="px-4 py-3"><RoleBadge role={u.role} /></td>
                   <td className="px-4 py-3"><StatusBadge isAktif={u.isAktif} /></td>
                   <td className="px-4 py-3">
-                    <div className="flex items-center justify-center gap-1">
+                    <div className="flex items-center justify-center gap-1 flex-wrap">
                       <button onClick={() => openEdit(u)}
                         className="px-2 py-1 text-[10px] font-semibold border border-gray-300 rounded text-gray-600 hover:bg-gray-100">
                         Edit
@@ -447,6 +464,11 @@ export default function UserManagement() {
                       <button onClick={() => openResetPin(u)}
                         className="px-2 py-1 text-[10px] font-semibold border border-amber-300 rounded text-amber-700 hover:bg-amber-50">
                         Reset PIN
+                      </button>
+                      <button onClick={() => resetCubaan(u)} disabled={resettingAttempt === u.uid}
+                        title="Buka kunci akaun yang disekat selepas terlalu banyak percubaan"
+                        className="px-2 py-1 text-[10px] font-semibold border border-sky-300 rounded text-sky-700 hover:bg-sky-50 disabled:opacity-50">
+                        {resettingAttempt === u.uid ? '…' : 'Buka Kunci'}
                       </button>
                       <button onClick={() => toggleAktif(u)} disabled={toggling === u.uid}
                         className={`px-2 py-1 text-[10px] font-semibold rounded disabled:opacity-50 ${

@@ -63,6 +63,7 @@ const NAV_ITEMS = [
   {
     section: 'SISTEM',
     items: [
+      { label: 'Semak Sistem',         path: '/dashboard/healthcheck', icon: 'shield', roles: ['superadmin', 'admin'] },
       { label: 'Laporan & PDF',       path: '/dashboard/laporan',  icon: 'file',     roles: [] },
       { label: 'Pengurusan Pengguna', path: '/dashboard/pengguna', icon: 'users',    roles: ['superadmin'] },
       { label: 'Tetapan Home',        path: '/dashboard/tetapan',  icon: 'settings', roles: ['superadmin'] },

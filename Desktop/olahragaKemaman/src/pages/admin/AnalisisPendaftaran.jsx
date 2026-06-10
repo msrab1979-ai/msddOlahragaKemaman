@@ -19,6 +19,8 @@ import {
   collection, getDocs, query, where, orderBy,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
 
 // ─── Helpers — Tab 1 (Ringkasan Acara) ───────────────────────────────────────
 
@@ -147,6 +149,8 @@ function buildAnalisisBySekolah(sekolahList, acaraList, pendaftaranDocs, kategor
     })
   })
 
+  const totalEvents = sortedEvents.length
+
   // 6. Bina baris
   const rows = schools.map(s => {
     const schoolCounts = countMap[s.kodSekolah] || {}
@@ -165,18 +169,21 @@ function buildAnalisisBySekolah(sekolahList, acaraList, pendaftaranDocs, kategor
       return { name: ev.name, cols }
     })
 
+    const filledEvents = events.filter(ev => ev.cols.some(c => c.cnt > 0)).length
+
     return {
       kodSekolah: s.kodSekolah,
       namaSekolah: s.namaSekolah || s.kodSekolah,
       events,
       filledCols,
-      totalCols: totalSubCols,
-      isLengkap: totalSubCols > 0 && filledCols === totalSubCols,
+      filledEvents,
+      totalEvents,
+      isLengkap: totalEvents > 0 && filledEvents === totalEvents,
     }
   })
 
   // 7. Jumlah per sub-kolum
-  const colTotals = {} // acaraId → total
+  const colTotals = {}
   rows.forEach(r => {
     r.events.forEach(ev => {
       ev.cols.forEach(c => {
@@ -185,7 +192,236 @@ function buildAnalisisBySekolah(sekolahList, acaraList, pendaftaranDocs, kategor
     })
   })
 
-  return { sortedEvents, rows, totalSubCols, colTotals }
+  return { sortedEvents, rows, totalSubCols, totalEvents, colTotals }
+}
+
+// ─── Helpers — Tab 3 (Pendaftaran By Acara) ──────────────────────────────────
+
+function buildByAcara(acaraList, pendaftaranDocs, sekolahList, filterSekolah) {
+  const sekolahMap = Object.fromEntries(sekolahList.map(s => [s.kodSekolah || s.id, s.namaSekolah || s.kodSekolah || s.id]))
+
+  // acaraId → list of athletes
+  const acaraAtletMap = {}
+  pendaftaranDocs.forEach(p => {
+    if (filterSekolah && p.kodSekolah !== filterSekolah) return
+    ;(p.acaraIds || []).forEach(aid => {
+      if (!acaraAtletMap[aid]) acaraAtletMap[aid] = []
+      acaraAtletMap[aid].push({
+        noBib:      p.noBib      || '—',
+        namaAtlet:  p.namaAtlet  || p.noKP || '—',
+        noKP:       p.noKP       || '',
+        jantina:    p.jantina    || '',
+        kategoriKod: p.kategoriKod || '',
+        kodSekolah: p.kodSekolah || '',
+        namaSekolah: sekolahMap[p.kodSekolah] || p.kodSekolah || '—',
+      })
+    })
+  })
+
+  return acaraList
+    .filter(a => acaraAtletMap[a.id]?.length > 0)
+    .sort((a, b) => (Number(a.noAcara) || 0) - (Number(b.noAcara) || 0))
+    .map(a => ({
+      ...a,
+      atlet: (acaraAtletMap[a.id] || []).sort((x, y) =>
+        (x.noBib || '').localeCompare(y.noBib || '', undefined, { numeric: true })
+      ),
+    }))
+}
+
+// ─── Tab 3: Pendaftaran By Acara (pilih sekolah dahulu) ──────────────────────
+
+function TabPendaftaranByAcara({ sekolahList, acaraList, pendaftaranDocs, kategoriList, namaKej }) {
+  const katLabelMap = Object.fromEntries(kategoriList.map(k => [k.id, k.label || k.id]))
+
+  const sekolahAda = [...new Map(
+    pendaftaranDocs.map(p => [p.kodSekolah, sekolahList.find(s => (s.kodSekolah || s.id) === p.kodSekolah)])
+  ).entries()]
+    .filter(([, s]) => s)
+    .map(([kod, s]) => ({ kod, nama: s.namaSekolah || kod }))
+    .sort((a, b) => a.nama.localeCompare(b.nama))
+
+  const [selectedSekolah, setSelectedSekolah] = useState(sekolahAda[0]?.kod || '')
+  const [cari, setCari] = useState('')
+
+  const sekolahTapis = cari.trim()
+    ? sekolahAda.filter(s => s.nama.toLowerCase().includes(cari.toLowerCase()))
+    : sekolahAda
+
+  const sekolahDipilih = sekolahAda.find(s => s.kod === selectedSekolah)
+  const data = buildByAcara(acaraList, pendaftaranDocs, sekolahList, selectedSekolah)
+  const totalPendaftaran = data.reduce((n, a) => n + a.atlet.length, 0)
+
+  function cetakPDF() {
+    if (!sekolahDipilih || data.length === 0) return
+    const doc = new jsPDF('p', 'mm', 'a4')
+    const margin = 14, pageW = 210, contentW = pageW - margin * 2
+    let y = margin
+
+    // Header
+    doc.setFontSize(13).setFont('helvetica', 'bold').setTextColor(0, 51, 153)
+    doc.text('SENARAI PENDAFTARAN SEKOLAH', margin, y); y += 7
+    doc.setFontSize(10).setFont('helvetica', 'bold').setTextColor(30, 30, 30)
+    doc.text(sekolahDipilih.nama, margin, y); y += 6
+    doc.setFontSize(8).setFont('helvetica', 'normal').setTextColor(100, 100, 100)
+    if (namaKej) { doc.text(namaKej, margin, y); y += 5 }
+    doc.text(`${data.length} acara  •  ${totalPendaftaran} pendaftaran`, margin, y); y += 8
+
+    // Per acara
+    data.forEach(acara => {
+      if (y > 265) { doc.addPage(); y = margin }
+
+      // Bar header acara
+      doc.setFillColor(0, 51, 153)
+      doc.roundedRect(margin, y, contentW, 6.5, 1, 1, 'F')
+      doc.setFontSize(8).setFont('helvetica', 'bold').setTextColor(255, 255, 255)
+      doc.text(`#${acara.noAcara}  ${acara.namaAcara || acara.namaAcaraPendek || acara.id}`, margin + 3, y + 4.5)
+      doc.text(`${acara.atlet.length} atlet`, pageW - margin - 3, y + 4.5, { align: 'right' })
+      y += 8
+
+      autoTable(doc, {
+        startY: y,
+        margin: { left: margin, right: margin },
+        tableWidth: contentW,
+        head: [['Bil', 'No Bib', 'Nama Atlet', 'Kat']],
+        body: acara.atlet.map((atlet, i) => [
+          i + 1,
+          atlet.noBib,
+          atlet.namaAtlet,
+          `${atlet.jantina}${katLabelMap[atlet.kategoriKod] || atlet.kategoriKod}`,
+        ]),
+        styles: { fontSize: 8, cellPadding: 1.8 },
+        headStyles: { fillColor: [0, 68, 187], textColor: 255, fontStyle: 'bold', fontSize: 7 },
+        columnStyles: {
+          0: { cellWidth: 12, halign: 'center' },
+          1: { cellWidth: 26 },
+          3: { cellWidth: 20, halign: 'center' },
+        },
+        alternateRowStyles: { fillColor: [248, 249, 252] },
+      })
+      y = doc.lastAutoTable.finalY + 6
+    })
+
+    doc.setFontSize(7).setTextColor(150).text(
+      `Dicetak: ${new Date().toLocaleDateString('ms-MY')}`,
+      pageW - margin, y, { align: 'right' }
+    )
+    doc.save(`Pendaftaran_${sekolahDipilih.nama.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0,10)}.pdf`)
+  }
+
+  return (
+    <div className="space-y-4">
+
+      {/* Pilih sekolah — utama */}
+      <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 flex flex-wrap gap-3 items-start justify-between">
+        <div className="flex flex-wrap gap-3 items-start">
+          <div className="shrink-0 space-y-1.5">
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Cari Sekolah</p>
+            <input
+              type="text"
+              value={cari}
+              onChange={e => setCari(e.target.value)}
+              placeholder="Taip nama sekolah…"
+              className="border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-700 bg-white focus:outline-none focus:border-[#003399] w-64"
+            />
+            {sekolahTapis.length > 0 ? (
+              <select
+                value={selectedSekolah}
+                onChange={e => setSelectedSekolah(e.target.value)}
+                size={Math.min(sekolahTapis.length, 6)}
+                className="block border border-gray-200 rounded-lg px-3 py-1 text-xs font-semibold text-gray-700 bg-white focus:outline-none focus:border-[#003399] w-64"
+              >
+                {sekolahTapis.map(s => (
+                  <option key={s.kod} value={s.kod}>{s.nama}</option>
+                ))}
+              </select>
+            ) : (
+              <p className="text-xs text-gray-400 italic">Tiada sekolah ditemui.</p>
+            )}
+          </div>
+          {sekolahDipilih && (
+            <div className="flex flex-col gap-1 pt-5">
+              <p className="text-xs font-bold text-gray-700">{sekolahDipilih.nama}</p>
+              <div className="flex gap-4 text-center">
+                <div>
+                  <p className="text-lg font-black text-[#003399]">{data.length}</p>
+                  <p className="text-[10px] text-gray-400">Acara</p>
+                </div>
+                <div>
+                  <p className="text-lg font-black text-[#003399]">{totalPendaftaran}</p>
+                  <p className="text-[10px] text-gray-400">Pendaftaran</p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+        {sekolahDipilih && data.length > 0 && (
+          <button
+            onClick={cetakPDF}
+            className="flex items-center gap-2 px-3 py-2 bg-[#003399] text-white text-xs font-bold rounded-lg hover:bg-[#002280] transition-colors shrink-0 mt-1"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
+            </svg>
+            Cetak PDF
+          </button>
+        )}
+      </div>
+
+      {/* Tiada pendaftaran */}
+      {data.length === 0 && selectedSekolah && (
+        <div className="bg-gray-50 border border-gray-100 rounded-xl p-6 text-center">
+          <p className="text-sm text-gray-400">Tiada pendaftaran untuk sekolah ini.</p>
+        </div>
+      )}
+
+      {/* Jadual per acara */}
+      {data.length > 0 && (
+        <div className="space-y-3">
+          {data.map(acara => (
+            <div key={acara.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="px-4 py-2 bg-[#003399] flex items-center justify-between">
+                <p className="text-xs font-bold text-white">
+                  #{acara.noAcara}&nbsp;&nbsp;{acara.namaAcara || acara.namaAcaraPendek || acara.id}
+                </p>
+                <span className="text-[10px] bg-white/20 text-white px-2 py-0.5 rounded-full font-semibold">
+                  {acara.atlet.length} atlet
+                </span>
+              </div>
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-100">
+                    <th className="text-left px-3 py-2 font-bold text-gray-500 w-8">Bil</th>
+                    <th className="text-left px-3 py-2 font-bold text-gray-500 w-24">No Bib</th>
+                    <th className="text-left px-3 py-2 font-bold text-gray-500">Nama Atlet</th>
+                    <th className="text-left px-3 py-2 font-bold text-gray-500 w-16">Kat</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {acara.atlet.map((atlet, i) => (
+                    <tr key={atlet.noKP || i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                      <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                      <td className="px-3 py-2 font-mono font-bold text-[#003399]">{atlet.noBib}</td>
+                      <td className="px-3 py-2 font-medium text-gray-800">{atlet.namaAtlet}</td>
+                      <td className="px-3 py-2">
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                          atlet.jantina === 'L' ? 'bg-blue-100 text-blue-700' :
+                          atlet.jantina === 'P' ? 'bg-pink-100 text-pink-700' :
+                          'bg-gray-100 text-gray-500'
+                        }`}>
+                          {atlet.jantina}{katLabelMap[atlet.kategoriKod] || atlet.kategoriKod}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ─── Spinner ──────────────────────────────────────────────────────────────────
@@ -204,25 +440,68 @@ function Spinner() {
 
 // ─── Tab 1: Ringkasan Acara ───────────────────────────────────────────────────
 
-function TabRingkasanAcara({ analisis, totalAtlet }) {
+function TabRingkasanAcara({ analisis, totalAtlet, namaKej }) {
   if (!analisis) return null
   const { colHeaders, rows, colTotals, grandTotal } = analisis
 
+  function cetakPDF() {
+    const doc = new jsPDF('p', 'mm', 'a4')
+    const margin = 14, pageW = 210, contentW = pageW - margin * 2
+    let y = margin
+
+    doc.setFontSize(13).setFont('helvetica', 'bold').setTextColor(0, 51, 153)
+    doc.text('RINGKASAN PENDAFTARAN ACARA', margin, y); y += 7
+    doc.setFontSize(9).setFont('helvetica', 'normal').setTextColor(80, 80, 80)
+    if (namaKej) { doc.text(namaKej, margin, y); y += 5 }
+    doc.text(`Jumlah Atlet: ${totalAtlet}  •  Jenis Acara: ${rows.length}  •  Jumlah Pendaftaran: ${grandTotal}`, margin, y); y += 8
+
+    autoTable(doc, {
+      startY: y,
+      margin: { left: margin, right: margin },
+      tableWidth: contentW,
+      head: [['Acara', ...colHeaders, 'Jumlah']],
+      body: rows.map(r => [r.namaPendek, ...colHeaders.map(c => r.cols[c] || ''), r.total]),
+      foot: [['JUMLAH', ...colHeaders.map(c => colTotals[c] || 0), grandTotal]],
+      styles: { fontSize: 7, cellPadding: 1.5, halign: 'center' },
+      headStyles: { fillColor: [0, 51, 153], textColor: 255, fontStyle: 'bold', fontSize: 7 },
+      footStyles: { fillColor: [0, 51, 153], textColor: 255, fontStyle: 'bold', fontSize: 7 },
+      columnStyles: { 0: { halign: 'left', cellWidth: 38 } },
+      alternateRowStyles: { fillColor: [248, 249, 252] },
+    })
+
+    doc.setFontSize(7).setTextColor(150).text(
+      `Dicetak: ${new Date().toLocaleDateString('ms-MY')}`,
+      pageW - margin, doc.lastAutoTable.finalY + 5, { align: 'right' }
+    )
+    doc.save(`RingkasanPendaftaran_${new Date().toISOString().slice(0,10)}.pdf`)
+  }
+
   return (
     <div className="space-y-4">
-      {/* Stat */}
-      <div className="flex flex-wrap gap-3">
-        {[
-          { label: 'Jumlah Atlet Daftar', val: totalAtlet },
-          { label: 'Jenis Acara',          val: rows.length },
-          { label: 'Kategori',             val: colHeaders.length },
-          { label: 'Jumlah Pendaftaran',   val: grandTotal },
-        ].map(({ label, val }) => (
-          <div key={label} className="bg-white border border-gray-200 rounded-lg px-4 py-2 text-center min-w-[100px]">
-            <p className="text-xl font-black text-[#003399]">{val}</p>
-            <p className="text-[10px] text-gray-400 mt-0.5">{label}</p>
-          </div>
-        ))}
+      {/* Stat + butang cetak */}
+      <div className="flex flex-wrap gap-3 items-start justify-between">
+        <div className="flex flex-wrap gap-3">
+          {[
+            { label: 'Jumlah Atlet Daftar', val: totalAtlet },
+            { label: 'Jenis Acara',          val: rows.length },
+            { label: 'Kategori',             val: colHeaders.length },
+            { label: 'Jumlah Pendaftaran',   val: grandTotal },
+          ].map(({ label, val }) => (
+            <div key={label} className="bg-white border border-gray-200 rounded-lg px-4 py-2 text-center min-w-[100px]">
+              <p className="text-xl font-black text-[#003399]">{val}</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">{label}</p>
+            </div>
+          ))}
+        </div>
+        <button
+          onClick={cetakPDF}
+          className="flex items-center gap-2 px-3 py-2 bg-[#003399] text-white text-xs font-bold rounded-lg hover:bg-[#002280] transition-colors shrink-0"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
+          </svg>
+          Cetak PDF
+        </button>
       </div>
 
       {/* Jadual */}
@@ -288,21 +567,91 @@ function TabRingkasanAcara({ analisis, totalAtlet }) {
 
 // ─── Tab 2: Analisis Sekolah ──────────────────────────────────────────────────
 
-function TabAnalisisSekolah({ sekolahList, acaraList, pendaftaranDocs, kategoriList }) {
-  // Jenis sekolah unik dari data kategori (dinamik)
+function TabAnalisisSekolah({ sekolahList, acaraList, pendaftaranDocs, kategoriList, namaKej }) {
   const jenisOptions = [...new Set(
     kategoriList.map(k => k.jenisSekolah).filter(Boolean)
   )].sort()
 
   const [jenisSekolah, setJenisSekolah] = useState(() => jenisOptions[0] || 'SR')
+  const [statusFilter, setStatusFilter] = useState('semua')
 
   const data = buildAnalisisBySekolah(
     sekolahList, acaraList, pendaftaranDocs, kategoriList, jenisSekolah
   )
-  const { sortedEvents, rows, totalSubCols, colTotals } = data
+  const { sortedEvents, rows, colTotals } = data
 
-  const lengkapCount  = rows.filter(r => r.isLengkap).length
-  const semuaSekolah  = rows.length
+  const sudahRows    = rows.filter(r => r.filledCols > 0)
+  const belumRows    = rows.filter(r => r.filledCols === 0)
+  const lengkapCount = rows.filter(r => r.isLengkap).length
+
+  const visibleRows = statusFilter === 'sudah' ? sudahRows
+    : statusFilter === 'belum' ? belumRows
+    : rows
+
+  function cetakPDF() {
+    const doc = new jsPDF('p', 'mm', 'a4')
+    const margin = 14, pageW = 210, contentW = pageW - margin * 2
+    const statusLabel = statusFilter === 'belum' ? 'Belum Daftar'
+      : statusFilter === 'sudah' ? 'Sudah Daftar' : 'Semua Sekolah'
+    let y = margin
+
+    doc.setFontSize(13).setFont('helvetica', 'bold').setTextColor(0, 51, 153)
+    doc.text('ANALISIS PENDAFTARAN SEKOLAH', margin, y); y += 7
+    doc.setFontSize(9).setFont('helvetica', 'normal').setTextColor(80, 80, 80)
+    if (namaKej) { doc.text(namaKej, margin, y); y += 5 }
+    doc.text(`Jenis Sekolah: ${jenisSekolah}  •  ${statusLabel}`, margin, y); y += 5
+    doc.text(`Sudah Daftar: ${sudahRows.length}  •  Belum Daftar: ${belumRows.length}  •  Lengkap: ${lengkapCount}`, margin, y); y += 8
+
+    if (statusFilter === 'belum') {
+      autoTable(doc, {
+        startY: y,
+        margin: { left: margin, right: margin },
+        tableWidth: contentW,
+        head: [['Bil', 'Nama Sekolah', 'Kod Sekolah']],
+        body: belumRows.map((r, i) => [i + 1, r.namaSekolah, r.kodSekolah]),
+        styles: { fontSize: 9, cellPadding: 2 },
+        headStyles: { fillColor: [180, 0, 0], textColor: 255, fontStyle: 'bold' },
+        columnStyles: { 0: { cellWidth: 14, halign: 'center' }, 2: { cellWidth: 36 } },
+        alternateRowStyles: { fillColor: [255, 248, 248] },
+      })
+    } else {
+      autoTable(doc, {
+        startY: y,
+        margin: { left: margin, right: margin },
+        tableWidth: contentW,
+        head: [['Bil', 'Nama Sekolah', 'Daftar', 'Status']],
+        body: visibleRows.map((r, i) => [
+          i + 1,
+          r.namaSekolah,
+          r.filledEvents === 0 ? '—' : `${r.filledEvents}/${r.totalEvents}`,
+          r.filledEvents === 0 ? 'Belum Daftar' : r.isLengkap ? 'Lengkap' : 'Sebahagian',
+        ]),
+        styles: { fontSize: 8, cellPadding: 2 },
+        headStyles: { fillColor: [0, 51, 153], textColor: 255, fontStyle: 'bold' },
+        columnStyles: {
+          0: { cellWidth: 12, halign: 'center' },
+          2: { cellWidth: 24, halign: 'center' },
+          3: { cellWidth: 30, halign: 'center' },
+        },
+        alternateRowStyles: { fillColor: [248, 249, 252] },
+        didParseCell: d => {
+          if (d.column.index === 3 && d.cell.section === 'body') {
+            const v = d.cell.raw
+            d.cell.styles.textColor = v === 'Lengkap' ? [0, 120, 0]
+              : v === 'Belum Daftar' ? [180, 0, 0]
+              : [160, 80, 0]
+            d.cell.styles.fontStyle = 'bold'
+          }
+        },
+      })
+    }
+
+    doc.setFontSize(7).setTextColor(150).text(
+      `Dicetak: ${new Date().toLocaleDateString('ms-MY')}`,
+      pageW - margin, doc.lastAutoTable.finalY + 5, { align: 'right' }
+    )
+    doc.save(`AnalisisSekolah_${jenisSekolah}_${statusLabel.replace(' ', '')}_${new Date().toISOString().slice(0,10)}.pdf`)
+  }
 
   return (
     <div className="space-y-4">
@@ -313,7 +662,7 @@ function TabAnalisisSekolah({ sekolahList, acaraList, pendaftaranDocs, kategoriL
         {jenisOptions.map(jenis => (
           <button
             key={jenis}
-            onClick={() => setJenisSekolah(jenis)}
+            onClick={() => { setJenisSekolah(jenis); setStatusFilter('semua') }}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
               jenisSekolah === jenis
                 ? 'bg-[#003399] text-white border-[#003399]'
@@ -325,31 +674,94 @@ function TabAnalisisSekolah({ sekolahList, acaraList, pendaftaranDocs, kategoriL
         ))}
       </div>
 
-      {/* Stat */}
+      {/* Stat cards — boleh klik untuk filter */}
       <div className="flex flex-wrap gap-3">
         {[
-          { label: 'Sekolah Berdaftar',   val: semuaSekolah },
-          { label: 'Sekolah Lengkap',     val: lengkapCount },
-          { label: 'Sekolah Tidak Lengkap', val: semuaSekolah - lengkapCount },
-          { label: 'Jenis Acara',          val: sortedEvents.length },
-        ].map(({ label, val }) => (
-          <div key={label} className="bg-white border border-gray-200 rounded-lg px-4 py-2 text-center min-w-[100px]">
-            <p className="text-xl font-black text-[#003399]">{val}</p>
+          { key: 'semua',  label: 'Jumlah Sekolah',   val: rows.length,       color: 'text-[#003399]' },
+          { key: 'sudah',  label: 'Sudah Daftar',      val: sudahRows.length,  color: 'text-green-600' },
+          { key: 'belum',  label: 'Belum Daftar',      val: belumRows.length,  color: 'text-red-500'   },
+          { key: null,     label: 'Lengkap',           val: lengkapCount,      color: 'text-blue-600'  },
+        ].map(({ key, label, val, color }) => (
+          <div
+            key={label}
+            onClick={() => key && setStatusFilter(key)}
+            className={`bg-white border rounded-lg px-4 py-2 text-center min-w-[100px] ${
+              key ? 'cursor-pointer hover:shadow-sm transition-shadow' : ''
+            } ${statusFilter === key ? 'border-[#003399] ring-1 ring-[#003399]' : 'border-gray-200'}`}
+          >
+            <p className={`text-xl font-black ${color}`}>{val}</p>
             <p className="text-[10px] text-gray-400 mt-0.5">{label}</p>
           </div>
         ))}
+      </div>
+
+      {/* Toggle status + butang cetak */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+          {[
+            { key: 'semua', label: 'Semua' },
+            { key: 'sudah', label: 'Sudah Daftar' },
+            { key: 'belum', label: 'Belum Daftar' },
+          ].map(t => (
+            <button
+              key={t.key}
+              onClick={() => setStatusFilter(t.key)}
+              className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${
+                statusFilter === t.key
+                  ? 'bg-white text-[#003399] shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={cetakPDF}
+          className="flex items-center gap-2 px-3 py-2 bg-[#003399] text-white text-xs font-bold rounded-lg hover:bg-[#002280] transition-colors"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
+          </svg>
+          Cetak PDF
+        </button>
       </div>
 
       {rows.length === 0 ? (
         <p className="text-sm text-gray-400 text-center py-6 bg-white border border-gray-100 rounded-xl">
           Tiada sekolah {jenisSekolah} atau tiada acara untuk kategori ini.
         </p>
+      ) : statusFilter === 'belum' ? (
+
+        /* ── Senarai ringkas Belum Daftar ── */
+        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <div className="px-4 py-2.5 bg-red-50 border-b border-red-100 flex items-center justify-between">
+            <p className="text-xs font-bold text-red-700">Sekolah Belum Mendaftar</p>
+            <span className="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-semibold">
+              {belumRows.length} sekolah
+            </span>
+          </div>
+          {belumRows.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-6">Semua sekolah sudah mendaftar.</p>
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {belumRows.map((r, i) => (
+                <li key={r.kodSekolah} className="px-4 py-2.5 flex items-center gap-3">
+                  <span className="text-[10px] text-gray-400 w-6 text-right">{i + 1}.</span>
+                  <span className="text-xs font-medium text-gray-800">{r.namaSekolah}</span>
+                  <span className="ml-auto text-[10px] text-gray-400">{r.kodSekolah}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
       ) : (
 
+        /* ── Jadual penuh (Semua / Sudah Daftar) ── */
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-x-auto">
           <table className="w-full text-xs border-collapse">
             <thead>
-              {/* Baris 1: nama acara (grouped) */}
               <tr className="bg-[#003399] text-white">
                 <th
                   rowSpan={2}
@@ -373,7 +785,6 @@ function TabAnalisisSekolah({ sekolahList, acaraList, pendaftaranDocs, kategoriL
                   Rumusan
                 </th>
               </tr>
-              {/* Baris 2: sub-kategori (L12, P12, …) */}
               <tr className="bg-[#0044bb] text-white">
                 {sortedEvents.map(ev =>
                   ev.acara.map(a => (
@@ -387,15 +798,12 @@ function TabAnalisisSekolah({ sekolahList, acaraList, pendaftaranDocs, kategoriL
                 )}
               </tr>
             </thead>
-
             <tbody>
-              {rows.map((row, i) => (
+              {visibleRows.map((row, i) => (
                 <tr key={row.kodSekolah} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                  {/* Nama sekolah */}
                   <td className="px-3 py-1.5 font-medium text-gray-700 sticky left-0 bg-inherit border-r border-gray-100 whitespace-nowrap">
                     {row.namaSekolah}
                   </td>
-                  {/* Nilai per acara × sub-kategori */}
                   {row.events.map(ev =>
                     ev.cols.map(c => (
                       <td key={c.acaraId} className="px-2 py-1.5 text-center border-l border-gray-100">
@@ -406,23 +814,24 @@ function TabAnalisisSekolah({ sekolahList, acaraList, pendaftaranDocs, kategoriL
                       </td>
                     ))
                   )}
-                  {/* Rumusan */}
                   <td className="px-3 py-1.5 text-center border-l border-blue-100 bg-blue-50/50">
-                    {row.isLengkap ? (
+                    {row.filledEvents === 0 ? (
+                      <span className="inline-flex items-center gap-1 bg-red-50 text-red-500 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                        Belum Daftar
+                      </span>
+                    ) : row.isLengkap ? (
                       <span className="inline-flex items-center gap-1 bg-green-100 text-green-700 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                        ✓ Lengkap
+                        ✓ {row.filledEvents} acara
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 bg-red-50 text-red-600 text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap">
-                        ✗ {row.filledCols}/{row.totalCols}
+                      <span className="inline-flex items-center gap-1 bg-orange-50 text-orange-600 text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap">
+                        {row.filledEvents}/{row.totalEvents} acara
                       </span>
                     )}
                   </td>
                 </tr>
               ))}
             </tbody>
-
-            {/* Footer: jumlah per sub-kolum */}
             <tfoot>
               <tr className="bg-[#003399] text-white font-bold">
                 <td className="px-3 py-2 sticky left-0 bg-[#003399]">JUMLAH</td>
@@ -434,7 +843,7 @@ function TabAnalisisSekolah({ sekolahList, acaraList, pendaftaranDocs, kategoriL
                   ))
                 )}
                 <td className="px-3 py-2 text-center bg-[#002280] border-l border-[#001a66]">
-                  {lengkapCount}/{semuaSekolah}
+                  {sudahRows.length}/{rows.length}
                 </td>
               </tr>
             </tfoot>
@@ -443,7 +852,7 @@ function TabAnalisisSekolah({ sekolahList, acaraList, pendaftaranDocs, kategoriL
       )}
 
       <p className="text-[10px] text-gray-400">
-        * Nilai 0 (merah) = tiada pendaftaran untuk acara × kategori tersebut. Rumusan ✓ jika semua kolum ada nilai.
+        * Klik kad stat untuk tapis. Belum Daftar = sekolah tiada sebarang pendaftaran.
       </p>
     </div>
   )
@@ -546,6 +955,7 @@ export default function AnalisisPendaftaran() {
         {[
           { key: 'acara',   label: 'Ringkasan Acara'  },
           { key: 'sekolah', label: 'Analisis Sekolah' },
+          { key: 'bysekolah', label: 'Pendaftaran Sekolah' },
         ].map(tab => (
           <button
             key={tab.key}
@@ -563,7 +973,7 @@ export default function AnalisisPendaftaran() {
 
       {/* Tab content */}
       {activeTab === 'acara' && (
-        <TabRingkasanAcara analisis={analisis} totalAtlet={totalAtlet} />
+        <TabRingkasanAcara analisis={analisis} totalAtlet={totalAtlet} namaKej={namaKej} />
       )}
 
       {activeTab === 'sekolah' && (
@@ -572,6 +982,17 @@ export default function AnalisisPendaftaran() {
           acaraList={acaraList}
           pendaftaranDocs={pendaftaranDocs}
           kategoriList={kategoriList}
+          namaKej={namaKej}
+        />
+      )}
+
+      {activeTab === 'bysekolah' && (
+        <TabPendaftaranByAcara
+          sekolahList={sekolahList}
+          acaraList={acaraList}
+          pendaftaranDocs={pendaftaranDocs}
+          kategoriList={kategoriList}
+          namaKej={namaKej}
         />
       )}
     </div>

@@ -159,6 +159,8 @@ export default function ResetSistem() {
   const [progress, setProgress] = useState([])       // array of { text, done }
   const [done,     setDone]     = useState(false)
   const [msg,      setMsg]      = useState(null)
+  const [syncing,  setSyncing]  = useState(false)
+  const [syncLog,  setSyncLog]  = useState([])
 
   // ── Load kejohanan + counts ──────────────────────────────────────────────
 
@@ -429,6 +431,51 @@ export default function ResetSistem() {
     }
   }
 
+  // ── Sync noBib: kemas kini pendaftaran docs supaya sama dengan atlet docs ──
+  async function handleSyncNoBib() {
+    if (!kejId) return
+    setSyncing(true)
+    setSyncLog([])
+    const log = (text) => setSyncLog(prev => [...prev, text])
+    try {
+      log('Membaca data atlet…')
+      const atletSnap = await getDocs(query(collection(db, 'atlet'), where('noBib', '!=', '')))
+      const atletMap = {}
+      atletSnap.docs.forEach(d => { atletMap[d.id] = d.data() })
+      log(`${atletSnap.size} atlet dengan noBib dijumpai.`)
+
+      log('Membaca pendaftaran docs…')
+      const pendSnap = await getDocs(collection(db, 'kejohanan', kejId, 'pendaftaran'))
+      log(`${pendSnap.size} rekod pendaftaran dijumpai.`)
+
+      const batch = writeBatch(db)
+      let jumlahKemas = 0
+      pendSnap.docs.forEach(d => {
+        const pData = d.data()
+        const atlet = atletMap[d.id]
+        if (!atlet) return
+        const noBibAtlet = atlet.noBib || ''
+        const noBibPend  = pData.noBib || ''
+        if (noBibAtlet && noBibAtlet !== noBibPend) {
+          batch.update(d.ref, { noBib: noBibAtlet, namaAtlet: atlet.nama || pData.namaAtlet })
+          log(`Kemas kini: ${atlet.nama || d.id} — ${noBibPend} → ${noBibAtlet}`)
+          jumlahKemas++
+        }
+      })
+
+      if (jumlahKemas === 0) {
+        log('Semua noBib sudah konsisten. Tiada perubahan diperlukan.')
+      } else {
+        await batch.commit()
+        log(`✓ ${jumlahKemas} rekod pendaftaran telah dikemas kini.`)
+      }
+    } catch (e) {
+      log(`✗ Ralat: ${e.message}`)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   if (loading) {
@@ -601,6 +648,40 @@ export default function ResetSistem() {
           )}
         </div>
       )}
+
+      {/* Sync noBib */}
+      <div className="bg-white border border-blue-200 rounded-xl p-4 shadow-sm">
+        <div className="flex items-start gap-3 mb-3">
+          <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center shrink-0">
+            <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+          </div>
+          <div>
+            <p className="text-xs font-bold text-gray-800">Sync No. BIB</p>
+            <p className="text-[10px] text-gray-500 mt-0.5 leading-relaxed">
+              Kemas kini noBib dalam rekod pendaftaran supaya sepadan dengan noBib terkini dalam senarai atlet.
+              Guna ini jika ada atlet yang tidak dapat didaftarkan ke acara kerana ralat "No. BIB sudah digunakan".
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={handleSyncNoBib}
+          disabled={syncing || !kejId}
+          className="w-full py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white text-xs font-bold rounded-lg transition-colors"
+        >
+          {syncing ? 'Menyegerakkan…' : 'Sync noBib Sekarang'}
+        </button>
+        {syncLog.length > 0 && (
+          <div className="mt-3 bg-gray-900 rounded-lg p-3 space-y-1 max-h-40 overflow-y-auto">
+            {syncLog.map((t, i) => (
+              <p key={i} className={`text-[10px] font-mono ${
+                t.startsWith('✓') ? 'text-green-400' : t.startsWith('✗') ? 'text-red-400' : 'text-gray-300'
+              }`}>{t}</p>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Summary + Butang Reset */}
       <div className={`rounded-xl border p-4 ${

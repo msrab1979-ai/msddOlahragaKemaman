@@ -1733,3 +1733,95 @@ SETERUSNYA (ikut keutamaan):
 
 ---
 *Versi: 10.0 — PP Import Excel, Gate G0 noBib, bypass pengesahan fix, auto-replace heat. Commit 11539b7. Deploy 2026-06-03.*
+
+---
+
+## 43. STATUS SEMASA (DIKEMASKINI — VERSI 11.0) — 2026-06-10
+
+### Selesai sesi ini:
+
+```
+✅ AnalisisPendaftaran — 3 tab lengkap
+
+   Tab 1 — Ringkasan Acara:
+   - PDF cetak A4 portrait (jsPDF + autoTable)
+   - Butang "Cetak PDF" dalam stats row
+
+   Tab 2 — Analisis Sekolah:
+   - Toggle filter "Sudah Daftar / Belum Daftar" (clickable stat cards)
+   - Mode "Belum Daftar": senarai ringkas sekolah yang tiada pendaftaran
+   - Rumusan column: diubah dari "filledCols/totalCols (58 combinations)" 
+     ke "filledEvents/totalEvents acara" (jumlah acara sebenar)
+   - isLengkap kini berasaskan filledEvents === totalEvents
+   - PDF cetak A4 portrait (dua mod: list Belum Daftar / jadual analisis)
+
+   Tab 3 — Pendaftaran Sekolah (BARU sesi sebelum):
+   - Search/filter nama sekolah
+   - Column Kat: resolve kod (A/B/C) → label betul (L12/P15 dll) via katLabelMap
+   - PDF cetak A4 portrait (per sekolah dipilih)
+
+   FIX PDF: autoTable adalah not a function — guna
+   `import autoTable from 'jspdf-autotable'` + `autoTable(doc, {...})`
+   BUKAN `import 'jspdf-autotable'` + `doc.autoTable({...})`
+
+✅ Login.jsx — Fix Tab 2 guna fungsi login salah
+   - Bug: loginWithKodAkses (=loginPengurus) digunakan untuk SEMUA role
+   - Fix: isPengurusPasukan → loginPengurus, lain-lain → loginPencatat
+
+✅ UserManagement.jsx — 3 fix auth/PIN
+
+   FIX 1 — PIN kini di-hash (PBKDF2) pada CREATE
+   - Sebelum: pin disimpan plain text (`pin: form.pin`)
+   - Selepas: hashPin(form.pin) → simpan sebagai `pinHash`, tiada `pin`
+
+   FIX 2 — PIN kini di-hash pada EDIT + padam pinHash lama
+   - Sebelum: edit simpan `pin: newPin` TAPI tidak padam `pinHash` lama
+   - Sebab masalah: loginPencatat nampak pinHash → hash comparison → 
+     gagal kerana hash lama ≠ hash PIN baru
+   - Selepas: hashPin(newPin) → pinHash baru + pin = deleteField()
+
+   FIX 3 — Butang "Buka Kunci" (reset cubaan login)
+   - Masalah: 5+ percubaan gagal → "Terlalu banyak percubaan" locked 30 min
+   - Fix: butang "Buka Kunci" (biru) dalam baris setiap pengguna
+   - Fungsi: setDoc login_attempts/user_{kodAkses} → attempts:0, lockedUntil:null
+   - Superadmin/admin boleh unlock tanpa tunggu 30 minit
+```
+
+### Git Commit: (sesi ini)
+
+```
+Fix: AnalisisPendaftaran PDF+filter, Login.jsx fungsi login betul,
+UserManagement PIN hash+edit+Buka Kunci
+```
+
+### Pending / Isu Diketahui:
+
+```
+⏳ Relay auto-replace heat — ahliPasukan array berbeza
+⏳ CetakKeputusan canJanaFinal → update ke 'diterima' (carry over)
+⏳ Pengguna lama (sebelum PIN hash fix) perlu Edit + re-enter PIN
+   ATAU gunakan Reset PIN / Buka Kunci
+```
+
+### Prompt Sambung Sesi Seterusnya:
+
+```
+Baca KOAM_MASTER_BRIEF.md section 43.
+
+STATUS:
+- Semua fix sesi 11.0 sudah deploy ke mssdkemaman-olahraga.web.app
+- GitHub: msrab1979-ai/msddOlahragaKemaman (commit terkini)
+
+SELESAI SESI INI:
+- AnalisisPendaftaran Tab 2/3 lengkap + PDF all 3 tabs
+- Login.jsx fix: loginPencatat vs loginPengurus betul
+- UserManagement: PIN hash create+edit, Buka Kunci button
+
+SETERUSNYA (ikut keutamaan):
+1. Test login pencatat penuh (cipta baru → login)
+2. CetakKeputusan canJanaFinal → update ke 'diterima'
+3. Relay auto-replace heat
+```
+
+---
+*Versi: 11.0 — AnalisisPendaftaran lengkap, Login fix, UserManagement PIN hash + Buka Kunci. Deploy 2026-06-10.*

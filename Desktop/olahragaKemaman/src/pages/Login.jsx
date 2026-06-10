@@ -118,7 +118,7 @@ function TabSatu({ onSuccess }) {
 // ─── Tab 2 — Kod Akses + PIN ──────────────────────────────────────────────────
 
 function TabDua({ onSuccess }) {
-  const { loginWithKodAkses } = useAuth()
+  const { loginPencatat, loginPengurus } = useAuth()
   const [role, setRole] = useState('admin')
   const [kodAkses, setKodAkses] = useState('')
   const [pin, setPin] = useState('')
@@ -136,7 +136,9 @@ function TabDua({ onSuccess }) {
     if (!/^\d{6}$/.test(pin)) return setError('PIN mesti tepat 6 digit angka.')
     setLoading(true)
     try {
-      await loginWithKodAkses(kodAkses.trim(), pin)
+      // pengurus_pasukan → cari dalam sekolah, lain-lain → cari dalam users
+      if (isPengurusPasukan) await loginPengurus(kodAkses.trim(), pin)
+      else await loginPencatat(kodAkses.trim(), pin)
       onSuccess()
     } catch (err) {
       setError(authErrMsg(err.code))
