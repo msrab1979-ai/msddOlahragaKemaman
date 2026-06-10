@@ -3927,6 +3927,7 @@ function PPPendaftaranView({ sekolahList }) {
   // Countdown
   const [countdownStr, setCountdownStr] = useState('')
 
+
   // ── Fetch kejohanan aktif + data ────────────────────────────────────────────
   useEffect(() => {
     if (!kodSekolah) return
@@ -3990,13 +3991,45 @@ function PPPendaftaranView({ sekolahList }) {
         getDocs(query(collection(db, 'kejohanan', kejohanan.id, 'acara'), orderBy('kategoriKod'))),
         getDoc(doc(db, 'sekolah', kodSekolah)),
       ])
-      setPendaftaran(pendSnap.docs.map(x => ({ id: x.id, ...x.data() })))
-      const atlets = atletSnap.docs.map(x => ({ id: x.id, ...x.data() }))
+
+      const atlets    = atletSnap.docs.map(x => ({ id: x.id, ...x.data() }))
+      const sekolahLive = sekolahSnap.exists() ? { id: sekolahSnap.id, ...sekolahSnap.data() } : null
+      const bibPfx    = sekolahLive?.bibPrefix || kodSekolah || ''
+
+      // ── Auto-sync noBib: pendaftaran.noBib mesti sama dengan atlet.noBib ──────
+      // Guna data segar (bukan React state) — deterministik, tiada double-fire
+      const pendList  = pendSnap.docs.map(x => ({ id: x.id, ...x.data() }))
+      const perluSync = pendList.filter(p => {
+        if (p.kodSekolah !== kodSekolah) return false
+        const a = atlets.find(x => x.noKP === p.noKP || x.id === p.noKP)
+        if (!a?.noBib) return false                          // atlet tiada noBib — skip
+        if (a.noBib === p.noBib) return false                // sudah betul — skip
+        if (bibPfx && !a.noBib.startsWith(bibPfx)) return false // prefix salah — skip (G0)
+        const duplikat = atlets.filter(x => x.noBib === a.noBib && x.noKP !== a.noKP)
+        if (duplikat.length > 0) return false                // duplikat — skip (G0)
+        return true
+      })
+      if (perluSync.length > 0) {
+        const batch = writeBatch(db)
+        perluSync.forEach(p => {
+          const a = atlets.find(x => x.noKP === p.noKP || x.id === p.noKP)
+          batch.update(doc(db, 'kejohanan', kejohanan.id, 'pendaftaran', p.id || p.noKP),
+            { noBib: a.noBib, updatedAt: serverTimestamp() })
+        })
+        await batch.commit()
+        // Kemaskini in-memory — tiada fetch kedua diperlukan
+        perluSync.forEach(p => {
+          const a = atlets.find(x => x.noKP === p.noKP || x.id === p.noKP)
+          p.noBib = a.noBib
+        })
+      }
+      // ─────────────────────────────────────────────────────────────────────────
+
       atlets.sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'ms'))
+      setPendaftaran(pendList)
       setAtletSekolah(atlets)
       setAcaraList(acaraSnap.docs.map(x => ({ id: x.id, ...x.data() })))
-      if (sekolahSnap.exists()) setSekolahDataLive({ id: sekolahSnap.id, ...sekolahSnap.data() })
-      // Kemaskini kategoriList dan hadMap
+      if (sekolahLive) setSekolahDataLive(sekolahLive)
       const map = {}
       const list = []
       katSnap.docs.forEach(kd => {
@@ -4011,6 +4044,7 @@ function PPPendaftaranView({ sekolahList }) {
       setRefreshing(false)
     }
   }, [kejohanan, kodSekolah])
+
 
   // Load logos from tetapan/home (for Cetak tab)
   useEffect(() => {
@@ -4122,16 +4156,16 @@ function PPPendaftaranView({ sekolahList }) {
       const bibPfx  = sekolahData?.bibPrefix || kodSekolah || 'BIB'
       const bibFmt  = Number(sekolahData?.bibFormat) || 3
 
-      // Pass 1: kemaskini pendaftaran sedia ada (tambah acaraId) — tiada noBib baru
+      // Pass 1: kemaskini pendaftaran sedia ada — tambah acaraId + sync noBib dari atlet
       for (const noKP of daftarChecked) {
         const atlet = atletSekolah.find(a => a.noKP === noKP)
         if (!atlet) continue
         const pRec = pendLiveByKP[noKP]
         if (pRec) {
           const acaraIds = [...new Set([...(pRec.acaraIds || []), acara.aceraId || acara.id])]
-          await updateDoc(doc(db, 'kejohanan', kejohananId, 'pendaftaran', pRec.id), {
-            acaraIds, updatedAt: serverTimestamp(),
-          })
+          const updateData = { acaraIds, updatedAt: serverTimestamp() }
+          if (atlet.noBib && atlet.noBib !== pRec.noBib) updateData.noBib = atlet.noBib
+          await updateDoc(doc(db, 'kejohanan', kejohananId, 'pendaftaran', pRec.id), updateData)
         }
       }
 
@@ -4159,8 +4193,9 @@ function PPPendaftaranView({ sekolahList }) {
           })
 
           for (const atlet of toCreate) {
-            lastNum++
-            const noBib = bibPfx + String(lastNum).padStart(bibFmt, '0')
+            // Guna atlet.noBib terus (sudah disahkan GATE G0) — counter hanya fallback
+            let noBib = atlet.noBib
+            if (!noBib) { lastNum++; noBib = bibPfx + String(lastNum).padStart(bibFmt, '0') }
             transaction.set(doc(db, 'kejohanan', kejohananId, 'pendaftaran', atlet.noKP), {
               noBib,
               noKP:        atlet.noKP,
