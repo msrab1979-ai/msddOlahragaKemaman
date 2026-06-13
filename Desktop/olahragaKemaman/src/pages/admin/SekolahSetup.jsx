@@ -996,6 +996,8 @@ export default function SekolahSetup() {
   const [loading, setLoading] = useState(true)
   const [search,  setSearch]  = useState('')
   const [katFil,  setKatFil]  = useState('SEMUA')
+  const [bibResult, setBibResult] = useState(null)  // { kodSekolah, namaAtlet, noBib } | 'tiada' | null
+  const [bibSearching, setBibSearching] = useState(false)
   const [jenisList, setJenisList] = useState(KATEGORI_LIST_FALLBACK)
 
   // Modals
@@ -1148,9 +1150,38 @@ export default function SekolahSetup() {
     pdf.save('sekolah_koam.pdf')
   }
 
+  // ── Cari no bib — trigger bila input nampak seperti bib (huruf+nombor) ──
+  async function handleSearch(val) {
+    setSearch(val)
+    setBibResult(null)
+    const trimmed = val.trim().toUpperCase()
+    // Anggap bib jika: ada huruf DAN nombor, panjang 3-8 aksara, tiada ruang
+    const isBibLike = /^[A-Z]+\d+$/.test(trimmed) && trimmed.length >= 2 && trimmed.length <= 8
+    if (!isBibLike) return
+    setBibSearching(true)
+    try {
+      const snap = await getDocs(query(
+        collection(db, 'atlet'),
+        where('noBib', '==', trimmed),
+        limit(1)
+      ))
+      if (!snap.empty) {
+        const data = snap.docs[0].data()
+        setBibResult({ kodSekolah: data.kodSekolah, namaAtlet: data.nama || '—', noBib: trimmed })
+      } else {
+        setBibResult('tiada')
+      }
+    } catch { setBibResult('tiada') }
+    finally { setBibSearching(false) }
+  }
+
   // ── Filter ──
   const filtered = list.filter(s => {
     const matchKat  = katFil === 'SEMUA' || s.kategori === katFil
+    // Kalau ada hasil carian bib — hanya tunjuk sekolah berkenaan
+    if (bibResult && bibResult !== 'tiada') {
+      return matchKat && s.kodSekolah === bibResult.kodSekolah
+    }
     const q         = search.toLowerCase()
     const matchSrch = !q || s.namaSekolah?.toLowerCase().includes(q)
       || s.kodSekolah?.toLowerCase().includes(q)
@@ -1182,12 +1213,40 @@ export default function SekolahSetup() {
 
       {/* Toolbar */}
       <div className="flex flex-wrap gap-3 items-center">
-        <input
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003399]/25 focus:border-[#003399] w-56"
-          placeholder="Cari nama / kod / daerah…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
+        <div className="flex flex-col gap-1">
+          <div className="relative">
+            <input
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003399]/25 focus:border-[#003399] w-64 pr-8"
+              placeholder="Cari nama / kod / daerah / no bib…"
+              value={search}
+              onChange={e => handleSearch(e.target.value)}
+            />
+            {bibSearching && (
+              <svg className="absolute right-2.5 top-2.5 w-4 h-4 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+              </svg>
+            )}
+            {search && !bibSearching && (
+              <button onClick={() => { setSearch(''); setBibResult(null) }}
+                className="absolute right-2 top-2 text-gray-400 hover:text-gray-600">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+              </button>
+            )}
+          </div>
+          {bibResult && bibResult !== 'tiada' && (
+            <p className="text-[10px] text-green-700 bg-green-50 border border-green-200 rounded px-2 py-1 font-medium">
+              🎽 <span className="font-bold">{bibResult.noBib}</span> — {bibResult.namaAtlet}
+            </p>
+          )}
+          {bibResult === 'tiada' && (
+            <p className="text-[10px] text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1">
+              No bib <span className="font-bold">{search.trim().toUpperCase()}</span> tidak dijumpai.
+            </p>
+          )}
+        </div>
         <div className="flex flex-wrap gap-1">
           {['SEMUA', ...jenisList].map(k => (
             <button key={k} onClick={() => setKatFil(k)}

@@ -1138,6 +1138,7 @@ export default function Home() {
         if (s.kodSekolah) sklInfo[s.kodSekolah] = {
           namaSekolah:  s.namaSekolah || s.kodSekolah,
           jenisSekolah: s.kategori || s.jenisSekolah || 'Lain-lain', // SekolahSetup guna 'kategori'
+          isAktif:      s.isAktif !== false,
         }
       })
 
@@ -1146,10 +1147,10 @@ export default function Home() {
       const tallyMap = {}
       tallySnap.docs.forEach(d => { tallyMap[d.data().kodSekolah] = { id: d.id, ...d.data() } })
 
-      // 3. Bina senarai sekolah dari collection('sekolah') terus — bukan pendaftaran
-      //    Sekolah aktif terus muncul dalam tally walaupun tiada atlet daftar lagi
+      // 3. Bina senarai sekolah dari collection('sekolah') terus — sekolah nyahaktif dikecualikan
       const sekolahSet = {}
       Object.entries(sklInfo).forEach(([kod, info]) => {
+        if (!info.isAktif) return  // sekolah nyahaktif — sembunyi dari medal tally
         sekolahSet[kod] = {
           kodSekolah:   kod,
           namaSekolah:  info.namaSekolah,
@@ -1168,11 +1169,12 @@ export default function Home() {
         kejohananId:  kejId,
       }))
 
-      // 5. Sekolah dalam medal_tally tapi tiada dalam pendaftaran
+      // 5. Sekolah dalam medal_tally tapi tiada dalam sekolahSet — semak isAktif dulu
       tallySnap.docs.forEach(d => {
         const data = d.data()
         if (!sekolahSet[data.kodSekolah]) {
           const info = sklInfo[data.kodSekolah] || {}
+          if (info.isAktif === false) return  // nyahaktif — skip
           merged.push({
             id: d.id, ...data,
             namaSekolah:  info.namaSekolah  || data.namaSekolah || data.kodSekolah,

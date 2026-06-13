@@ -239,7 +239,10 @@ export default function MedalTally() {
         const map = {}
         snap.docs.forEach(d => {
           const data = d.data()
-          map[data.kodSekolah || d.id] = data.jenisSekolah || 'Lain-lain'
+          map[data.kodSekolah || d.id] = {
+            jenisSekolah: data.jenisSekolah || 'Lain-lain',
+            isAktif: data.isAktif !== false,
+          }
         })
         setSekolahMap(map)
       })
@@ -281,9 +284,10 @@ export default function MedalTally() {
     return () => { if (unsubRef.current) unsubRef.current() }
   }, [selKej])
 
-  // ── Group by jenisSekolah ──────────────────────────────────────────────────
-  const groupedTally = tallyList.reduce((acc, t) => {
-    const jenis = sekolahMap[t.kodSekolah] || 'Lain-lain'
+  // ── Group by jenisSekolah — sekolah nyahaktif disembunyikan ──────────────
+  const activeTally = tallyList.filter(t => (sekolahMap[t.kodSekolah]?.isAktif ?? true))
+  const groupedTally = activeTally.reduce((acc, t) => {
+    const jenis = sekolahMap[t.kodSekolah]?.jenisSekolah || 'Lain-lain'
     if (!acc[jenis]) acc[jenis] = []
     acc[jenis].push(t)
     return acc
@@ -304,10 +308,10 @@ export default function MedalTally() {
     ...Object.keys(rankedGroups).filter(j => !GROUP_ORDER.includes(j)),
   ]
 
-  // ── Derived totals ─────────────────────────────────────────────────────────
-  const totalEmas   = tallyList.reduce((s, t) => s + (t.emas   || 0), 0)
-  const totalPerak  = tallyList.reduce((s, t) => s + (t.perak  || 0), 0)
-  const totalGangsa = tallyList.reduce((s, t) => s + (t.gangsa || 0), 0)
+  // ── Derived totals (sekolah nyahaktif dikecualikan) ────────────────────────
+  const totalEmas   = activeTally.reduce((s, t) => s + (t.emas   || 0), 0)
+  const totalPerak  = activeTally.reduce((s, t) => s + (t.perak  || 0), 0)
+  const totalGangsa = activeTally.reduce((s, t) => s + (t.gangsa || 0), 0)
 
   function toggleGroup(jenis) {
     setExpandedGroups(prev => {

@@ -24,7 +24,9 @@ import autoTable from 'jspdf-autotable'
 
 // ─── Helpers — Tab 1 (Ringkasan Acara) ───────────────────────────────────────
 
-function buildAnalisis(acaraList, pendaftaranDocs, kategoriList) {
+function buildAnalisis(acaraListRaw, pendaftaranDocs, kategoriList) {
+  const acaraList = acaraListRaw.filter(a => !a.parentAcaraId)
+
   const katMeta = Object.fromEntries(
     kategoriList.map(k => [k.id, { label: k.label || k.id, urutan: k.urutan ?? 99 }])
   )
@@ -54,17 +56,16 @@ function buildAnalisis(acaraList, pendaftaranDocs, kategoriList) {
   const acaraColMap = {}
   acaraList.forEach(a => {
     const { label } = katMeta[a.kategoriKod] || { label: a.kategoriKod || '?' }
-    acaraColMap[a.id] = `${a.jantina || '?'}${label}`
+    acaraColMap[a.id] = label
   })
 
   const colSet = new Set(Object.values(acaraColMap))
   const colHeaders = Array.from(colSet).sort((a, b) => {
     const ja = a[0], jb = b[0]
     if (ja !== jb) return ja === 'L' ? -1 : 1
-    const la = a.slice(1), lb = b.slice(1)
-    const ua = kategoriList.find(k => (k.label || k.id) === la)?.urutan ?? 99
-    const ub = kategoriList.find(k => (k.label || k.id) === lb)?.urutan ?? 99
-    return ua - ub || la.localeCompare(lb)
+    const ua = kategoriList.find(k => (k.label || k.id) === a)?.urutan ?? 99
+    const ub = kategoriList.find(k => (k.label || k.id) === b)?.urutan ?? 99
+    return ua - ub || a.localeCompare(b)
   })
 
   const byNamaPendek = {}
@@ -116,7 +117,7 @@ function buildAnalisisBySekolah(sekolahList, acaraList, pendaftaranDocs, kategor
   const katUrutan = Object.fromEntries(relevantKats.map(k => [k.id, k.urutan ?? 99]))
 
   // 3. Acara yang berkaitan
-  const relevantAcara = acaraList.filter(a => relevantKatKods.has(a.kategoriKod))
+  const relevantAcara = acaraList.filter(a => relevantKatKods.has(a.kategoriKod) && !a.parentAcaraId)
 
   // 4. Kumpul acara ikut namaAcaraPendek
   const eventGroupMap = {}
@@ -162,7 +163,7 @@ function buildAnalisisBySekolah(sekolahList, acaraList, pendaftaranDocs, kategor
         if (cnt > 0) filledCols++
         return {
           acaraId: a.id,
-          colKey: `${a.jantina}${katLabel[a.kategoriKod] || a.kategoriKod}`,
+          colKey: katLabel[a.kategoriKod] || a.kategoriKod,
           cnt,
         }
       })
@@ -288,7 +289,7 @@ function TabPendaftaranByAcara({ sekolahList, acaraList, pendaftaranDocs, katego
           i + 1,
           atlet.noBib,
           atlet.namaAtlet,
-          `${atlet.jantina}${katLabelMap[atlet.kategoriKod] || atlet.kategoriKod}`,
+          katLabelMap[atlet.kategoriKod] || atlet.kategoriKod,
         ]),
         styles: { fontSize: 8, cellPadding: 1.8 },
         headStyles: { fillColor: [0, 68, 187], textColor: 255, fontStyle: 'bold', fontSize: 7 },
@@ -409,7 +410,7 @@ function TabPendaftaranByAcara({ sekolahList, acaraList, pendaftaranDocs, katego
                           atlet.jantina === 'P' ? 'bg-pink-100 text-pink-700' :
                           'bg-gray-100 text-gray-500'
                         }`}>
-                          {atlet.jantina}{katLabelMap[atlet.kategoriKod] || atlet.kategoriKod}
+                          {katLabelMap[atlet.kategoriKod] || atlet.kategoriKod}
                         </span>
                       </td>
                     </tr>
@@ -792,7 +793,7 @@ function TabAnalisisSekolah({ sekolahList, acaraList, pendaftaranDocs, kategoriL
                       key={a.id}
                       className="px-2 py-1 text-center font-semibold whitespace-nowrap border-l border-[#0033aa] text-[10px]"
                     >
-                      {`${a.jantina}${(kategoriList.find(k => k.id === a.kategoriKod)?.label) || a.kategoriKod}`}
+                      {(kategoriList.find(k => k.id === a.kategoriKod)?.label) || a.kategoriKod}
                     </th>
                   ))
                 )}

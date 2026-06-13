@@ -55,31 +55,33 @@ const inputCls = 'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm ' +
 function kiraKategori(tarikhLahir, jantina, tahunKejohanan, kategoriList = []) {
   if (!tarikhLahir || !tahunKejohanan) return null
   const tahunLahir = new Date(tarikhLahir).getFullYear()
-  const umur = tahunKejohanan - tahunLahir
+  const umur = Number(tahunKejohanan) - tahunLahir
+  if (isNaN(umur) || umur < 0 || umur > 30) return null
   if (kategoriList.length > 0) {
     const filtered = kategoriList.filter(k => {
-      // Guna label → nama → kod sebagai fallback untuk kesan jantina
-      const checkStr = (k.label || k.nama || k.kod || k.id || '').toUpperCase()
-      if (checkStr.includes('OPEN')) return false     // OPEN: handle berasingan
-      if (jantina === 'L' && !checkStr.startsWith('L')) return false
-      if (jantina === 'P' && !checkStr.startsWith('P')) return false
+      if (!k.kod) return false
+      if (!k.umurHad) return false
+      // Guna label untuk detect jantina (label = 'L10','P10','OPEN-SK-L' dll)
+      // kod dalam Firestore adalah single-letter (A,B,C...) — jangan guna untuk detect jantina
+      const lbl = (k.label || k.nama || k.kod || '').toUpperCase()
+      if (lbl.includes('OPEN')) return false
+      if (jantina === 'L' && !lbl.startsWith('L')) return false
+      if (jantina === 'P' && !lbl.startsWith('P')) return false
       return true
     })
-    const candidates = filtered.filter(k => umur >= (k.umurMin || 0) && umur <= k.umurHad)
-    if (candidates.length === 0) return null
-    // Utamakan format baru (L10, L15 dll) berbanding format lama (A-H)
-    // kemudian paling spesifik (umurHad terkecil)
-    candidates.sort((a, b) => {
-      const aNew = !/^[A-H]$/.test(a.kod)
-      const bNew = !/^[A-H]$/.test(b.kod)
-      if (aNew !== bNew) return aNew ? -1 : 1
-      return a.umurHad - b.umurHad
+    const candidates = filtered.filter(k => {
+      const min = k.umurMin != null ? Number(k.umurMin) : 0
+      const max = Number(k.umurHad)
+      return umur >= min && umur <= max
     })
+    if (candidates.length === 0) return null
+    // Pilih paling spesifik: umurHad terkecil
+    candidates.sort((a, b) => Number(a.umurHad) - Number(b.umurHad))
     return candidates[0].kod
   }
-  // kategoriList kosong (belum load) — jangan return kod salah format lama
   return null
 }
+
 
 /**
  * Jana noBib baru — guna prefix sekolah + nombor tertinggi+1
@@ -253,16 +255,19 @@ function KatDropdown({ noKP, value, kategoriList, disabled, onSaved,
     : null
 
   const valid = [...(kategoriList || [])].filter(k => {
-    const label = (k.label || '').toUpperCase()
-    if (jantina === 'L' && !label.startsWith('L')) return false
-    if (jantina === 'P' && !label.startsWith('P')) return false
+    if (!k.kod) return false
+    if (!k.umurHad) return false
+    const lbl = (k.label || k.nama || k.kod || '').toUpperCase()
+    if (lbl.includes('OPEN')) return false
+    if (jantina === 'L' && !lbl.startsWith('L')) return false
+    if (jantina === 'P' && !lbl.startsWith('P')) return false
     if (umurAtlet !== null) {
-      const min = k.umurMin ?? 0
-      const max = k.umurHad ?? 99
+      const min = k.umurMin != null ? Number(k.umurMin) : 0
+      const max = Number(k.umurHad)
       if (umurAtlet < min || umurAtlet > max) return false
     }
     return true
-  }).sort((a, b) => (a.kod || a.id || '').localeCompare(b.kod || b.id || ''))
+  }).sort((a, b) => Number(a.umurHad) - Number(b.umurHad))
 
   return (
     <select
